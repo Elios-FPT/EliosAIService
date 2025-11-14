@@ -1,12 +1,13 @@
-"""Complete interview use case."""
+"""Generate comprehensive interview summary use case."""
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
 from ...domain.models.answer import Answer
 from ...domain.models.evaluation import Evaluation
-from ...domain.models.interview import Interview, InterviewStatus
+from ...domain.models.interview import Interview
+from ...domain.models.question import Question
 from ...domain.ports.answer_repository_port import AnswerRepositoryPort
 from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
 from ...domain.ports.follow_up_question_repository_port import (
@@ -15,18 +16,29 @@ from ...domain.ports.follow_up_question_repository_port import (
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from ...domain.ports.llm_port import LLMPort
 from ...domain.ports.question_repository_port import QuestionRepositoryPort
-from ..dto.interview_completion_dto import InterviewCompletionResult
 
 
-class CompleteInterviewUseCase:
-    """Complete interview and generate comprehensive summary (atomic operation).
+class GenerateSummaryUseCase:
+    """Generate comprehensive interview summary.
 
-    This use case handles both interview completion state transition and
-    comprehensive summary generation as a single atomic operation. All
-    dependencies are required (no optional parameters).
+    .. deprecated::
+        Use :class:`CompleteInterviewUseCase` instead.
+        This use case is deprecated and will be removed in the next major version.
 
-    The summary generation logic is inlined from the former GenerateSummaryUseCase
-    to eliminate use case composition anti-pattern and ensure atomic execution.
+    DEPRECATED: This use case has been merged into CompleteInterviewUseCase.
+    Summary generation is now part of the atomic interview completion operation.
+
+    Migration Guide:
+        Replace GenerateSummaryUseCase with CompleteInterviewUseCase.
+        The new use case handles both completion and summary generation together.
+
+    Reason for Deprecation:
+        Eliminates use case composition anti-pattern. Interview completion and
+        summary generation are inherently related operations that should execute
+        atomically, not as separate use cases.
+
+    Aggregates all evaluations (main questions + follow-ups), analyzes gap
+    progression, and generates personalized recommendations using LLM.
     """
 
     def __init__(
@@ -38,16 +50,16 @@ class CompleteInterviewUseCase:
         evaluation_repository: EvaluationRepositoryPort,
         llm: LLMPort,
     ):
-        """Initialize with all required dependencies.
+        import warnings
 
-        Args:
-            interview_repository: Interview persistence port
-            answer_repository: Answer persistence port
-            question_repository: Question persistence port
-            follow_up_question_repository: Follow-up question persistence port
-            evaluation_repository: Evaluation persistence port
-            llm: LLM port for generating recommendations
-        """
+        warnings.warn(
+            "GenerateSummaryUseCase is deprecated. "
+            "Use CompleteInterviewUseCase instead. "
+            "This class will be removed in the next major version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         self.interview_repo = interview_repository
         self.answer_repo = answer_repository
         self.question_repo = question_repository
@@ -55,66 +67,15 @@ class CompleteInterviewUseCase:
         self.evaluation_repo = evaluation_repository
         self.llm = llm
 
-    async def execute(self, interview_id: UUID) -> InterviewCompletionResult:
-        """Complete interview and generate comprehensive summary.
-
-        This method:
-        1. Validates interview is in EVALUATING status
-        2. Generates comprehensive summary (scores, gaps, recommendations)
-        3. Stores summary in interview metadata
-        4. Transitions interview to COMPLETE status
-        5. Returns both interview and summary
+    async def execute(self, interview_id: UUID) -> dict[str, Any]:
+        """Generate comprehensive summary.
 
         Args:
-            interview_id: The interview UUID
-
-        Returns:
-            InterviewCompletionResult containing completed interview and summary
-
-        Raises:
-            ValueError: If interview not found or not in EVALUATING status
-        """
-        # 1. Load and validate interview
-        interview = await self.interview_repo.get_by_id(interview_id)
-        if not interview:
-            raise ValueError(f"Interview {interview_id} not found")
-
-        if interview.status != InterviewStatus.EVALUATING:
-            raise ValueError(
-                f"Cannot complete interview with status: {interview.status}. "
-                f"Must be in EVALUATING status."
-            )
-
-        # 2. Generate comprehensive summary
-        summary = await self._generate_summary(interview)
-
-        # 3. Store summary in interview metadata
-        if interview.plan_metadata is None:
-            interview.plan_metadata = {}
-        interview.plan_metadata["completion_summary"] = summary
-
-        # 4. Mark interview as complete (state transition)
-        interview.complete()
-        updated_interview = await self.interview_repo.update(interview)
-
-        # 5. Return result DTO
-        return InterviewCompletionResult(
-            interview=updated_interview,
-            summary=summary,
-        )
-
-    async def _generate_summary(self, interview: Interview) -> dict[str, Any]:
-        """Generate comprehensive interview summary.
-
-        Aggregates all evaluations (main questions + follow-ups), analyzes gap
-        progression, and generates personalized recommendations using LLM.
-
-        Args:
-            interview: Interview entity
+            interview_id: Interview UUID
 
         Returns:
             dict containing:
-                - interview_id: str
+                - interview_id: UUID
                 - overall_score: float (weighted avg of all evaluations)
                 - theoretical_score_avg: float
                 - speaking_score_avg: float
@@ -126,10 +87,18 @@ class CompleteInterviewUseCase:
                 - weaknesses: list[str]
                 - study_recommendations: list[str]
                 - technique_tips: list[str]
-                - completion_time: str (ISO format)
+                - completion_time: datetime
+
+        Raises:
+            ValueError: If interview not found
         """
+        # Fetch interview
+        interview = await self.interview_repo.get_by_id(interview_id)
+        if not interview:
+            raise ValueError(f"Interview {interview_id} not found")
+
         # Fetch all answers (main + follow-ups)
-        all_answers = await self.answer_repo.get_by_interview_id(interview.id)
+        all_answers = await self.answer_repo.get_by_interview_id(interview_id)
 
         # Load evaluations for all answers from evaluations table
         evaluations_map = await self._load_evaluations(all_answers)
@@ -149,21 +118,19 @@ class CompleteInterviewUseCase:
         )
 
         return {
-            "interview_id": str(interview.id),
+            "interview_id": str(interview_id),
             "overall_score": metrics["overall_score"],
             "theoretical_score_avg": metrics["theoretical_avg"],
             "speaking_score_avg": metrics["speaking_avg"],
             "total_questions": len(interview.question_ids),
             "total_follow_ups": len(interview.adaptive_follow_ups),
-            "question_summaries": await self._create_question_summaries(
-                question_groups, evaluations_map
-            ),
+            "question_summaries": await self._create_question_summaries(question_groups, evaluations_map),
             "gap_progression": gap_progression,
             "strengths": recommendations["strengths"],
             "weaknesses": recommendations["weaknesses"],
             "study_recommendations": recommendations["study_topics"],
             "technique_tips": recommendations["technique_tips"],
-            "completion_time": datetime.now(UTC).isoformat(),
+            "completion_time": datetime.now(timezone.utc).isoformat(),
         }
 
     async def _group_answers_by_main_question(
@@ -198,8 +165,7 @@ class CompleteInterviewUseCase:
             # Find follow-up answers
             follow_ups = await self.follow_up_repo.get_by_parent_question_id(main_question_id)
             follow_up_answers = [
-                next((a for a in all_answers if a.question_id == fu.id), None)
-                for fu in follow_ups
+                next((a for a in all_answers if a.question_id == fu.id), None) for fu in follow_ups
             ]
 
             groups[main_question_id] = {
@@ -231,7 +197,7 @@ class CompleteInterviewUseCase:
     def _calculate_aggregate_metrics(
         self,
         all_answers: list[Answer],
-        evaluations_map: dict[UUID, Evaluation],
+        evaluations_map: dict[UUID, Evaluation]
     ) -> dict[str, float]:
         """Calculate aggregate scores using evaluations from evaluations table.
 
@@ -246,7 +212,8 @@ class CompleteInterviewUseCase:
                 - speaking_avg: Average of speaking scores
         """
         evaluated_answers = [
-            a for a in all_answers if a.is_evaluated() and a.id in evaluations_map
+            a for a in all_answers
+            if a.is_evaluated() and a.id in evaluations_map
         ]
 
         if not evaluated_answers:
@@ -265,9 +232,7 @@ class CompleteInterviewUseCase:
 
         # Speaking score (from voice metrics)
         speaking_scores = [
-            a.voice_metrics.get("overall_score", 50.0)
-            for a in evaluated_answers
-            if a.voice_metrics
+            a.voice_metrics.get("overall_score", 50.0) for a in evaluated_answers if a.voice_metrics
         ]
 
         # If no voice metrics, default to 50.0
@@ -287,7 +252,7 @@ class CompleteInterviewUseCase:
     async def _analyze_gap_progression(
         self,
         question_groups: dict[UUID, dict[str, Any]],
-        evaluations_map: dict[UUID, Evaluation],
+        evaluations_map: dict[UUID, Evaluation]
     ) -> dict[str, Any]:
         """Analyze how gaps changed after follow-ups using evaluations table.
 
@@ -394,7 +359,7 @@ class CompleteInterviewUseCase:
     async def _create_question_summaries(
         self,
         question_groups: dict[UUID, dict[str, Any]],
-        evaluations_map: dict[UUID, Evaluation],
+        evaluations_map: dict[UUID, Evaluation]
     ) -> list[dict[str, Any]]:
         """Create per-question analysis using evaluations table.
 
@@ -431,9 +396,7 @@ class CompleteInterviewUseCase:
                 final_answer = follow_up_answers[-1]
                 if final_answer.id in evaluations_map:
                     final_evaluation = evaluations_map[final_answer.id]
-                    final_gaps = [
-                        gap.concept for gap in final_evaluation.gaps if not gap.resolved
-                    ]
+                    final_gaps = [gap.concept for gap in final_evaluation.gaps if not gap.resolved]
 
             main_answer_score = 0.0
             if main_answer and main_answer.id in evaluations_map:
