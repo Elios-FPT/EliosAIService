@@ -16,7 +16,7 @@ Elios AI Interview Service leverages **Large Language Models (LLMs)** and **vect
 ### Key Features
 
 - **🎯 CV Analysis**: Extract skills, experience, and education from resumes
-- **🤖 Adaptive Questions**: Generate personalized interview questions based on candidate background
+- **🤖 Adaptive Questions**: Generate personalized interview questions using vector-based exemplar retrieval
 - **📊 Real-Time Evaluation**: Multi-dimensional answer assessment with instant feedback
 - **💬 Voice & Text Support**: Conduct interviews via text chat or voice (planned)
 - **📈 Comprehensive Reports**: Detailed performance analysis with actionable recommendations
@@ -243,10 +243,37 @@ Then visit: **http://localhost:8000/docs**
 
 ## 🧪 Development
 
+### Mock Adapters for Testing
+
+**Mock adapters** simulate external services without API costs or network latency. Enabled by default in development.
+
+**Available Mocks** (6 total):
+- `MockLLMAdapter` - Simulates OpenAI/LLM responses
+- `MockVectorSearchAdapter` - In-memory vector search
+- `MockSTTAdapter` - Simulates speech-to-text
+- `MockTTSAdapter` - Simulates text-to-speech
+- `MockCVAnalyzerAdapter` - Filename-based CV parsing
+- `MockAnalyticsAdapter` - In-memory performance tracking
+
+**Configuration**:
+```env
+# .env.local
+USE_MOCK_ADAPTERS=true   # Use mocks (default, fast tests)
+USE_MOCK_ADAPTERS=false  # Use real services (requires API keys)
+```
+
+**Benefits**:
+- Tests run 10x faster (~5s vs ~30s)
+- No API costs during development
+- No network dependency
+- Deterministic test results
+
+**Note**: Repositories (PostgreSQL) intentionally NOT mocked - use real database for data integrity tests.
+
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (with mocks enabled by default)
 pytest
 
 # Run with coverage
@@ -256,6 +283,9 @@ pytest --cov=src --cov-report=html
 pytest tests/unit/         # Unit tests only
 pytest tests/integration/  # Integration tests only
 pytest tests/e2e/          # End-to-end tests only
+
+# Test with real adapters (requires API keys)
+USE_MOCK_ADAPTERS=false pytest
 ```
 
 ### Code Quality
@@ -367,9 +397,9 @@ async with httpx.AsyncClient() as client:
 ```
 EliosAIService/
 ├── src/
-│   ├── domain/              # Core business logic (5 models, 11 ports)
-│   ├── application/         # Use cases
-│   ├── adapters/            # External service implementations
+│   ├── domain/              # Core business logic (8 models, 13 ports)
+│   ├── application/         # Use cases (8 total)
+│   ├── adapters/            # External service implementations (20+)
 │   └── infrastructure/      # Config, DI, database
 ├── alembic/                 # Database migrations
 ├── docs/                    # Documentation
@@ -431,14 +461,18 @@ docs: update API documentation for CV upload endpoint
 
 ## 🗺️ Roadmap
 
-### Phase 1: Foundation (Current - v0.1.0)
-- ✅ Domain models and ports
-- ✅ PostgreSQL persistence layer
-- ✅ OpenAI LLM adapter
-- ✅ Pinecone vector adapter
+### Phase 1: Foundation (v0.1.0 - v0.2.1) - COMPLETE ✅
+- ✅ Domain models (8 entities) and ports (13 interfaces)
+- ✅ PostgreSQL persistence layer (7 repositories)
+- ✅ OpenAI & Azure OpenAI LLM adapters
+- ✅ Pinecone & ChromaDB vector adapters
+- ✅ Azure Speech services (STT/TTS)
 - ✅ Database migrations
-- 🔄 REST API implementation
-- 🔄 CV processing adapters
+- ✅ REST API implementation (5 endpoints)
+- ✅ WebSocket real-time protocol
+- ✅ Domain-driven state management
+- ✅ Context-aware evaluation with follow-ups
+- ✅ Session orchestrator (state machine)
 
 ### Phase 2: Core Features (v0.2.0 - v0.5.0)
 - ⏳ Voice interview support
@@ -465,31 +499,35 @@ See [Project Overview & PDR](docs/project-overview-pdr.md) for detailed roadmap.
 
 ## 📊 Current Status
 
-**Version**: 0.1.0 (Foundation Phase)
+**Version**: 0.2.1 (Foundation + Adaptive Interviews + Session Orchestration)
 
 **Implemented**:
 - ✅ Clean Architecture structure
-- ✅ Domain models (5 entities)
-- ✅ Repository ports (5 interfaces)
-- ✅ PostgreSQL persistence (5 repositories)
-- ✅ OpenAI LLM adapter
-- ✅ Pinecone vector adapter
+- ✅ Domain models (8 entities including Evaluation, ErrorCodes)
+- ✅ Repository ports (13 interfaces including EvaluationRepositoryPort)
+- ✅ PostgreSQL persistence (7 repositories)
+- ✅ OpenAI & Azure OpenAI LLM adapters
+- ✅ Pinecone & ChromaDB vector adapters
+- ✅ Azure Speech services (STT/TTS adapters)
 - ✅ Async SQLAlchemy 2.0 with Alembic
 - ✅ Configuration management
 - ✅ Dependency injection container
-- ✅ Use cases (AnalyzeCV, StartInterview)
-- ✅ Health check API endpoint
+- ✅ Use cases (8 total: AnalyzeCV, PlanInterview, ProcessAnswerAdaptive, FollowUpDecision, CombineEvaluation, GenerateSummary, CompleteInterview, GetNextQuestion)
+- ✅ REST API (5 interview endpoints) + WebSocket protocol
+- ✅ Domain-driven state management (Interview state machine)
+- ✅ Context-aware evaluation with follow-up questions
+- ✅ Session orchestrator (state machine pattern for WebSocket)
+- ✅ Comprehensive interview summary generation
 
 **In Progress**:
-- 🔄 Complete REST API
-- 🔄 CV processing adapters
-- 🔄 WebSocket chat handler
+- 🔄 CV processing adapters (spaCy, PyPDF2)
+- 🔄 Test coverage expansion (85%+ on core features)
 
 **Planned**:
 - ⏳ Authentication & authorization
-- ⏳ Comprehensive testing
-- ⏳ API documentation
+- ⏳ Rate limiting
 - ⏳ Docker deployment
+- ⏳ Production optimization
 
 ---
 

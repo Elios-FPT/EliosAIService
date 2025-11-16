@@ -39,6 +39,7 @@ class Answer(BaseModel):
     """Represents a candidate's answer to a question.
 
     This is an entity in the interview domain.
+    NOTE: Evaluation moved to separate Evaluation entity (linked via evaluation_id).
     """
 
     id: UUID = Field(default_factory=uuid4)
@@ -49,45 +50,53 @@ class Answer(BaseModel):
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
     duration_seconds: float | None = None  # Time taken to answer
-    evaluation: AnswerEvaluation | None = None
     embedding: list[float] | None = None  # Vector embedding of answer
     metadata: dict[str, Any] = Field(default_factory=dict)  # Additional context
+
+    # UPDATED: Link to separate Evaluation entity (Phase 1 refactoring)
+    evaluation_id: UUID | None = None  # FK to evaluations table
+
+    # REMOVED: evaluation, similarity_score, gaps, speaking_score, overall_score
+    # These fields now exist in Evaluation entity
+
+    # KEEP: Voice metrics (will be stored in Evaluation entity in future)
+    voice_metrics: dict[str, float] | None = None  # Voice quality metrics from STT
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    evaluated_at: datetime | None = None
 
     class Config:
         """Pydantic configuration."""
+
         frozen = False
-
-    def evaluate(self, evaluation: AnswerEvaluation) -> None:
-        """Evaluate the answer.
-
-        Args:
-            evaluation: Evaluation results
-        """
-        self.evaluation = evaluation
-        self.evaluated_at = datetime.utcnow()
 
     def is_evaluated(self) -> bool:
         """Check if answer has been evaluated.
 
         Returns:
-            True if evaluated, False otherwise
+            True if evaluation_id is set, False otherwise
         """
-        return self.evaluation is not None
-
-    def get_score(self) -> float | None:
-        """Get the evaluation score.
-
-        Returns:
-            Score if evaluated, None otherwise
-        """
-        return self.evaluation.score if self.evaluation else None
+        return self.evaluation_id is not None
 
     def is_complete(self) -> bool:
         """Check if answer is considered complete.
 
         Returns:
-            True if answer has content and optional evaluation
+            True if answer has content
         """
         return bool(self.text and len(self.text.strip()) > 0)
+
+    def has_voice_metrics(self) -> bool:
+        """Check if voice metrics are available.
+
+        Returns:
+            True if voice metrics exist
+        """
+        return self.voice_metrics is not None and len(self.voice_metrics) > 0
+
+    def get_voice_metrics(self) -> dict[str, float] | None:
+        """Get voice metrics if available.
+
+        Returns:
+            Voice metrics dict or None
+        """
+        return self.voice_metrics

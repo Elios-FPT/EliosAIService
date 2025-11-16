@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4"
     openai_temperature: float = 0.7
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_api_key: str | None = None
+
+    # Azure OpenAI Configuration (alternative to standard OpenAI)
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None  # e.g., "https://your-resource.openai.azure.com/"
+    azure_openai_api_version: str = "2024-02-15-preview"
+    azure_openai_deployment_name: str | None = None  # Deployment name, not model name
+    use_azure_openai: bool = False  # Flag to enable Azure OpenAI
 
     # Anthropic Claude Configuration (alternative)
     anthropic_api_key: str | None = None
@@ -95,9 +104,12 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # Speech Services
+    # Speech Services (Azure Speech SDK)
     azure_speech_key: str | None = None
     azure_speech_region: str = "eastus"
+    azure_speech_language: str = "en-US"
+    azure_speech_voice: str = "en-US-AriaNeural"
+    azure_speech_cache_size: int = 128  # LRU cache size for TTS
 
     # File Storage
     upload_dir: str = "./uploads"
@@ -122,10 +134,16 @@ class Settings(BaseSettings):
     ws_base_url: str = "ws://localhost:8000"
 
     # Mock Adapters (for development/testing)
-    use_mock_adapters: bool = True  # Set to False to use real adapters
+    # Individual flags for each adapter - set to False to use real implementations
+    use_mock_llm: bool = True
+    use_mock_vector_search: bool = True
+    use_mock_cv_analyzer: bool = True
+    use_mock_stt: bool = True
+    use_mock_tts: bool = True
+    use_mock_analytics: bool = True
 
     model_config = SettingsConfigDict(
-        env_file=("../.env.local", ".env"),  # Try .env.local first, fallback to .env
+        env_file=("../.env.local", "../.env", ".env"),  # Try .env.local first, fallback to .env
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

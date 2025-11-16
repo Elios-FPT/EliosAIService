@@ -1,7 +1,7 @@
 """CV Analysis domain model."""
 
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -13,11 +13,9 @@ class ExtractedSkill(BaseModel):
     This is a value object within CV analysis.
     """
 
-    name: str = Field(alias="skill")
-    category: str = "technical"  # e.g., "technical", "soft", "language"
-    proficiency_level: str | None = Field(default=None, alias="proficiency")  # e.g., "beginner", "intermediate", "expert"
-    years_of_experience: float | None = Field(default=None, alias="years")
-    mentioned_count: int = 1  # How many times mentioned in CV
+    skill: str = Field(alias="skill")
+    proficiency: str | None = Field(default=None, alias="proficiency")  # e.g., "beginner", "intermediate", "expert"
+    years: float | None = Field(default=None, alias="years")
 
     def is_technical(self) -> bool:
         """Check if skill is technical.
@@ -43,10 +41,11 @@ class CVAnalysis(BaseModel):
     education_level: str | None = None  # e.g., "Bachelor's", "Master's"
     suggested_topics: list[str] = Field(default_factory=list)  # Topics to cover
     suggested_difficulty: str = "medium"  # Overall difficulty level
-    embedding: list[float] | None = None  # Vector embedding of CV
-    summary: str | None = None  # AI-generated summary
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    embedding: Optional[List[float]] = None  # Vector embedding of CV
+    summary: Optional[str] = None  # AI-generated summary
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
     class Config:
         """Pydantic configuration."""
@@ -84,7 +83,7 @@ class CVAnalysis(BaseModel):
             ExtractedSkill if found, None otherwise
         """
         for skill in self.skills:
-            if skill.name.lower() == skill_name.lower():
+            if skill.skill.lower() == skill_name.lower():
                 return skill
         return None
 
@@ -99,7 +98,7 @@ class CVAnalysis(BaseModel):
         """
         sorted_skills = sorted(
             self.skills,
-            key=lambda s: s.mentioned_count,
+            key=lambda s: s.skill,
             reverse=True
         )
         return sorted_skills[:limit]

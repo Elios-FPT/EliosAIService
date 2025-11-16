@@ -9,26 +9,40 @@ from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import adapters
+from ...adapters.llm.azure_openai_adapter import AzureOpenAIAdapter
 from ...adapters.llm.openai_adapter import OpenAIAdapter
 
 # Import mock adapters
-from ...adapters.mock import MockLLMAdapter, MockSTTAdapter, MockTTSAdapter, MockVectorSearchAdapter
+from ...adapters.mock import (
+    MockAnalyticsAdapter,
+    MockCVAnalyzerAdapter,
+    MockLLMAdapter,
+    MockSTTAdapter,
+    MockTTSAdapter,
+    MockVectorSearchAdapter,
+)
 
 # Import persistence adapters
 from ...adapters.persistence import (
     PostgreSQLAnswerRepository,
     PostgreSQLCandidateRepository,
     PostgreSQLCVAnalysisRepository,
+    PostgreSQLEvaluationRepository,
+    PostgreSQLFollowUpQuestionRepository,
     PostgreSQLInterviewRepository,
     PostgreSQLQuestionRepository,
 )
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
+from ...adapters.vector_db.chroma_adapter import ChromaAdapter
+from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
 from ...domain.ports import (
     AnalyticsPort,
     AnswerRepositoryPort,
     CandidateRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
+    EvaluationRepositoryPort,
+    FollowUpQuestionRepositoryPort,
     InterviewRepositoryPort,
     LLMPort,
     QuestionRepositoryPort,
@@ -70,17 +84,35 @@ class Container:
         """
         if self._llm_port is None:
             # Use mock adapter if configured
-            if self.settings.use_mock_adapters:
+            if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
             elif self.settings.llm_provider == "openai":
-                if not self.settings.openai_api_key:
-                    raise ValueError("OpenAI API key not configured")
+                # Check if using Azure OpenAI
+                if self.settings.use_azure_openai:
+                    if not self.settings.azure_openai_api_key:
+                        raise ValueError("Azure OpenAI API key not configured")
+                    if not self.settings.azure_openai_endpoint:
+                        raise ValueError("Azure OpenAI endpoint not configured")
+                    if not self.settings.azure_openai_deployment_name:
+                        raise ValueError("Azure OpenAI deployment name not configured")
 
-                self._llm_port = OpenAIAdapter(
-                    api_key=self.settings.openai_api_key,
-                    model=self.settings.openai_model,
-                    temperature=self.settings.openai_temperature,
-                )
+                    self._llm_port = AzureOpenAIAdapter(
+                        api_key=self.settings.azure_openai_api_key,
+                        azure_endpoint=self.settings.azure_openai_endpoint,
+                        api_version=self.settings.azure_openai_api_version,
+                        deployment_name=self.settings.azure_openai_deployment_name,
+                        temperature=self.settings.openai_temperature,
+                    )
+                else:
+                    # Standard OpenAI
+                    if not self.settings.openai_api_key:
+                        raise ValueError("OpenAI API key not configured")
+
+                    self._llm_port = OpenAIAdapter(
+                        api_key=self.settings.openai_api_key,
+                        model=self.settings.openai_model,
+                        temperature=self.settings.openai_temperature,
+                    )
             elif self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
@@ -108,7 +140,7 @@ class Container:
         """
         if self._vector_search_port is None:
             # Use mock adapter if configured
-            if self.settings.use_mock_adapters:
+            if self.settings.use_mock_vector_search:
                 self._vector_search_port = MockVectorSearchAdapter()
             elif self.settings.vector_db_provider == "pinecone":
                 if not self.settings.pinecone_api_key:
@@ -128,10 +160,8 @@ class Container:
                 # self._vector_search_port = WeaviateAdapter(...)
                 raise NotImplementedError("Weaviate adapter not yet implemented")
             elif self.settings.vector_db_provider == "chroma":
-                # Import ChromaDB adapter when implemented
-                # from ...adapters.vector_db.chroma_adapter import ChromaAdapter
-                # self._vector_search_port = ChromaAdapter(...)
-                raise NotImplementedError("ChromaDB adapter not yet implemented")
+                self._vector_search_port = ChromaAdapter()
+                # raise NotImplementedError("ChromaDB adapter not yet implemented")
             else:
                 raise ValueError(
                     f"Unsupported vector DB provider: {self.settings.vector_db_provider}"
@@ -150,7 +180,20 @@ class Container:
         """
         return PostgreSQLQuestionRepository(session)
 
-    def candidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
+    def follow_up_question_repository(
+        self, session: AsyncSession
+    ) -> FollowUpQuestionRepositoryPort:
+        """Get follow-up question repository port implementation.
+
+        Args:
+            session: Async database session
+
+        Returns:
+            Configured follow-up question repository
+        """
+        return PostgreSQLFollowUpQuestionRepository(session)
+
+    def contcandidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
         """Get candidate repository port implementation.
 
         Args:
@@ -183,6 +226,19 @@ class Container:
         """
         return PostgreSQLAnswerRepository(session)
 
+    def evaluation_repository_port(
+        self, session: AsyncSession
+    ) -> EvaluationRepositoryPort:
+        """Get evaluation repository port implementation.
+
+        Args:
+            session: Async database session
+
+        Returns:
+            Configured evaluation repository
+        """
+        return PostgreSQLEvaluationRepository(session)
+
     def cv_analysis_repository_port(
         self, session: AsyncSession
     ) -> CVAnalysisRepositoryPort:
@@ -203,12 +259,13 @@ class Container:
             Configured CV analyzer
 
         Raises:
-            NotImplementedError: Implementation pending
+            NotImplementedError: Real implementation pending
         """
-        # TODO: Implement CV analyzer
-        # from ...adapters.cv_processing.spacy_cv_analyzer import SpacyCVAnalyzer
-        # return SpacyCVAnalyzer(llm_port=self.llm_port())
-        raise NotImplementedError("CV analyzer not yet implemented")
+        if self.settings.use_mock_cv_analyzer:
+            return MockCVAnalyzerAdapter()
+        else:
+            return CVProcessingAdapter()
+            
 
     def speech_to_text_port(self) -> SpeechToTextPort:
         """Get speech-to-text port implementation.
@@ -217,20 +274,26 @@ class Container:
             Configured STT service
 
         Raises:
-            NotImplementedError: Implementation pending
+            ValueError: If Azure Speech API key or region is not configured
         """
         if self._stt_port is None:
             # Use mock adapter if configured
-            if self.settings.use_mock_adapters:
+            if self.settings.use_mock_stt:
                 self._stt_port = MockSTTAdapter()
             else:
-                # TODO: Implement Azure STT adapter
-                # from ...adapters.speech.azure_stt_adapter import AzureSTTAdapter
-                # self._stt_port = AzureSTTAdapter(
-                #     api_key=self.settings.azure_speech_key,
-                #     region=self.settings.azure_speech_region,
-                # )
-                raise NotImplementedError("Speech-to-text adapter not yet implemented")
+                # Use Azure Speech SDK
+                from ...adapters.speech.azure_stt_adapter import AzureSpeechToTextAdapter
+
+                if not self.settings.azure_speech_key:
+                    raise ValueError("Azure Speech API key not configured")
+                if not self.settings.azure_speech_region:
+                    raise ValueError("Azure Speech region not configured")
+
+                self._stt_port = AzureSpeechToTextAdapter(
+                    api_key=self.settings.azure_speech_key,
+                    region=self.settings.azure_speech_region,
+                    language=self.settings.azure_speech_language,
+                )
 
         return self._stt_port
 
@@ -241,17 +304,26 @@ class Container:
             Configured TTS service
 
         Raises:
-            NotImplementedError: Implementation pending
+            ValueError: If Azure Speech API key or region is not configured
         """
         if self._tts_port is None:
             # Use mock adapter if configured
-            if self.settings.use_mock_adapters:
+            if self.settings.use_mock_tts:
                 self._tts_port = MockTTSAdapter()
             else:
-                # TODO: Implement Edge TTS adapter
-                # from ...adapters.speech.edge_tts_adapter import EdgeTTSAdapter
-                # self._tts_port = EdgeTTSAdapter()
-                raise NotImplementedError("Text-to-speech adapter not yet implemented")
+                # Use Azure Speech SDK
+                from ...adapters.speech.azure_tts_adapter import AzureTTSAdapter
+
+                if not self.settings.azure_speech_key:
+                    raise ValueError("Azure Speech API key not configured")
+                if not self.settings.azure_speech_region:
+                    raise ValueError("Azure Speech region not configured")
+
+                self._tts_port = AzureTTSAdapter(
+                    subscription_key=self.settings.azure_speech_key,
+                    region=self.settings.azure_speech_region,
+                    default_voice=self.settings.azure_speech_voice,
+                )
 
         return self._tts_port
 
@@ -262,12 +334,15 @@ class Container:
             Configured analytics service
 
         Raises:
-            NotImplementedError: Implementation pending
+            NotImplementedError: Real implementation pending
         """
-        # TODO: Implement analytics service
-        # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
-        # return AnalyticsAdapter(database_url=self.settings.database_url)
-        raise NotImplementedError("Analytics adapter not yet implemented")
+        if self.settings.use_mock_analytics:
+            return MockAnalyticsAdapter()
+        else:
+            # TODO: Implement real analytics service
+            # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
+            # return AnalyticsAdapter(database_url=self.settings.database_url)
+            raise NotImplementedError("Real analytics adapter not yet implemented")
 
 
 @lru_cache

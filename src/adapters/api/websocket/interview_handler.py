@@ -1,26 +1,32 @@
-"""WebSocket handler for interview sessions."""
+"""WebSocket handler for interview sessions (orchestrator-based)."""
 
+import asyncio
 import base64
 import logging
+from asyncio import Queue
 from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from ....application.use_cases.complete_interview import CompleteInterviewUseCase
-from ....application.use_cases.get_next_question import GetNextQuestionUseCase
-from ....application.use_cases.process_answer import ProcessAnswerUseCase
-from ....infrastructure.database.session import get_async_session
-from ....infrastructure.dependency_injection.container import get_container
+from ....infrastructure.dependency_injection.container import Container, get_container
 from .connection_manager import manager
+from .session_orchestrator import InterviewSessionOrchestrator
 
 logger = logging.getLogger(__name__)
+
+# Per-session state for streaming audio
+audio_streams: dict[UUID, Queue[bytes]] = {}
+transcription_tasks: dict[UUID, asyncio.Task] = {}
+session_orchestrators: dict[UUID, InterviewSessionOrchestrator] = {}
 
 
 async def handle_interview_websocket(
     websocket: WebSocket,
     interview_id: UUID,
 ):
-    """WebSocket handler for interview session.
+    """WebSocket handler for interview session (orchestrator-based).
+
+    Uses InterviewSessionOrchestrator to manage state machine lifecycle.
 
     Protocol:
         Client → Server: { type: "text_answer", question_id: UUID, answer_text: str }
@@ -38,50 +44,18 @@ async def handle_interview_websocket(
     try:
         container = get_container()
 
-        # Send first question
-        async for session in get_async_session():
-            use_case = GetNextQuestionUseCase(
-                interview_repository=container.interview_repository_port(session),
-                question_repository=container.question_repository_port(session),
-            )
+        # Create session orchestrator
+        orchestrator = InterviewSessionOrchestrator(
+            interview_id=interview_id,
+            websocket=websocket,
+            container=container,
+        )
 
-            question = await use_case.execute(interview_id)
-            if question:
-                # Get interview for context
-                interview = await container.interview_repository_port(
-                    session
-                ).get_by_id(interview_id)
+        # Store orchestrator for audio chunk handler access
+        session_orchestrators[interview_id] = orchestrator
 
-                if not interview:
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "error",
-                            "code": "INTERVIEW_NOT_FOUND",
-                            "message": f"Interview {interview_id} not found",
-                        },
-                    )
-                    break
-
-                # Get TTS audio
-                tts = container.text_to_speech_port()
-                audio_bytes = await tts.synthesize_speech(question.text)
-                audio_data = base64.b64encode(audio_bytes).decode("utf-8")
-
-                await manager.send_message(
-                    interview_id,
-                    {
-                        "type": "question",
-                        "question_id": str(question.id),
-                        "text": question.text,
-                        "question_type": question.question_type,
-                        "difficulty": question.difficulty,
-                        "index": interview.current_question_index,
-                        "total": len(interview.question_ids),
-                        "audio_data": audio_data,
-                    },
-                )
-            break
+        # Start session (send first question)
+        await orchestrator.start_session()
 
         # Listen for messages
         while True:
@@ -89,13 +63,22 @@ async def handle_interview_websocket(
             message_type = data.get("type")
 
             if message_type == "text_answer":
-                await handle_text_answer(interview_id, data, container)
+                answer_text = data.get("answer_text", "")
+                await orchestrator.handle_answer(answer_text)
 
             elif message_type == "audio_chunk":
                 await handle_audio_chunk(interview_id, data, container)
 
             elif message_type == "get_next_question":
-                await handle_get_next_question(interview_id, container)
+                logger.warning("get_next_question deprecated - use orchestrator state machine")
+                await manager.send_message(
+                    interview_id,
+                    {
+                        "type": "error",
+                        "code": "DEPRECATED_MESSAGE_TYPE",
+                        "message": "get_next_question deprecated - orchestrator manages flow",
+                    },
+                )
 
             else:
                 await manager.send_message(
@@ -109,202 +92,250 @@ async def handle_interview_websocket(
 
     except WebSocketDisconnect:
         manager.disconnect(interview_id)
+        # Cleanup audio streaming resources
+        _cleanup_audio_resources(interview_id)
         logger.info(f"Client disconnected from interview {interview_id}")
 
-    except Exception as e:
-        logger.error(
-            f"WebSocket error for interview {interview_id}: {e}", exc_info=True
+    except ValueError as e:
+        # State machine validation error
+        logger.error(f"State machine error for interview {interview_id}: {e}")
+        await manager.send_message(
+            interview_id,
+            {"type": "error", "code": "INVALID_STATE", "message": str(e)},
         )
+        _cleanup_audio_resources(interview_id)
+        manager.disconnect(interview_id)
+
+    except Exception as e:
+        logger.error(f"WebSocket error for interview {interview_id}: {e}", exc_info=True)
         await manager.send_message(
             interview_id,
             {"type": "error", "code": "INTERNAL_ERROR", "message": str(e)},
         )
+        _cleanup_audio_resources(interview_id)
         manager.disconnect(interview_id)
 
 
-async def handle_text_answer(interview_id: UUID, data: dict, container):
-    """Handle text answer from client.
+def _cleanup_audio_resources(interview_id: UUID):
+    """Clean up audio streaming resources for a session.
 
     Args:
         interview_id: Interview UUID
-        data: Message data with question_id and answer_text
+    """
+    # Cancel any pending transcription tasks
+    if interview_id in transcription_tasks:
+        task = transcription_tasks.pop(interview_id)
+        if not task.done():
+            task.cancel()
+
+    # Clear audio streams
+    audio_streams.pop(interview_id, None)
+
+    # Remove orchestrator reference
+    session_orchestrators.pop(interview_id, None)
+
+    logger.debug(f"Cleaned up audio resources for interview {interview_id}")
+
+
+async def _stream_transcription(
+    interview_id: UUID,
+    question_id: UUID,
+    container: Container,
+):
+    """Background task: consume audio stream and send transcriptions.
+
+    Args:
+        interview_id: Interview UUID
+        question_id: Question UUID
         container: DI container
     """
-    async for session in get_async_session():
-        # Process answer
-        use_case = ProcessAnswerUseCase(
-            answer_repository=container.answer_repository_port(session),
-            interview_repository=container.interview_repository_port(session),
-            question_repository=container.question_repository_port(session),
-            llm=container.llm_port(),
+    try:
+        stt = container.speech_to_text_port()
+        audio_queue = audio_streams[interview_id]
+
+        # Collect chunks from queue
+        chunks = []
+        while True:
+            chunk = await audio_queue.get()
+            if chunk is None:  # End signal (sentinel value)
+                break
+            chunks.append(chunk)
+
+        # Assemble complete audio
+        complete_audio = b"".join(chunks)
+        logger.info(
+            f"Assembled {len(chunks)} chunks ({len(complete_audio)} bytes) "
+            f"for interview {interview_id}"
         )
 
-        answer, has_more = await use_case.execute(
-            interview_id=interview_id,
-            question_id=UUID(data["question_id"]),
-            answer_text=data["answer_text"],
-        )
+        # Transcribe using STT service (supports streaming via transcribe_stream)
+        result = await stt.transcribe_stream(complete_audio, language="en-US")
 
-        # Send evaluation
+        # Send final transcription to client
         await manager.send_message(
             interview_id,
             {
-                "type": "evaluation",
-                "answer_id": str(answer.id),
-                "score": answer.evaluation.score,
-                "feedback": answer.evaluation.reasoning,
-                "strengths": answer.evaluation.strengths,
-                "weaknesses": answer.evaluation.weaknesses,
+                "type": "transcription",
+                "text": result["text"],
+                "is_final": True,
+                "confidence": result.get("voice_metrics", {}).get("confidence_score", 0.0),
             },
         )
 
-        # Send next question or complete
-        if has_more:
-            question_use_case = GetNextQuestionUseCase(
-                interview_repository=container.interview_repository_port(session),
-                question_repository=container.question_repository_port(session),
+        # Send voice metrics to client
+        voice_metrics = result.get("voice_metrics", {})
+        await manager.send_message(
+            interview_id,
+            {
+                "type": "voice_metrics",
+                **voice_metrics,
+                "real_time": False,
+            },
+        )
+
+        logger.info(f"Sent transcription and voice metrics for interview {interview_id}")
+
+        # Pass to orchestrator for answer processing
+        orchestrator = session_orchestrators.get(interview_id)
+        if orchestrator:
+            logger.info(
+                f"Processing voice answer via orchestrator: '{result['text']}' "
+                f"(interview {interview_id}, question {question_id})"
             )
-            question = await question_use_case.execute(interview_id)
-
-            if question:
-                interview = await container.interview_repository_port(
-                    session
-                ).get_by_id(interview_id)
-
-                if not interview:
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "error",
-                            "code": "INTERVIEW_NOT_FOUND",
-                            "message": f"Interview {interview_id} not found",
-                        },
-                    )
-                    break
-
-                # Get TTS
-                tts = container.text_to_speech_port()
-                audio_bytes = await tts.synthesize_speech(question.text)
-                audio_data = base64.b64encode(audio_bytes).decode("utf-8")
-
-                await manager.send_message(
-                    interview_id,
-                    {
-                        "type": "question",
-                        "question_id": str(question.id),
-                        "text": question.text,
-                        "question_type": question.question_type,
-                        "difficulty": question.difficulty,
-                        "index": interview.current_question_index,
-                        "total": len(interview.question_ids),
-                        "audio_data": audio_data,
-                    },
-                )
+            await orchestrator.handle_voice_answer(
+                audio_bytes=complete_audio,
+                question_id=question_id,
+                transcription=result["text"],
+                voice_metrics=result.get("voice_metrics", {}),
+            )
         else:
-            # Complete interview
-            complete_use_case = CompleteInterviewUseCase(
-                interview_repository=container.interview_repository_port(session),
-            )
-            interview = await complete_use_case.execute(interview_id)
-
-            # Calculate overall score (average of all answer scores)
-            answer_repo = container.answer_repository_port(session)
-            answers = await answer_repo.get_by_interview_id(interview_id)
-            overall_score = (
-                sum(a.evaluation.score for a in answers if a.evaluation)
-                / len(answers)
-                if answers
-                else 0.0
+            logger.warning(
+                f"No orchestrator found for interview {interview_id} - "
+                f"cannot process voice answer"
             )
 
-            await manager.send_message(
-                interview_id,
-                {
-                    "type": "interview_complete",
-                    "interview_id": str(interview.id),
-                    "overall_score": overall_score,
-                    "total_questions": len(interview.question_ids),
-                    "feedback_url": f"/api/interviews/{interview_id}/feedback",
-                },
-            )
-        break
-
-
-async def handle_audio_chunk(interview_id: UUID, data: dict, container):
-    """Handle audio chunk from client (for voice answers).
-
-    Args:
-        interview_id: Interview UUID
-        data: Message data with audio chunk
-        container: DI container
-    """
-    # Mock implementation for now
-    await manager.send_message(
-        interview_id,
-        {
-            "type": "transcription",
-            "text": "[Mock transcription of audio]",
-            "is_final": data.get("is_final", False),
-        },
-    )
-
-
-async def handle_get_next_question(interview_id: UUID, container):
-    """Handle request for next question.
-
-    Args:
-        interview_id: Interview UUID
-        container: DI container
-    """
-    async for session in get_async_session():
-        use_case = GetNextQuestionUseCase(
-            interview_repository=container.interview_repository_port(session),
-            question_repository=container.question_repository_port(session),
+    except Exception as e:
+        logger.error(
+            f"Error in transcription stream for interview {interview_id}: {e}",
+            exc_info=True,
         )
-
-        question = await use_case.execute(interview_id)
-        if not question:
-            await manager.send_message(
-                interview_id,
-                {
-                    "type": "error",
-                    "code": "NO_MORE_QUESTIONS",
-                    "message": "No more questions available",
-                },
-            )
-            break
-
-        interview = await container.interview_repository_port(
-            session
-        ).get_by_id(interview_id)
-
-        if not interview:
-            await manager.send_message(
-                interview_id,
-                {
-                    "type": "error",
-                    "code": "INTERVIEW_NOT_FOUND",
-                    "message": f"Interview {interview_id} not found",
-                },
-            )
-            break
-
-        # Get TTS
-        tts = container.text_to_speech_port()
-        audio_bytes = await tts.synthesize_speech(question.text)
-        audio_data = base64.b64encode(audio_bytes).decode("utf-8")
-
         await manager.send_message(
             interview_id,
             {
-                "type": "question",
-                "question_id": str(question.id),
-                "text": question.text,
-                "question_type": question.question_type.value,
-                "difficulty": question.difficulty.value,
-                "index": interview.current_question_index,
-                "total": len(interview.question_ids),
-                "audio_data": audio_data,
+                "type": "error",
+                "code": "TRANSCRIPTION_ERROR",
+                "message": f"Failed to transcribe audio: {str(e)}",
             },
         )
-        break
+
+
+# Deprecated functions - now handled by InterviewSessionOrchestrator
+# Kept for reference during migration period
+
+
+async def handle_audio_chunk(interview_id: UUID, data: dict, container: Container):
+    """Handle audio chunk from client with real-time streaming STT.
+
+    Implements real-time audio streaming:
+    1. First chunk: Initialize audio queue and background transcription task
+    2. Intermediate chunks: Add to queue for streaming processing
+    3. Final chunk: Signal end of stream, wait for transcription completion
+
+    Args:
+        interview_id: Interview UUID
+        data: Message data with audio chunk (audio_data, chunk_index, is_final, question_id)
+        container: DI container
+    """
+    try:
+        # Extract message fields
+        audio_data_b64 = data.get("audio_data")
+        chunk_index = data.get("chunk_index", 0)
+        is_final = data.get("is_final", False)
+        question_id_str = data.get("question_id")
+
+        if not audio_data_b64:
+            logger.error(f"Audio chunk missing audio_data for interview {interview_id}")
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "INVALID_AUDIO_CHUNK",
+                    "message": "Missing audio_data field",
+                },
+            )
+            return
+
+        if not question_id_str:
+            logger.error(f"Audio chunk missing question_id for interview {interview_id}")
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "INVALID_AUDIO_CHUNK",
+                    "message": "Missing question_id field",
+                },
+            )
+            return
+
+        question_id = UUID(question_id_str)
+
+        # Decode audio chunk from base64
+        try:
+            audio_chunk = base64.b64decode(audio_data_b64)
+        except Exception as e:
+            logger.error(f"Failed to decode audio chunk: {e}")
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "INVALID_AUDIO_DATA",
+                    "message": "Failed to decode base64 audio data",
+                },
+            )
+            return
+
+        # Initialize streaming on first chunk
+        if interview_id not in audio_streams:
+            logger.info(
+                f"Initializing audio stream for interview {interview_id}, "
+                f"question {question_id}"
+            )
+            audio_streams[interview_id] = Queue()
+
+            # Start background transcription task
+            task = asyncio.create_task(_stream_transcription(interview_id, question_id, container))
+            transcription_tasks[interview_id] = task
+
+        # Feed chunk to stream
+        await audio_streams[interview_id].put(audio_chunk)
+        logger.debug(f"Added audio chunk {chunk_index} to stream for interview {interview_id}")
+
+        if is_final:
+            logger.info(
+                f"Received final audio chunk for interview {interview_id}, "
+                f"signaling end of stream"
+            )
+            # Signal end of stream
+            await audio_streams[interview_id].put(None)  # sentinel value
+
+            # Wait for transcription to complete
+            await transcription_tasks[interview_id]
+
+            # Cleanup
+            audio_streams.pop(interview_id, None)
+            transcription_tasks.pop(interview_id, None)
+            logger.info(f"Audio stream completed for interview {interview_id}")
+
+    except Exception as e:
+        logger.error(
+            f"Error handling audio chunk for interview {interview_id}: {e}",
+            exc_info=True,
+        )
+        await manager.send_message(
+            interview_id,
+            {
+                "type": "error",
+                "code": "AUDIO_PROCESSING_ERROR",
+                "message": f"Failed to process audio chunk: {str(e)}",
+            },
+        )

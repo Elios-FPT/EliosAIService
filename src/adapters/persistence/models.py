@@ -83,10 +83,14 @@ class QuestionModel(Base):
     )
     skills: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=[])
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=[])
-    reference_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     evaluation_criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
+
+    # Pre-planning fields for adaptive interviews
+    ideal_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -137,6 +141,27 @@ class InterviewModel(Base):
         default=[],
     )
     current_question_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # NEW: Pre-planning metadata for adaptive interviews
+    plan_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default={})
+    adaptive_follow_ups: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PGUUID(as_uuid=True)),
+        nullable=False,
+        default=[],
+    )
+
+    # NEW: Follow-up tracking for current session
+    current_parent_question_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+        default=None,
+    )
+    current_followup_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -192,11 +217,25 @@ class AnswerModel(Base):
     is_voice: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     audio_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
-    evaluation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
     answer_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default={})
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # NEW: Link to Evaluation entity (Phase 1 refactoring)
+    evaluation_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("evaluations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # OLD fields (keep for backward compatibility during migration)
+    # These will be dropped after migration completes
+    evaluation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gaps: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Relationships
     interview: Mapped["InterviewModel"] = relationship(
@@ -257,4 +296,133 @@ class CVAnalysisModel(Base):
     __table_args__ = (
         Index("idx_cv_analyses_candidate_id", "candidate_id"),
         Index("idx_cv_analyses_created_at", "created_at"),
+    )
+
+
+class FollowUpQuestionModel(Base):
+    """SQLAlchemy model for FollowUpQuestion entity."""
+
+    __tablename__ = "follow_up_questions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    parent_question_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    interview_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    order_in_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_follow_up_questions_parent_question_id", "parent_question_id"),
+        Index("idx_follow_up_questions_interview_id", "interview_id"),
+        Index("idx_follow_up_questions_created_at", "created_at"),
+    )
+
+
+class EvaluationModel(Base):
+    """SQLAlchemy model for Evaluation entity."""
+
+    __tablename__ = "evaluations"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    answer_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("answers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
+    interview_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Scores
+    raw_score: Mapped[float] = mapped_column(Float, nullable=False)
+    penalty: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+    final_score: Mapped[float] = mapped_column(Float, nullable=False)
+    similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # LLM evaluation details
+    completeness: Mapped[float] = mapped_column(Float, nullable=False)
+    relevance: Mapped[float] = mapped_column(Float, nullable=False)
+    sentiment: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strengths: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+    weaknesses: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+    improvement_suggestions: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
+
+    # Follow-up context
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    parent_evaluation_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("evaluations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Relationships
+    gaps: Mapped[list["EvaluationGapModel"]] = relationship(
+        "EvaluationGapModel",
+        back_populates="evaluation",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("idx_evaluations_answer_id", "answer_id"),
+        Index("idx_evaluations_question_id", "question_id"),
+        Index("idx_evaluations_interview_id", "interview_id"),
+        Index("idx_evaluations_parent_id", "parent_evaluation_id"),
+        Index("idx_evaluations_attempt_number", "attempt_number"),
+    )
+
+
+class EvaluationGapModel(Base):
+    """SQLAlchemy model for EvaluationGap entity."""
+
+    __tablename__ = "evaluation_gaps"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    evaluation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("evaluations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    concept: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, server_default="'moderate'")
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Relationships
+    evaluation: Mapped["EvaluationModel"] = relationship(
+        "EvaluationModel",
+        back_populates="gaps",
+    )
+
+    __table_args__ = (
+        Index("idx_evaluation_gaps_evaluation_id", "evaluation_id"),
+        Index("idx_evaluation_gaps_resolved", "resolved"),
     )

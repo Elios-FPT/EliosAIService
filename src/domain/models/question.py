@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class QuestionType(str, Enum):
     """Question type enumeration."""
+
     TECHNICAL = "technical"
     BEHAVIORAL = "behavioral"
     SITUATIONAL = "situational"
@@ -16,6 +17,7 @@ class QuestionType(str, Enum):
 
 class DifficultyLevel(str, Enum):
     """Question difficulty level."""
+
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
@@ -34,15 +36,20 @@ class Question(BaseModel):
     difficulty: DifficultyLevel
     skills: list[str] = Field(default_factory=list)  # e.g., ["Python", "OOP"]
     tags: list[str] = Field(default_factory=list)  # e.g., ["algorithms", "data-structures"]
-    reference_answer: str | None = None
     evaluation_criteria: str | None = None
     version: int = 1
     embedding: list[float] | None = None  # Vector embedding for semantic search
+
+    # Pre-planning fields for adaptive interviews
+    ideal_answer: str | None = None  # Reference answer for similarity scoring and evaluation
+    rationale: str | None = None  # Explanation of why this question is suitable for the candidate
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         """Pydantic configuration."""
+
         pass
 
     def has_skill(self, skill: str) -> bool:
@@ -82,3 +89,20 @@ class Question(BaseModel):
             DifficultyLevel.HARD: 3,
         }
         return difficulty_order[self.difficulty] <= difficulty_order[max_difficulty]
+
+    def has_ideal_answer(self) -> bool:
+        """Check if question has ideal answer for similarity scoring.
+
+        Returns:
+            True if ideal_answer is present and non-empty
+        """
+        return self.ideal_answer is not None and len(self.ideal_answer.strip()) > 10
+
+    @property
+    def is_planned(self) -> bool:
+        """Check if question is part of pre-planned interview.
+
+        Returns:
+            True if has ideal_answer and rationale
+        """
+        return self.has_ideal_answer() and self.rationale is not None
