@@ -37,7 +37,12 @@ dependencies = [
 
     # NLP & Document Processing
     "spacy>=3.7.0",
-    "langchain>=0.1.0",
+    "langchain>=0.2.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.2.0",
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=0.2.0",
+    "langsmith>=0.1.0",
     "PyPDF2>=3.0.0",
     "python-docx>=1.1.0",
 
