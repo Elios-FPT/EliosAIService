@@ -255,7 +255,17 @@ class InterviewSessionOrchestrator:
             if not current_question_id:
                 raise ValueError("No current question in interview")
 
-            # Phase 3A: Use workflow if feature flag enabled
+            # Phase 3B: Use interrupt workflow if enabled (takes precedence)
+            if settings.use_langgraph_adaptive_interrupt:
+                await self._handle_with_interrupt_workflow(
+                    answer_text=answer_text,
+                    voice_metrics=voice_metrics,
+                    current_question_id=current_question_id,
+                    session=session,
+                )
+                break
+
+            # Phase 3A: Use simple workflow if feature flag enabled
             if settings.use_langgraph_adaptive_simple:
                 await self._handle_with_workflow(
                     answer_text=answer_text,
@@ -791,6 +801,97 @@ class InterviewSessionOrchestrator:
         logger.info(
             f"Sent follow-up question {followup_question.id} (order={followup_question.order_in_sequence})"
         )
+
+    async def _handle_with_interrupt_workflow(
+        self,
+        answer_text: str,
+        current_question_id: UUID,
+        session: AsyncSession,
+        voice_metrics: dict[str, float] | None = None,
+        thread_id: str | None = None,
+    ) -> None:
+        """Handle answer using AdaptiveEvalInterruptWorkflow (Phase 3B).
+
+        This method implements the WebSocket interrupt pattern:
+        1. Execute workflow with interrupt configuration
+        2. If interrupted, send follow-up question and wait for answer
+        3. Resume workflow with new answer until complete
+        4. Loop up to 3 iterations (0-3 follow-ups)
+
+        Args:
+            answer_text: Candidate's answer text
+            current_question_id: Current question ID
+            session: Async database session
+            voice_metrics: Optional voice quality metrics
+            thread_id: Optional thread ID for resuming workflow
+        """
+        # Create workflow
+        workflow = await self.container.create_adaptive_eval_interrupt_workflow(session)
+
+        # Execute workflow (first time or resume)
+        result = await workflow.execute(
+            interview_id=self.interview_id,
+            question_id=current_question_id,
+            answer_text=answer_text,
+            voice_metrics=voice_metrics,
+            thread_id=thread_id,
+        )
+
+        # Check workflow status
+        if result["status"] == "interrupted":
+            # Workflow paused - send follow-up question
+            followup_question = result["followup_question"]
+            iteration = result["iteration"]
+            cumulative_gaps = result["cumulative_gaps"]
+            thread_id = result["thread_id"]
+
+            logger.info(
+                f"Workflow interrupted (iteration {iteration}): "
+                f"sending follow-up {followup_question.id}, gaps={len(cumulative_gaps)}"
+            )
+
+            # Send follow-up question to client
+            await self._send_followup_question(followup_question)
+
+            # Store thread_id in session for resume (implementation needed)
+            # TODO: Store thread_id in WebSocketSession or Interview for tracking
+
+        elif result["status"] == "complete":
+            # Workflow complete - handle final result
+            evaluation = result["evaluation"]
+            answer = result["answer"]
+            has_more_questions = result["has_more_questions"]
+            followup_questions_generated = result.get("followup_questions_generated", [])
+
+            logger.info(
+                f"Workflow complete: {len(followup_questions_generated)} follow-ups generated, "
+                f"has_more={has_more_questions}"
+            )
+
+            # Send evaluation to client
+            await self._send_evaluation(answer, evaluation)
+
+            # Handle next step based on workflow result
+            if has_more_questions:
+                # Send next main question
+                interview_repo = self.container.interview_repository_port(session)
+                question_repo = self.container.question_repository_port(session)
+                await self._send_next_main_question(interview_repo, question_repo)
+            else:
+                # Complete interview
+                interview_repo = self.container.interview_repository_port(session)
+                answer_repo = self.container.answer_repository_port(session)
+                question_repo = self.container.question_repository_port(session)
+                follow_up_repo = self.container.follow_up_question_repository(session)
+                evaluation_repo = self.container.evaluation_repository_port(session)
+
+                await self._complete_interview(
+                    interview_repo,
+                    answer_repo,
+                    question_repo,
+                    follow_up_repo,
+                    evaluation_repo,
+                )
 
     async def _get_interview_or_raise(self, interview_repo: InterviewRepositoryPort) -> Any:
         """Get interview by ID or raise ValueError if not found.

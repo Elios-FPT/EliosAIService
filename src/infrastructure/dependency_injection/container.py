@@ -487,6 +487,43 @@ class Container:
             llm=llm,
         )
 
+    async def create_adaptive_eval_interrupt_workflow(self, session: AsyncSession):
+        """Create AdaptiveEvalInterruptWorkflow with all dependencies (Phase 3B).
+
+        Args:
+            session: Async database session
+
+        Returns:
+            Configured AdaptiveEvalInterruptWorkflow instance
+
+        Note:
+            This is async due to checkpointer initialization.
+            Phase 3B workflow includes WebSocket interrupts and loop-back logic.
+        """
+        from ...application.workflows.adaptive_eval_interrupt_workflow import AdaptiveEvalInterruptWorkflow
+
+        # Get checkpointer
+        checkpointer = await self.get_checkpointer()
+
+        # Get all required ports (same as Phase 3A)
+        answer_repo = self.answer_repository_port(session)
+        evaluation_repo = self.evaluation_repository_port(session)
+        interview_repo = self.interview_repository_port(session)
+        question_repo = self.question_repository_port(session)
+        follow_up_repo = self.follow_up_question_repository(session)
+        llm = self.llm_port()
+
+        # Create and return workflow
+        return AdaptiveEvalInterruptWorkflow(
+            checkpointer=checkpointer,
+            answer_repo=answer_repo,
+            evaluation_repo=evaluation_repo,
+            interview_repo=interview_repo,
+            question_repo=question_repo,
+            follow_up_repo=follow_up_repo,
+            llm=llm,
+        )
+
 
 @lru_cache
 def get_container() -> Container:
