@@ -11,7 +11,7 @@
 
 ### Main Documents
 - **[Main Plan](plan.md)** - Overview, success metrics, phase summary
-- **[Architectural Decisions](reports/architectural-decisions-final.md)** - Design rationale, trade-offs
+- **[Summary Report](reports/plan-summary-report.md)** - Executive summary, recommendations
 
 ### Phase Plans
 - **[Phase 0: Prototypes & Benchmarks](phase-00-prototypes-benchmarks.md)** - 3-4 days, Low Risk ✅ **APPROVED**
@@ -20,6 +20,9 @@
 - **[Phase 3A: Adaptive Workflow (Simple)](phase-03a-adaptive-workflow-simple.md)** - 1 week, Medium Risk
 - **[Phase 3B: WebSocket Interrupts](phase-03b-websocket-interrupts.md)** - 1 week, High Risk
 - **[Phase 4: Observability](phase-04-observability.md)** - 1 week, Low Risk
+
+### Reports
+- **[Plan Revision Summary](reports/plan-revision-summary.md)** - Changes based on user feedback
 
 ### Research
 - **[LangChain Adapters Research](research/researcher-01-langchain-adapters.md)** - Patterns, best practices
@@ -48,15 +51,13 @@
 # Read main plan
 cat plan.md
 
-# Read architectural decisions
-cat reports/architectural-decisions-final.md
+# Read summary report
+cat reports/plan-summary-report.md
 
 # Review phases in order
-cat phase-00-prototypes-benchmarks.md
 cat phase-01-langchain-adapter.md
 cat phase-02-langgraph-planning.md
-cat phase-03a-adaptive-workflow-simple.md
-cat phase-03b-websocket-interrupts.md
+cat phase-03-langgraph-adaptive.md
 cat phase-04-observability.md
 ```
 
@@ -168,23 +169,20 @@ LANGGRAPH_CHECKPOINTER=postgresql
 
 ## 📚 Documentation
 
-### Plan Files (9)
-- `plan.md` - Main plan overview
-- `README.md` - This file (navigation & getting started)
-- `phase-00-prototypes-benchmarks.md` - Phase 0 details
+### Plan Files (5)
+- `plan.md` - Main plan (80 lines)
 - `phase-01-langchain-adapter.md` - Phase 1 details
-- `phase-01-database-schema.md` - Phase 1 database design
 - `phase-02-langgraph-planning.md` - Phase 2 details
-- `phase-03a-adaptive-workflow-simple.md` - Phase 3A details
-- `phase-03b-websocket-interrupts.md` - Phase 3B details
+- `phase-03-langgraph-adaptive.md` - Phase 3 details
 - `phase-04-observability.md` - Phase 4 details
 
 ### Research (2)
 - `research/researcher-01-langchain-adapters.md` - LangChain patterns
 - `research/researcher-02-langgraph-workflows.md` - LangGraph patterns
 
-### Reports (1)
-- `reports/architectural-decisions-final.md` - Design rationale & trade-offs
+### Reports (2)
+- `reports/plan-summary-report.md` - Executive summary
+- `README.md` - This file
 
 ---
 
