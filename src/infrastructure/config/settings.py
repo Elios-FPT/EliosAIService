@@ -150,6 +150,9 @@ class Settings(BaseSettings):
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
     use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
 
+    # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
+    use_langgraph_adaptive_interrupt: bool = False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
+
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True
