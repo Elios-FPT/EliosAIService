@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     langchain_enable_fallback: bool = False  # Multi-provider fallback
     langchain_fallback_provider: str = "anthropic"  # claude fallback
 
+    # LangGraph Planning Workflow (Phase 2)
+    use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
+    langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
+
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True
