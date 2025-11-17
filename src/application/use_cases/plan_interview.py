@@ -33,20 +33,28 @@ class PlanInterviewUseCase:
         cv_analysis_repo: CVAnalysisRepositoryPort,
         interview_repo: InterviewRepositoryPort,
         question_repo: QuestionRepositoryPort,
+        vector_search: VectorSearchPort | None = None,
+        planning_workflow: Any | None = None,
+        use_langgraph: bool = False,
     ):
         """Initialize use case with required ports.
 
         Args:
             llm: LLM service for question generation
-            vector_search: Vector search service for exemplar retrieval and embedding storage
             cv_analysis_repo: CV analysis storage
             interview_repo: Interview storage
             question_repo: Question storage
+            vector_search: Vector search service for exemplar retrieval (optional)
+            planning_workflow: LangGraph planning workflow (Phase 2, optional)
+            use_langgraph: Feature flag to use LangGraph workflow
         """
         self.llm = llm
         self.cv_analysis_repo = cv_analysis_repo
         self.interview_repo = interview_repo
         self.question_repo = question_repo
+        self.vector_search = vector_search
+        self.planning_workflow = planning_workflow
+        self.use_langgraph = use_langgraph
 
     async def execute(
         self,
@@ -71,8 +79,25 @@ class PlanInterviewUseCase:
             extra={
                 "cv_analysis_id": str(cv_analysis_id),
                 "candidate_id": str(candidate_id),
+                "use_langgraph": self.use_langgraph,
             },
         )
+
+        # Feature flag: Use LangGraph workflow (Phase 2) if enabled
+        if self.use_langgraph and self.planning_workflow:
+            logger.info("Using LangGraph planning workflow (Phase 2)")
+            try:
+                result = await self.planning_workflow.execute(
+                    cv_analysis_id=cv_analysis_id,
+                    candidate_id=candidate_id,
+                )
+                return result["interview"]
+            except Exception as e:
+                logger.error(f"LangGraph workflow failed: {e}, falling back to manual implementation")
+                # Fall through to manual implementation
+
+        # Manual implementation (original sequential logic)
+        logger.info("Using manual planning implementation")
 
         # Step 1: Load CV analysis
         cv_analysis = await self.cv_analysis_repo.get_by_id(cv_analysis_id)

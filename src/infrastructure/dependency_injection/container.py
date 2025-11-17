@@ -73,6 +73,7 @@ class Container:
         self._vector_search_port: VectorSearchPort | None = None
         self._stt_port: SpeechToTextPort | None = None
         self._tts_port: TextToSpeechPort | None = None
+        self._checkpointer = None  # LangGraph checkpointer (lazy init)
 
     def llm_port(self) -> LLMPort:
         """Get LLM port implementation.
@@ -417,6 +418,38 @@ class Container:
             model = primary_model
 
         return LangChainAdapter(model=model)
+
+    async def get_checkpointer(self):
+        """Get LangGraph checkpointer for workflow state persistence.
+
+        Returns:
+            AsyncPostgresSaver instance
+
+        Raises:
+            ValueError: If checkpointer type is not supported
+            Exception: If checkpointer setup fails
+
+        Note:
+            This is async and must be called with await.
+            Checkpointer is lazy-initialized on first access.
+        """
+        if self._checkpointer is None:
+            if self.settings.langgraph_checkpointer_type != "postgresql":
+                raise ValueError(
+                    f"Unsupported checkpointer type: {self.settings.langgraph_checkpointer_type}"
+                )
+
+            # Import here to avoid circular dependency
+            from ..database.session import get_async_engine
+            from ..database.langgraph_checkpointer import create_checkpointer
+
+            # Get async engine (reuses existing connection pool)
+            engine = get_async_engine()
+
+            # Create and setup checkpointer
+            self._checkpointer = await create_checkpointer(engine)
+
+        return self._checkpointer
 
 
 @lru_cache

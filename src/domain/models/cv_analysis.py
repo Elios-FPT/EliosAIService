@@ -16,6 +16,7 @@ class ExtractedSkill(BaseModel):
     skill: str = Field(alias="skill")
     proficiency: str | None = Field(default=None, alias="proficiency")  # e.g., "beginner", "intermediate", "expert"
     years: float | None = Field(default=None, alias="years")
+    category: str = Field(default="technical", alias="category")  # e.g., "technical", "soft", "language"
 
     def is_technical(self) -> bool:
         """Check if skill is technical.
