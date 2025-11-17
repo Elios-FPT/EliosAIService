@@ -147,6 +147,9 @@ class Settings(BaseSettings):
     use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
 
+    # LangGraph Adaptive Evaluation Workflow (Phase 3A)
+    use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
+
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True
