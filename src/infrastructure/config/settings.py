@@ -133,6 +133,16 @@ class Settings(BaseSettings):
     ws_port: int = 8000
     ws_base_url: str = "ws://localhost:8000"
 
+    # LangChain Integration (Phase 1)
+    use_langchain: bool = False  # Feature flag to enable LangChain adapter
+    langsmith_api_key: str | None = None  # LangSmith observability
+    enable_langsmith: bool = False  # Enable tracing in dev
+    langchain_project: str = "elios-interviews-dev"  # LangSmith project name
+    langchain_temperature: float = 0.7  # Default temperature for LangChain models
+    langchain_max_tokens: int = 2000  # Max tokens per LLM call
+    langchain_enable_fallback: bool = False  # Multi-provider fallback
+    langchain_fallback_provider: str = "anthropic"  # claude fallback
+
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True

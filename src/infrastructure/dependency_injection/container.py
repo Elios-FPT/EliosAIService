@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Import adapters
 from ...adapters.llm.azure_openai_adapter import AzureOpenAIAdapter
 from ...adapters.llm.openai_adapter import OpenAIAdapter
+from ...adapters.llm.langchain_adapter import LangChainAdapter
 
 # Import mock adapters
 from ...adapters.mock import (
@@ -86,6 +87,9 @@ class Container:
             # Use mock adapter if configured
             if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
+            # Use LangChain adapter if feature flag enabled
+            elif self.settings.use_langchain:
+                self._llm_port = self._create_langchain_adapter()
             elif self.settings.llm_provider == "openai":
                 # Check if using Azure OpenAI
                 if self.settings.use_azure_openai:
@@ -343,6 +347,76 @@ class Container:
             # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
             # return AnalyticsAdapter(database_url=self.settings.database_url)
             raise NotImplementedError("Real analytics adapter not yet implemented")
+
+    def _create_langchain_adapter(self) -> LangChainAdapter:
+        """Create LangChain adapter with configured model.
+
+        Returns:
+            Configured LangChain adapter
+
+        Raises:
+            ValueError: If API keys not configured
+        """
+        # Import LangChain models
+        from langchain_openai import ChatOpenAI
+        from langchain_anthropic import ChatAnthropic
+
+        # Configure LangSmith tracing if enabled
+        if self.settings.enable_langsmith:
+            import os
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            if self.settings.langsmith_api_key:
+                os.environ["LANGCHAIN_API_KEY"] = self.settings.langsmith_api_key
+            os.environ["LANGCHAIN_PROJECT"] = self.settings.langchain_project
+
+        # Create primary model (OpenAI or Azure OpenAI)
+        primary_model = None
+        if self.settings.use_azure_openai:
+            if not self.settings.azure_openai_api_key:
+                raise ValueError("Azure OpenAI API key not configured for LangChain")
+            if not self.settings.azure_openai_endpoint:
+                raise ValueError("Azure OpenAI endpoint not configured for LangChain")
+
+            primary_model = ChatOpenAI(
+                api_key=self.settings.azure_openai_api_key,
+                azure_endpoint=self.settings.azure_openai_endpoint,
+                api_version=self.settings.azure_openai_api_version,
+                azure_deployment=self.settings.azure_openai_deployment_name,
+                temperature=self.settings.langchain_temperature,
+                max_tokens=self.settings.langchain_max_tokens,
+            )
+        else:
+            if not self.settings.openai_api_key:
+                raise ValueError("OpenAI API key not configured for LangChain")
+
+            primary_model = ChatOpenAI(
+                api_key=self.settings.openai_api_key,
+                model=self.settings.openai_model,
+                temperature=self.settings.langchain_temperature,
+                max_tokens=self.settings.langchain_max_tokens,
+            )
+
+        # Add fallback model if enabled
+        if self.settings.langchain_enable_fallback:
+            if self.settings.langchain_fallback_provider == "anthropic":
+                if not self.settings.anthropic_api_key:
+                    raise ValueError("Anthropic API key required for fallback but not configured")
+
+                fallback_model = ChatAnthropic(
+                    api_key=self.settings.anthropic_api_key,
+                    model=self.settings.anthropic_model,
+                    temperature=self.settings.langchain_temperature,
+                    max_tokens=self.settings.langchain_max_tokens,
+                )
+
+                # Create model with fallback
+                model = primary_model.with_fallbacks([fallback_model])
+            else:
+                raise ValueError(f"Unsupported fallback provider: {self.settings.langchain_fallback_provider}")
+        else:
+            model = primary_model
+
+        return LangChainAdapter(model=model)
 
 
 @lru_cache
