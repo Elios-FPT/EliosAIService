@@ -10,6 +10,7 @@ from uuid import UUID
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.graph.state import CompiledStateGraph
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.interview import Interview
@@ -92,7 +93,7 @@ class PlanningWorkflow(BaseWorkflow):
         self.vector_search = vector_search
         self.app = self._build_graph()
 
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self) -> CompiledStateGraph:
         """Build LangGraph StateGraph with all nodes and edges.
 
         Returns:

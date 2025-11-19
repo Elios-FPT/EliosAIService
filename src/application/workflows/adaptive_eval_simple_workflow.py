@@ -129,7 +129,7 @@ class AdaptiveEvalSimpleWorkflow(BaseWorkflow):
         self.llm = llm
         self.app: Any = self._build_graph()  # CompiledStateGraph type
 
-    def _build_graph(self) -> Any:
+    def _build_graph(self) -> CompiledStateGraph:
         """Build LangGraph StateGraph with all nodes and edges.
 
         Returns:
