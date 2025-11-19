@@ -1,35 +1,44 @@
 # Elios AI Interview Service
 
-**An AI-powered mock interview platform that helps candidates prepare for technical interviews through personalized CV analysis, adaptive question generation, and real-time answer evaluation.**
+**AI-Powered Mock Interview Platform** with CV analysis, semantic question generation, and real-time feedback.
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![LangChain](https://img.shields.io/badge/LangChain-0.2+-orange.svg)](https://python.langchain.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 📖 Overview
+## Overview
 
-Elios AI Interview Service leverages **Large Language Models (LLMs)** and **vector databases** to deliver intelligent, personalized mock interview experiences. The platform analyzes candidate CVs, generates relevant questions, evaluates answers in real-time, and provides comprehensive feedback to help candidates improve their interview performance.
+Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions via vector search and LLMs, conducting real-time interviews through WebSocket, and providing comprehensive feedback with adaptive follow-up questions.
+
+**Branch**: `feature/langchain-langgraph-integration` (v0.3.0)
 
 ### Key Features
 
-- **🎯 CV Analysis**: Extract skills, experience, and education from resumes
-- **🤖 Adaptive Questions**: Generate personalized interview questions using vector-based exemplar retrieval
-- **📊 Real-Time Evaluation**: Multi-dimensional answer assessment with instant feedback
-- **💬 Voice & Text Support**: Conduct interviews via text chat or voice (planned)
-- **📈 Comprehensive Reports**: Detailed performance analysis with actionable recommendations
-- **🔄 Swappable AI Providers**: Easy integration of OpenAI, Claude, or Llama
+**Core Capabilities**:
+- **CV Analysis**: Extract skills, experience, education from PDFs/DOCX
+- **Semantic Question Generation**: Vector search with LLM exemplar-based generation
+- **Adaptive Interviews**: Follow-up questions based on gap detection
+- **Real-Time Evaluation**: Multi-dimensional answer scoring with feedback
+- **Voice Support**: Azure Speech-to-Text & Text-to-Speech integration
+- **Comprehensive Reports**: Aggregate metrics, gap progression, LLM recommendations
+
+**NEW - LangChain/LangGraph Integration** (v0.3.0):
+- **LCEL Chains**: Structured outputs with Pydantic models (12 chains)
+- **Workflow Orchestration**: Planning, adaptive evaluation (simple & interrupt patterns)
+- **PostgreSQL Checkpointing**: Stateful workflows with recovery
+- **LangSmith Observability**: PII-filtered tracing, cost tracking, token usage analysis
 
 ### Technology Stack
 
 - **Backend**: Python 3.11+, FastAPI, Pydantic
+- **AI/ML**: LangChain/LangGraph, OpenAI GPT-4, Pinecone Vector DB
 - **Database**: PostgreSQL (Neon), SQLAlchemy 2.0 (async)
-- **AI/ML**: OpenAI GPT-4, Pinecone Vector Database
+- **Observability**: LangSmith tracing, cost tracking
 - **Architecture**: Clean Architecture (Hexagonal/Ports & Adapters)
-- **Testing**: pytest, pytest-asyncio
-- **Code Quality**: ruff, black, mypy
+- **Testing**: pytest, pytest-asyncio (200+ tests, 85%+ coverage)
 
 ### Main flows
 
