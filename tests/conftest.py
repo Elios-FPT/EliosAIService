@@ -1,10 +1,13 @@
 """Pytest configuration and fixtures."""
 
+import os
 from datetime import datetime
-from typing import Any
+from typing import Any, AsyncGenerator
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from src.domain.models.answer import Answer, AnswerEvaluation
 from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
@@ -12,6 +15,36 @@ from src.domain.models.evaluation import Evaluation
 from src.domain.models.follow_up_question import FollowUpQuestion
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import DifficultyLevel, Question, QuestionType
+
+
+@pytest_asyncio.fixture
+async def async_session() -> AsyncGenerator[AsyncSession, None]:
+    """Create async database session for integration tests."""
+    # Get database URL from environment
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        pytest.skip("DATABASE_URL not set")
+
+    # Create async engine
+    engine = create_async_engine(
+        database_url,
+        echo=False,
+        future=True,
+    )
+
+    # Create async session maker
+    async_session_maker = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    # Provide session
+    async with async_session_maker() as session:
+        yield session
+
+    # Cleanup
+    await engine.dispose()
 
 
 @pytest.fixture
