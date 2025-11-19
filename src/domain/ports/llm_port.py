@@ -17,30 +17,6 @@ class LLMPort(ABC):
     """
 
     @abstractmethod
-    async def generate_question(
-        self,
-        context: dict[str, Any],
-        skill: str,
-        difficulty: str,
-        exemplars: list[dict[str, Any]] | None = None,
-    ) -> str:
-        """Generate an interview question.
-
-        Args:
-            context: Interview context (CV analysis, previous answers, etc.)
-            skill: Target skill to test
-            difficulty: Question difficulty level
-            exemplars: Optional list of similar questions for inspiration.
-                      Each dict should contain: 'text', 'skills', 'difficulty', 'similarity_score'.
-                      Helps LLM understand desired question style and depth.
-                      Default: None (generate without exemplars)
-
-        Returns:
-            Generated question text
-        """
-        pass
-
-    @abstractmethod
     async def evaluate_answer(
         self,
         question: Question,
