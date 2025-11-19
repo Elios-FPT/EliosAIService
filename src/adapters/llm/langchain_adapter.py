@@ -23,7 +23,6 @@ from .langchain_models import (
     FollowUpOutput,
     GapDetectionOutput,
     IdealAnswerOutput,
-    QuestionOutput,
     RationaleOutput,
     RecommendationsOutput,
     SkillExtractionOutput,
@@ -50,7 +49,7 @@ class LangChainAdapter(LLMPort):
         self._chains = self._build_chains()
 
     def _build_chains(self) -> dict[str, Any]:
-        """Build all LCEL chains for the 13 LLMPort methods.
+        """Build all LCEL chains for the 12 LLMPort methods.
 
         Returns:
             Dictionary of method_name -> chain
@@ -87,42 +86,6 @@ class LangChainAdapter(LLMPort):
         )
 
         return RunnableConfig(metadata=metadata, callbacks=self.callbacks)
-
-    async def generate_question(
-        self,
-        context: dict[str, Any],
-        skill: str,
-        difficulty: str,
-        exemplars: list[dict[str, Any]] | None = None,
-    ) -> str:
-        """Generate an interview question using LangChain."""
-        # Format exemplars section
-        exemplar_section = ""
-        if exemplars:
-            exemplar_section = "Similar questions for inspiration (do NOT copy exactly):\n"
-            for i, ex in enumerate(exemplars[:3], 1):
-                exemplar_section += f"{i}. \"{ex.get('text', '')}\" ({ex.get('difficulty', 'UNKNOWN')})\n"
-            exemplar_section += "\nGenerate a NEW question inspired by the style and structure above.\n"
-
-        # Create config with metadata
-        config = self._create_config(
-            context=context,
-            skill=skill,
-            difficulty=difficulty,
-            method="generate_question",
-        )
-
-        # Execute chain
-        result = await self._chains["generate_question"].ainvoke({
-            "skill": skill,
-            "difficulty": difficulty,
-            "cv_summary": context.get("cv_summary", "Not provided"),
-            "covered_topics": context.get("covered_topics", []),
-            "stage": context.get("stage", "early"),
-            "exemplar_section": exemplar_section,
-        }, config=config)
-
-        return result["question_text"]
 
     async def evaluate_answer(
         self,
