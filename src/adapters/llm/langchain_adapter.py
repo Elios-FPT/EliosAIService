@@ -10,7 +10,7 @@ from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.runnables import RunnableParallel
+from langchain_core.runnables import RunnableParallel, RunnableConfig
 
 from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
@@ -38,13 +38,15 @@ class LangChainAdapter(LLMPort):
     All LangChain-specific logic is contained in this adapter.
     """
 
-    def __init__(self, model: BaseChatModel):
+    def __init__(self, model: BaseChatModel, callbacks: list[Any] | None = None):
         """Initialize LangChain adapter.
 
         Args:
             model: LangChain chat model (ChatOpenAI, ChatAnthropic, etc.)
+            callbacks: Optional list of LangChain callbacks (e.g., PIIFilteringTracer)
         """
         self.model = model
+        self.callbacks = callbacks or []
         self._chains = self._build_chains()
 
     def _build_chains(self) -> dict[str, Any]:
@@ -65,6 +67,27 @@ class LangChainAdapter(LLMPort):
 
         return chains
 
+    def _create_config(self, context: dict[str, Any] | None = None, **metadata_kwargs: Any) -> RunnableConfig:
+        """Create RunnableConfig with metadata for tracing.
+
+        Args:
+            context: Context dictionary that may contain interview_id, candidate_id, etc.
+            **metadata_kwargs: Additional metadata fields
+
+        Returns:
+            RunnableConfig with metadata and callbacks
+        """
+        from ...infrastructure.observability.langsmith_config import create_metadata_for_tracing
+
+        # Extract common fields from context
+        metadata = create_metadata_for_tracing(
+            interview_id=context.get("interview_id") if context else None,
+            candidate_id=context.get("candidate_id") if context else None,
+            **metadata_kwargs,
+        )
+
+        return RunnableConfig(metadata=metadata, callbacks=self.callbacks)
+
     async def generate_question(
         self,
         context: dict[str, Any],
@@ -81,6 +104,14 @@ class LangChainAdapter(LLMPort):
                 exemplar_section += f"{i}. \"{ex.get('text', '')}\" ({ex.get('difficulty', 'UNKNOWN')})\n"
             exemplar_section += "\nGenerate a NEW question inspired by the style and structure above.\n"
 
+        # Create config with metadata
+        config = self._create_config(
+            context=context,
+            skill=skill,
+            difficulty=difficulty,
+            method="generate_question",
+        )
+
         # Execute chain
         result = await self._chains["generate_question"].ainvoke({
             "skill": skill,
@@ -89,7 +120,7 @@ class LangChainAdapter(LLMPort):
             "covered_topics": context.get("covered_topics", []),
             "stage": context.get("stage", "early"),
             "exemplar_section": exemplar_section,
-        })
+        }, config=config)
 
         return result["question_text"]
 
@@ -117,6 +148,15 @@ Apply attempt-based penalty:
 - Attempt 3+: Reduce score by 20% (repeated failure to address gaps)
 """
 
+        # Create config with metadata
+        config = self._create_config(
+            context=context,
+            question_id=str(question.id) if question.id else None,
+            difficulty=question.difficulty.value if hasattr(question.difficulty, 'value') else str(question.difficulty),
+            skill=question.skills[0] if question.skills else "General",
+            method="evaluate_answer",
+        )
+
         # Execute chain
         result = await self._chains["evaluate_answer"].ainvoke({
             "question_text": question.text,
@@ -124,7 +164,7 @@ Apply attempt-based penalty:
             "skill": question.skills[0] if question.skills else "General",
             "answer_text": answer_text,
             "followup_context": followup_section,
-        })
+        }, config=config)
 
         # Map to domain model with required fields
         # semantic_similarity, completeness, relevance extracted from score if not provided
@@ -154,27 +194,40 @@ Apply attempt-based penalty:
         # Format questions and answers
         qa_formatted = self._format_questions_answers(questions, answers)
 
+        # Create config with metadata
+        config = self._create_config(
+            context={"interview_id": str(interview_id)},
+            method="generate_feedback_report",
+            question_count=len(questions),
+        )
+
         result = await self._chains["generate_feedback_report"].ainvoke({
             "interview_id": str(interview_id),
             "total_questions": len(questions),
             "questions_and_answers": qa_formatted,
-        })
+        }, config=config)
 
         return result["report_text"]
 
     async def summarize_cv(self, cv_text: str) -> str:
         """Generate a summary of a CV."""
+        # Create config with metadata
+        config = self._create_config(method="summarize_cv")
+
         result = await self._chains["summarize_cv"].ainvoke({
             "cv_text": cv_text,
-        })
+        }, config=config)
 
         return result["summary_text"]
 
     async def extract_skills_from_text(self, text: str) -> list[dict[str, str]]:
         """Extract skills from CV text using LLM."""
+        # Create config with metadata
+        config = self._create_config(method="extract_skills_from_text")
+
         result = await self._chains["extract_skills_from_text"].ainvoke({
             "text": text,
-        })
+        }, config=config)
 
         # Convert to expected format
         skills = []
@@ -193,11 +246,17 @@ Apply attempt-based penalty:
         context: dict[str, Any],
     ) -> str:
         """Generate ideal answer for a question."""
+        # Create config with metadata
+        config = self._create_config(
+            context=context,
+            method="generate_ideal_answer",
+        )
+
         result = await self._chains["generate_ideal_answer"].ainvoke({
             "question_text": question_text,
             "cv_summary": context.get("cv_summary", "Not provided"),
             "skill_level": context.get("skill_level", "intermediate"),
-        })
+        }, config=config)
 
         return result["answer_text"]
 
@@ -260,6 +319,13 @@ Apply attempt-based penalty:
                 previous_context += f"{i}. Q: {fu.get('question', '')}\n"
                 previous_context += f"   A: {fu.get('answer', '')[:100]}...\n"
 
+        # Create config with metadata
+        config = self._create_config(
+            method="generate_followup_question",
+            severity=severity,
+            order=order,
+        )
+
         result = await self._chains["generate_followup_question"].ainvoke({
             "parent_question": parent_question,
             "answer_text": answer_text,
@@ -268,7 +334,7 @@ Apply attempt-based penalty:
             "order": order,
             "cumulative_context": cumulative_context,
             "previous_followups": previous_context,
-        })
+        }, config=config)
 
         return result["question_text"]
 
