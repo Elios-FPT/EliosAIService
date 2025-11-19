@@ -361,6 +361,7 @@ class Container:
         # Import LangChain models
         from langchain_openai import ChatOpenAI
         from langchain_anthropic import ChatAnthropic
+        from ..observability.langsmith_config import create_pii_filtering_callback
 
         # Configure LangSmith tracing if enabled
         if self.settings.enable_langsmith:
@@ -417,7 +418,10 @@ class Container:
         else:
             model = primary_model
 
-        return LangChainAdapter(model=model)
+        # Create callbacks (includes PII filtering tracer if enabled)
+        callbacks = create_pii_filtering_callback(self.settings)
+
+        return LangChainAdapter(model=model, callbacks=callbacks)
 
     async def get_checkpointer(self):
         """Get LangGraph checkpointer for workflow state persistence.

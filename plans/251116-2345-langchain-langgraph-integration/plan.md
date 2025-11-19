@@ -46,8 +46,8 @@ Integrate **LangChain** (composable async LLM primitives) and **LangGraph** (sta
 | [Phase 1: LangChain Adapter Layer](phase-01-langchain-adapter.md) | **COMPLETE** | 100% | 1 week | Low |
 | [Phase 2: LangGraph Planning Workflow](phase-02-langgraph-planning.md) | **COMPLETE** | 100% | 1 week | Medium |
 | [Phase 3A: Adaptive Workflow (Simple)](phase-03a-adaptive-workflow-simple.md) | **COMPLETE** | 100% | 1 day | Medium |
-| [Phase 3B: WebSocket Interrupts](phase-03b-websocket-interrupts.md) | Ready to Start | 0% | 1 week | High |
-| [Phase 4: Observability & Optimization](phase-04-observability.md) | Pending | 0% | 1 week | Low |
+| [Phase 3B: WebSocket Interrupts](phase-03b-websocket-interrupts.md) | **COMPLETE** | 100% | 2 hours | High |
+| [Phase 4: Observability & Optimization](phase-04-observability.md) | **COMPLETE** | 100% | 3 hours | Low |
 
 ---
 

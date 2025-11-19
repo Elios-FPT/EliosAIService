@@ -135,13 +135,20 @@ class Settings(BaseSettings):
 
     # LangChain Integration (Phase 1)
     use_langchain: bool = False  # Feature flag to enable LangChain adapter
-    langsmith_api_key: str | None = None  # LangSmith observability
-    enable_langsmith: bool = False  # Enable tracing in dev
-    langchain_project: str = "elios-interviews-dev"  # LangSmith project name
     langchain_temperature: float = 0.7  # Default temperature for LangChain models
     langchain_max_tokens: int = 2000  # Max tokens per LLM call
     langchain_enable_fallback: bool = False  # Multi-provider fallback
     langchain_fallback_provider: str = "anthropic"  # claude fallback
+
+    # LangSmith Observability (Phase 4)
+    enable_langsmith: bool = False  # Enable LangSmith tracing
+    langchain_tracing_v2: bool = False  # LangChain v2 tracing protocol
+    langsmith_api_key: str | None = None  # LangSmith API key
+    langchain_project: str = "elios-interviews-dev"  # LangSmith project name
+    langchain_endpoint: str = "https://api.smith.langchain.com"  # LangSmith API endpoint
+    langsmith_filter_pii: bool = True  # Enable PII filtering in traces
+    langsmith_sample_rate: float = 1.0  # Trace sampling rate (0.0-1.0, 1.0 = 100%)
+    langsmith_max_trace_size_kb: int = 1024  # Max trace size in KB (prevent large traces)
 
     # LangGraph Planning Workflow (Phase 2)
     use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
