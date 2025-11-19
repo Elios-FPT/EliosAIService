@@ -1,7 +1,7 @@
 # Codebase Summary
 
-**Last Updated**: 2025-11-15
-**Version**: 0.2.2
+**Last Updated**: 2025-11-20
+**Version**: 0.3.0 (LangChain/LangGraph Integration)
 **Repository**: https://github.com/elios/elios-ai-service
 
 ## Table of Contents
@@ -21,18 +21,18 @@
 - [Deployment](#deployment)
 - [Related Documentation](#related-documentation)
 - [External Resources](#external-resources)
-- [Unresolved Questions](#unresolved-questions)
 
 ## Overview
 
-Elios AI Interview Service is Python-based AI-powered mock interview platform built with Clean Architecture principles (Hexagonal/Ports & Adapters pattern). Platform emphasizes separation of concerns, testability, flexibility through abstract interfaces and dependency injection. Integrates OpenAI GPT-4 for NLP, Pinecone for vector-based semantic search, PostgreSQL for persistent storage.
+Elios AI Interview Service is Python-based AI-powered mock interview platform built with Clean Architecture principles (Hexagonal/Ports & Adapters pattern). Platform emphasizes separation of concerns, testability, flexibility through abstract interfaces and dependency injection. Integrates LangChain/LangGraph for workflow orchestration, OpenAI GPT-4 for NLP, Pinecone for vector-based semantic search, PostgreSQL for persistent storage.
 
-**Recent Major Changes** (2025-11-15):
-- WebSocket URL injection in planning responses (seamless client flow)
-- Context-aware evaluation with entity separation
-- Domain-Driven State Management (migrated from WebSocket orchestrator)
-- Follow-up question evaluation refactoring
-- Enhanced LLM response parsing with JSON extraction
+**Recent Major Changes** (2025-11-20):
+- **LangChain/LangGraph Integration**: LCEL chains, structured outputs, workflow orchestration
+- **Observability Module**: LangSmith tracing with PII filtering, cost tracking
+- **Workflow Architecture**: Planning workflow, adaptive evaluation workflows (simple & interrupt patterns)
+- **Context-aware evaluation** with entity separation
+- **Domain-Driven State Management** (migrated from WebSocket orchestrator)
+- **Enhanced LLM response parsing** with JSON extraction
 
 ## Project Structure
 
@@ -63,29 +63,41 @@ EliosAIService/
 │   │       ├── answer_repository_port.py        # Answer persistence
 │   │       ├── cv_analysis_repository_port.py   # CV analysis persistence
 │   │       ├── follow_up_question_repository_port.py  # Follow-up persistence
-│   │       └── evaluation_repository_port.py    # Evaluation persistence (NEW)
+│   │       └── evaluation_repository_port.py    # Evaluation persistence
 │   ├── application/             # Use cases and orchestration
-│   │   ├── dto/                 # Data Transfer Objects (4 files)
+│   │   ├── dto/                 # Data Transfer Objects (5 files)
 │   │   │   ├── interview_dto.py # Interview DTOs (incl. PlanningStatusResponse w/ ws_url)
 │   │   │   ├── answer_dto.py    # Answer request/response DTOs
-│   │   │   ├── audio_dto.py     # Audio processing DTOs (NEW)
-│   │   │   └── websocket_dto.py # WebSocket message DTOs
-│   │   └── use_cases/           # Application business flows (8 files)
-│   │       ├── analyze_cv.py    # CV analysis workflow
-│   │       ├── plan_interview.py # Interview planning with adaptive questions
-│   │       ├── get_next_question.py # Retrieve next question
-│   │       ├── process_answer_adaptive.py # Adaptive answer evaluation
-│   │       ├── complete_interview.py # Finalize interview session
-│   │       ├── generate_summary.py # Interview summary generation
-│   │       ├── follow_up_decision.py # Follow-up decision logic
-│   │       └── combine_evaluation.py # Combine evaluations (NEW)
+│   │   │   ├── audio_dto.py     # Audio processing DTOs
+│   │   │   ├── websocket_dto.py # WebSocket message DTOs
+│   │   │   └── detailed_feedback_dto.py # Detailed feedback DTOs (NEW)
+│   │   ├── use_cases/           # Application business flows (8 files)
+│   │   │   ├── analyze_cv.py    # CV analysis workflow
+│   │   │   ├── plan_interview.py # Interview planning with adaptive questions
+│   │   │   ├── get_next_question.py # Retrieve next question
+│   │   │   ├── process_answer_adaptive.py # Adaptive answer evaluation
+│   │   │   ├── complete_interview.py # Finalize interview session
+│   │   │   ├── generate_summary.py # Interview summary generation
+│   │   │   ├── follow_up_decision.py # Follow-up decision logic
+│   │   │   └── combine_evaluation.py # Combine evaluations
+│   │   └── workflows/           # LangGraph workflow orchestration (NEW - 5 files)
+│   │       ├── __init__.py
+│   │       ├── base_workflow.py # Base workflow with LangGraph checkpointing
+│   │       ├── planning_workflow.py # Interview planning workflow
+│   │       ├── adaptive_eval_simple_workflow.py # Simple adaptive evaluation
+│   │       └── adaptive_eval_interrupt_workflow.py # Interrupt-based evaluation
 │   ├── adapters/                # External service implementations
-│   │   ├── llm/                 # LLM provider adapters
+│   │   ├── llm/                 # LLM provider adapters (NEW: LangChain)
+│   │   │   ├── __init__.py
 │   │   │   ├── openai_adapter.py # OpenAI GPT-4 implementation
-│   │   │   └── azure_openai_adapter.py # Azure OpenAI implementation
+│   │   │   ├── azure_openai_adapter.py # Azure OpenAI implementation
+│   │   │   ├── langchain_adapter.py # LangChain LCEL adapter (NEW)
+│   │   │   ├── langchain_models.py # Pydantic models for structured output (NEW)
+│   │   │   └── prompts/         # Prompt templates (NEW)
+│   │   │       └── __init__.py
 │   │   ├── vector_db/           # Vector database adapters
 │   │   │   ├── pinecone_adapter.py # Pinecone implementation
-│   │   │   └── chroma_adapter.py # ChromaDB implementation (NEW)
+│   │   │   └── chroma_adapter.py # ChromaDB implementation
 │   │   ├── mock/                # Mock adapters for development (6 total)
 │   │   │   ├── mock_llm_adapter.py
 │   │   │   ├── mock_vector_search_adapter.py
@@ -102,11 +114,11 @@ EliosAIService/
 │   │   │   ├── answer_repository.py
 │   │   │   ├── cv_analysis_repository.py
 │   │   │   ├── follow_up_question_repository.py
-│   │   │   └── evaluation_repository.py  # Evaluation persistence (NEW)
-│   │   ├── speech/              # Speech service adapters (NEW)
+│   │   │   └── evaluation_repository.py  # Evaluation persistence
+│   │   ├── speech/              # Speech service adapters
 │   │   │   ├── azure_stt_adapter.py # Azure Speech-to-Text
 │   │   │   └── azure_tts_adapter.py # Azure Text-to-Speech
-│   │   ├── cv_processing/       # CV processing adapters (NEW)
+│   │   ├── cv_processing/       # CV processing adapters
 │   │   │   └── cv_processing_adapter.py
 │   │   └── api/                 # API layer
 │   │       ├── rest/            # REST endpoints (2 files)
@@ -121,24 +133,47 @@ EliosAIService/
 │       │   └── settings.py      # Pydantic settings
 │       ├── database/            # Database infrastructure
 │       │   ├── base.py          # SQLAlchemy base class
-│       │   └── session.py       # Async session management
+│       │   ├── session.py       # Async session management
+│       │   └── langgraph_checkpointer.py # LangGraph PostgreSQL checkpointer (NEW)
+│       ├── observability/       # Observability infrastructure (NEW - 3 files)
+│       │   ├── __init__.py
+│       │   ├── langsmith_config.py # LangSmith tracing with PII filtering
+│       │   └── cost_tracking.py # LLM cost tracking and monitoring
 │       └── dependency_injection/
 │           └── container.py     # DI container
 ├── alembic/                     # Database migrations
-│   └── versions/                # Migration scripts
+│   └── versions/                # Migration scripts (10 migrations)
 │       ├── 0001_create_tables.py
 │       ├── 0002_insert_seed_data.py
-│       └── 0003_create_evaluations_tables.py (NEW)
+│       ├── 0003_create_evaluations_tables.py
+│       ├── 0004_clear_data_and_seed_candidates_vi.py
+│       ├── 0005_seed_questions_vi.py
+│       ├── 0006_seed_cv_analyses_vi.py
+│       ├── 0007_seed_interviews_vi.py
+│       ├── 0008_seed_answers_vi.py
+│       └── 0009_seed_followup_questions_vi.py
 ├── tests/                       # Test suites
-│   ├── unit/                    # Unit tests (150+ tests)
+│   ├── unit/                    # Unit tests (200+ tests)
+│   │   ├── domain/              # Domain model tests
+│   │   ├── application/         # Use case & workflow tests
+│   │   ├── adapters/            # Adapter tests
+│   │   └── infrastructure/      # Infrastructure tests
 │   ├── integration/             # Integration tests
+│   │   ├── api/                 # API integration tests
+│   │   └── workflows/           # Workflow integration tests
+│   ├── prototypes/              # Performance prototypes (NEW)
+│   │   ├── 01_token_benchmark.py
+│   │   ├── 02_interrupt_pattern.py
+│   │   ├── 03_performance_baseline.py
+│   │   └── reports/
 │   └── conftest.py              # Test fixtures
 ├── docs/                        # Project documentation
 │   ├── project-overview-pdr.md
 │   ├── codebase-summary.md     # This file
 │   ├── code-standards.md
 │   ├── system-architecture.md
-│   └── project-roadmap.md
+│   ├── project-roadmap.md
+│   └── observability-guide.md  # Observability documentation (NEW)
 ├── .env.example                # Environment variables template
 ├── pyproject.toml              # Project metadata & dependencies
 ├── CLAUDE.md                   # Claude Code instructions
@@ -161,13 +196,18 @@ EliosAIService/
 
 ### AI & Machine Learning
 - **OpenAI**: 1.3.0+ (GPT-4 for NLP, embeddings, evaluation)
+- **LangChain**: 0.2.0+ (LLM workflow orchestration with LCEL chains) **NEW**
+- **LangChain OpenAI**: 0.2.0+ (OpenAI integration for LangChain) **NEW**
+- **LangChain Anthropic**: 0.2.0+ (Anthropic Claude integration) **NEW**
+- **LangGraph**: 0.2.0+ (State machine workflows for LLMs) **NEW**
+- **LangGraph Checkpoint Postgres**: 0.2.0+ (PostgreSQL checkpointing) **NEW**
+- **LangSmith**: 0.1.0+ (Observability and tracing) **NEW**
 - **Anthropic**: 0.7.0+ (Claude support - planned)
 - **spaCy**: 3.7.0+ (NLP text processing - planned)
-- **LangChain**: 0.1.0+ (LLM workflow orchestration - planned)
 
 ### Vector Database
 - **Pinecone Client**: 3.0.0+ (semantic search, embeddings storage)
-- **ChromaDB**: Local vector database alternative (NEW)
+- **ChromaDB**: Local vector database alternative
 
 ### Database & ORM
 - **PostgreSQL**: 14+ (Neon cloud database)
@@ -194,14 +234,14 @@ EliosAIService/
 #### Models (`src/domain/models/`)
 
 **Interview** (`interview.py` - 150+ lines):
-- **NEW**: Domain-Driven State Management (migrated from WebSocket orchestrator)
+- **Domain-Driven State Management** (migrated from WebSocket orchestrator)
 - Aggregate root controlling interview lifecycle
 - States: IDLE, QUESTIONING, EVALUATING, REVIEWING, COMPLETED
 - Methods: `transition_to()`, `can_transition_to()`, `validate_state_transition()`
 - Business rules: State machine enforces valid transitions, tracks progress
 - Progress tracking: `has_more_questions()`, `get_current_question_id()`, `get_progress_percentage()`
 
-**Evaluation** (`evaluation.py` - NEW):
+**Evaluation** (`evaluation.py`):
 - **Context-aware evaluation entity** with parent/child separation
 - Types: PARENT_QUESTION, FOLLOW_UP, COMBINED
 - Fields: `parent_evaluation`, `child_evaluations`, `context_type`
@@ -235,23 +275,41 @@ EliosAIService/
 - Fields: `parent_question_id`, `order`, `context`
 - Methods: `is_first_follow_up()`, `is_second_follow_up()`, `is_third_follow_up()`
 
-### 2. Application Layer (Use Cases)
+### 2. Application Layer (Use Cases & Workflows)
 
 **Location**: `src/application/`
 **Responsibility**: Orchestrate domain objects to accomplish business flows
 
-#### DTOs (`application/dto/`)
+#### Workflows (`application/workflows/` - **NEW**)
 
-**PlanningStatusResponse** (`interview_dto.py`):
-- Response for interview planning endpoints
-- **Field Added (2025-11-15)**: `ws_url` - WebSocket URL for real-time session
-- Client receives ws_url immediately after planning completes
-- Enables seamless transition to WebSocket interview without URL construction
-- Fields: interview_id, status, planned_question_count, plan_metadata, message, ws_url
+**BaseWorkflow** (`base_workflow.py`):
+- Base class for all LangGraph workflows
+- PostgreSQL checkpointing integration
+- Thread-based state management
+- Methods: `compile()`, `invoke()`, `get_state()`, `update_state()`
+
+**PlanningWorkflow** (`planning_workflow.py`):
+- Interview planning workflow with LangGraph
+- State: cv_analysis, question_count, questions, embeddings
+- Nodes: analyze_cv, generate_questions, store_embeddings
+- Edges: conditional routing based on question count
+
+**AdaptiveEvalSimpleWorkflow** (`adaptive_eval_simple_workflow.py`):
+- Simple adaptive evaluation without interrupts
+- State: question, answer, evaluation, follow_ups
+- Nodes: evaluate_answer, decide_follow_up, generate_follow_up
+- Edges: conditional based on gap detection
+
+**AdaptiveEvalInterruptWorkflow** (`adaptive_eval_interrupt_workflow.py`):
+- Interrupt-based adaptive evaluation (human-in-loop)
+- State: question, answer, evaluation, follow_ups, interrupt_data
+- Nodes: evaluate_answer, wait_for_decision, generate_follow_up
+- Interrupts: Before follow-up generation for human approval
+- Edges: conditional with interrupt handling
 
 #### Use Cases (`application/use_cases/`)
 
-**CombineEvaluationUseCase** (`combine_evaluation.py` - NEW):
+**CombineEvaluationUseCase** (`combine_evaluation.py`):
 ```python
 Workflow:
 1. Fetch parent evaluation (main question answer)
@@ -333,12 +391,35 @@ Workflow:
 **Location**: `src/adapters/`
 **Responsibility**: Implement domain ports with concrete technologies
 
-#### LLM Adapters (`adapters/llm/`)
+#### LLM Adapters (`adapters/llm/` - **NEW: LangChain**)
+
+**LangChainAdapter** (`langchain_adapter.py` - **NEW** 400+ lines):
+- Implements `LLMPort` interface using LangChain LCEL chains
+- Structured outputs via Pydantic models
+- Features:
+  - 12 LCEL chains (one per LLMPort method)
+  - JSON output parsing with schema validation
+  - LangSmith tracing with PII filtering
+  - Cost tracking integration
+  - Configurable callbacks
+  - Async operations
+  - Context-aware question generation
+  - Multi-dimensional answer evaluation
+
+**LangChain Models** (`langchain_models.py` - **NEW**):
+- Pydantic models for structured LLM outputs
+- Models: CVSummaryOutput, SkillExtractionOutput, EvaluationOutput, FollowUpOutput, GapDetectionOutput, IdealAnswerOutput, RationaleOutput, FeedbackReportOutput, RecommendationsOutput
+- Type-safe LLM responses with schema validation
+
+**Prompts** (`prompts/__init__.py` - **NEW**):
+- Centralized prompt registry
+- ChatPromptTemplate definitions for all LLM operations
+- Prompt versioning and management
 
 **OpenAIAdapter** (`openai_adapter.py` - 400+ lines):
-- Implements `LLMPort` interface
+- Implements `LLMPort` interface using direct OpenAI API
 - Uses OpenAI GPT-4 for all LLM operations
-- **NEW**: Enhanced JSON extraction from markdown responses
+- Enhanced JSON extraction from markdown responses
 - Features:
   - Structured JSON output for evaluations
   - Configurable model and temperature
@@ -347,7 +428,7 @@ Workflow:
   - Multi-dimensional answer evaluation
   - JSON extraction with `extract_json_from_markdown()`
 
-**AzureOpenAIAdapter** (`azure_openai_adapter.py` - NEW):
+**AzureOpenAIAdapter** (`azure_openai_adapter.py`):
 - Azure-hosted OpenAI GPT-4 implementation
 - Same features as OpenAIAdapter
 - Region-specific deployment configuration
@@ -359,30 +440,30 @@ Workflow:
 - Serverless Pinecone with 1536 dimensions (OpenAI embeddings)
 - Features: Auto-creates index, cosine similarity search, metadata filtering
 
-**ChromaAdapter** (`chroma_adapter.py` - NEW):
+**ChromaAdapter** (`chroma_adapter.py`):
 - Local vector database implementation
 - In-memory or persistent storage
 - Good for development and testing
 
 #### Persistence Adapters (`adapters/persistence/`)
 
-**NEW: Evaluation Repository** (`evaluation_repository.py`):
+**Evaluation Repository** (`evaluation_repository.py`):
 - Stores context-aware evaluations
 - Supports parent-child relationships
 - Queries: `get_by_parent_question()`, `get_by_type()`, `get_combined()`
 
 **Database Models** (`models.py`):
 - SQLAlchemy 2.0 async models
-- **NEW**: EvaluationModel with parent_id, context_type, evaluation_data
+- EvaluationModel with parent_id, context_type, evaluation_data
 - Tables: CandidateModel, InterviewModel, QuestionModel, AnswerModel, CVAnalysisModel, FollowUpQuestionModel, EvaluationModel
 - Features: UUID PKs, timestamps, foreign keys, indexes, JSONB columns
 
 **Mappers** (`mappers.py`):
 - Bidirectional conversion: Domain models ↔ Database models
-- **NEW**: EvaluationMapper with parent-child serialization
+- EvaluationMapper with parent-child serialization
 - Classes: CandidateMapper, InterviewMapper, QuestionMapper, AnswerMapper, CVAnalysisMapper, FollowUpQuestionMapper, EvaluationMapper
 
-#### Speech Adapters (`adapters/speech/` - NEW)
+#### Speech Adapters (`adapters/speech/`)
 
 **AzureSTTAdapter** (`azure_stt_adapter.py`):
 - Azure Speech-to-Text implementation
@@ -394,7 +475,7 @@ Workflow:
 - Multiple voice options
 - SSML support for prosody control
 
-#### CV Processing Adapters (`adapters/cv_processing/` - NEW)
+#### CV Processing Adapters (`adapters/cv_processing/`)
 
 **CVProcessingAdapter** (`cv_processing_adapter.py`):
 - PDF and DOCX parsing
@@ -406,16 +487,40 @@ Workflow:
 **Location**: `src/infrastructure/`
 **Responsibility**: Application bootstrap, configuration, utilities
 
+#### Observability (`infrastructure/observability/` - **NEW**)
+
+**LangSmith Config** (`langsmith_config.py` - **NEW**):
+- PIIFilteringTracer for privacy-preserving observability
+- Redacts: emails, phones, SSNs, credit cards, names, CV text
+- Preserves: UUIDs, question metadata, difficulty, skills
+- LangSmith tracing integration
+- Functions: `enable_tracing()`, `create_metadata_for_tracing()`, `get_pii_filtering_tracer()`
+
+**Cost Tracking** (`cost_tracking.py` - **NEW**):
+- LLM API cost tracking and monitoring
+- Token usage tracking (input/output/total)
+- Cost calculation based on model pricing
+- Usage aggregation by: model, operation, date
+- Functions: `track_llm_call()`, `get_total_cost()`, `get_usage_by_model()`, `reset_tracking()`
+
 #### Configuration (`infrastructure/config/`)
 
-**Settings** (`settings.py` - 150+ lines):
+**Settings** (`settings.py` - 200+ lines):
 - Pydantic Settings for type-safe configuration
-- **NEW**: Azure Speech service configuration
-- **NEW**: ChromaDB configuration
-- Configuration groups: Application, API, LLM Provider, Vector DB, PostgreSQL, Speech Services, File Storage, Interview, Logging
+- **NEW**: LangChain/LangSmith configuration
+- **NEW**: Observability settings (PII filtering, cost tracking)
+- Azure Speech service configuration
+- ChromaDB configuration
+- Configuration groups: Application, API, LLM Provider, Vector DB, PostgreSQL, Speech Services, File Storage, Interview, Logging, **Observability (NEW)**
 - Special features: `async_database_url` property, environment detection methods
 
 #### Database (`infrastructure/database/`)
+
+**LangGraph Checkpointer** (`langgraph_checkpointer.py` - **NEW**):
+- PostgreSQL checkpointer for LangGraph workflows
+- Async checkpointing with SQLAlchemy
+- State persistence for workflow interrupts
+- Functions: `setup()`, `get_tuple()`, `put()`, `list()`
 
 **Session Management** (`session.py` - 129 lines):
 - Async SQLAlchemy 2.0 session factory
@@ -424,12 +529,15 @@ Workflow:
 
 #### Dependency Injection (`infrastructure/dependency_injection/`)
 
-**Container** (`container.py` - 300+ lines):
+**Container** (`container.py` - 400+ lines):
 - Central DI container for all dependencies
-- **NEW**: Evaluation repository injection
-- **NEW**: Speech service adapters injection
+- **NEW**: LangChain adapter injection
+- **NEW**: Workflow injection (planning, adaptive eval)
+- **NEW**: Observability components injection
+- Evaluation repository injection
+- Speech service adapters injection
 - Configuration-driven implementation selection
-- Methods: `llm_port()`, `vector_search_port()`, repository methods, speech service methods
+- Methods: `llm_port()`, `vector_search_port()`, repository methods, speech service methods, **workflow methods (NEW)**, **observability methods (NEW)**
 
 ## Entry Points
 
@@ -443,7 +551,7 @@ Workflow:
 - **src/main.py**: Application entry point (FastAPI app)
 
 ### For Testing
-- **tests/**: Test suites (150+ tests)
+- **tests/**: Test suites (200+ tests)
 - **pytest.ini**: Test configuration
 - **tests/conftest.py**: Shared test fixtures
 
@@ -465,7 +573,7 @@ pip install -e ".[dev]"
 
 # 4. Configure environment
 cp .env.example .env.local
-# Edit .env.local with API keys
+# Edit .env.local with API keys (OpenAI, Pinecone, LangSmith)
 
 # 5. Run migrations
 alembic upgrade head
@@ -480,12 +588,18 @@ python src/main.py
 - Test domain logic in isolation
 - Mock all ports
 - Fast execution (milliseconds)
-- 150+ tests, 85%+ coverage
+- 200+ tests, 85%+ coverage
 
 **Integration Tests** (`tests/integration/`):
 - Test adapters with real services
 - Use test environments for external APIs
 - Verify port implementations
+- Workflow integration tests
+
+**Performance Prototypes** (`tests/prototypes/` - **NEW**):
+- Token usage benchmarks
+- Interrupt pattern performance
+- Workflow performance baselines
 
 ## Development Principles
 
@@ -504,11 +618,29 @@ python src/main.py
 
 ### Domain-Driven State Management
 
-**NEW**: State management moved from WebSocket orchestrator to domain layer
+State management moved from WebSocket orchestrator to domain layer:
 - Interview aggregate root owns state transitions
 - State machine validates transitions: IDLE → QUESTIONING → EVALUATING → REVIEWING → COMPLETED
 - Business rules enforced at domain level
 - WebSocket orchestrator delegates state management to domain
+
+### LangChain/LangGraph Patterns **NEW**
+
+**LCEL Chains**:
+- Composable chains for LLM operations
+- Structured outputs with Pydantic models
+- Automatic prompt + model + parser composition
+
+**Workflow Architecture**:
+- LangGraph state machines for complex flows
+- PostgreSQL checkpointing for persistence
+- Interrupt patterns for human-in-loop
+- Conditional routing based on state
+
+**Observability**:
+- LangSmith tracing with PII filtering
+- Cost tracking for all LLM calls
+- Metadata-enriched traces for debugging
 
 ### Code Standards
 
@@ -526,7 +658,7 @@ python src/main.py
 
 ## Implementation Status
 
-### ✅ Complete (v0.2.1 Current)
+### ✅ Complete (v0.3.0 Current)
 
 **Phase 1 Foundation**:
 - Domain models (8 entities including Evaluation)
@@ -539,34 +671,42 @@ python src/main.py
 - Configuration management
 - Dependency injection container
 
-**Phase 2 Evaluation Enhancement**:
+**Phase 2 LangChain/LangGraph Integration** (**NEW - COMPLETE**):
+- LangChain LCEL adapter with 12 chains
+- Structured outputs with Pydantic models
+- Prompt registry and management
+- LangGraph workflows (planning, adaptive eval)
+- PostgreSQL checkpointing for workflows
+- Interrupt patterns for human-in-loop
+
+**Phase 3 Observability Module** (**NEW - COMPLETE**):
+- LangSmith tracing with PII filtering
+- Cost tracking and monitoring
+- Token usage aggregation
+- Privacy-preserving observability
+
+**Phase 4 Evaluation Enhancement**:
 - Context-aware evaluation with entity separation
 - Parent-child evaluation relationships
 - Combined evaluation use case
 - Evaluation repository and persistence
 
-**Phase 3 State Management**:
+**Phase 5 State Management**:
 - Domain-Driven State Management
 - Interview state machine in domain layer
 - State transition validation
 - WebSocket orchestrator delegates to domain
 
-**Phase 4 Additional Features**:
-- JSON extraction from LLM markdown responses
-- Azure Speech services adapters
-- CV processing adapter
-- ChromaDB vector database adapter
-
 **Use Cases**:
 - AnalyzeCV, PlanInterview, GetNextQuestion
 - ProcessAnswerAdaptive, CompleteInterview
 - GenerateSummary, FollowUpDecision
-- CombineEvaluation (NEW)
+- CombineEvaluation
 
 **API Layer**:
 - REST API (health + interview endpoints)
 - WebSocket handler (real-time interview sessions)
-- DTOs (4 files: interview, answer, audio, websocket)
+- DTOs (5 files: interview, answer, audio, websocket, detailed_feedback)
 
 ### 🔄 In Progress
 
@@ -586,30 +726,38 @@ python src/main.py
 
 ## File Statistics
 
-**Total Python Files**: ~75 files
+**Total Python Files**: ~101 files
 **Domain Layer**: 21 files (8 models + 13 ports)
-**Application Layer**: 14 files (8 use cases + 4 DTOs + __init__)
-**Adapters Layer**: 35 files (LLM, vector DB, 6 mocks, persistence, API, speech, CV)
-**Infrastructure Layer**: 9 files (config, database, DI)
-**Tests**: 150+ tests (85%+ coverage on core features)
+**Application Layer**: 19 files (8 use cases + 5 DTOs + 5 workflows + __init__)
+**Adapters Layer**: 40 files (LLM w/ LangChain, vector DB, 6 mocks, persistence, API, speech, CV)
+**Infrastructure Layer**: 12 files (config, database w/ checkpointer, DI, observability)
+**Tests**: 200+ tests (85%+ coverage on core features) - 29 test files
 
 **Lines of Code**:
-- Domain: ~850 lines (+100 for Evaluation)
-- Application: ~1200 lines (+150 for CombineEvaluation)
-- Adapters: ~3000 lines (+300 for new adapters)
-- Infrastructure: ~450 lines
-- Total: ~5500 lines production code
-- Tests: ~3000 lines
+- Domain: ~850 lines
+- Application: ~1800 lines (+600 for workflows)
+- Adapters: ~4000 lines (+600 for LangChain integration)
+- Infrastructure: ~600 lines (+150 for observability)
+- Total: ~7200 lines production code
+- Tests: ~4000 lines
 
 ## Dependencies Overview
 
-### Production Dependencies (20+ packages)
-Core framework, LLM providers, vector DB, database, speech services, document processing, utilities
+### Production Dependencies (30+ packages)
+Core framework, **LangChain/LangGraph** (**NEW**), LLM providers, vector DB, database, speech services, document processing, utilities
+
+**NEW Dependencies**:
+- `langchain>=0.2.0` - LLM workflow orchestration
+- `langchain-openai>=0.2.0` - OpenAI integration
+- `langchain-anthropic>=0.2.0` - Anthropic Claude integration
+- `langgraph>=0.2.0` - State machine workflows
+- `langgraph-checkpoint-postgres>=0.2.0` - PostgreSQL checkpointing
+- `langsmith>=0.1.0` - Observability and tracing
 
 ### Development Dependencies (9 packages)
 Testing, linting, formatting, type checking, development tools
 
-**Total Dependencies**: 30+ packages
+**Total Dependencies**: 40+ packages (+10 from LangChain ecosystem)
 
 ## Performance Considerations
 
@@ -623,12 +771,20 @@ Testing, linting, formatting, type checking, development tools
 - Connection pooling (configurable)
 - Indexed columns for frequent queries
 - Efficient ORM query patterns
+- **NEW**: LangGraph checkpointing for workflow state
 
 ### Scalability
-- Stateless API design (state in domain, not WebSocket)
+- Stateless API design (state in domain + checkpointer, not WebSocket)
 - Horizontal scaling ready
 - Database connection pooling
 - Async request handling
+- **NEW**: Workflow state persistence for recovery
+
+### Observability **NEW**
+- LangSmith tracing with minimal overhead
+- PII filtering prevents sensitive data leakage
+- Cost tracking for budget monitoring
+- Token usage analysis for optimization
 
 ## Security Measures
 
@@ -637,6 +793,9 @@ Testing, linting, formatting, type checking, development tools
 - .env.local gitignored
 - SQL injection prevention (parameterized queries)
 - Input validation via Pydantic
+- **NEW**: PII filtering in traces (emails, phones, SSNs, names)
+- **NEW**: CV text redaction in logs
+- **NEW**: Answer truncation (200 chars max in traces)
 
 ### Planned ⏳
 - JWT authentication
@@ -653,6 +812,7 @@ Testing, linting, formatting, type checking, development tools
 - Development: Local Python + PostgreSQL (Neon cloud)
 - Configuration: .env.local files
 - Database: Neon serverless PostgreSQL
+- **NEW**: LangSmith tracing (optional, for observability)
 
 ### Planned
 - Docker containerization
@@ -660,7 +820,7 @@ Testing, linting, formatting, type checking, development tools
 - Kubernetes for production
 - Environment-specific configurations
 - CI/CD with GitHub Actions
-- Monitoring and logging
+- Monitoring and logging (via LangSmith)
 - Health checks and readiness probes
 
 ## Related Documentation
@@ -669,6 +829,7 @@ Testing, linting, formatting, type checking, development tools
 - [System Architecture](./system-architecture.md) - Detailed architecture documentation
 - [Code Standards](./code-standards.md) - Coding conventions and best practices
 - [Project Roadmap](./project-roadmap.md) - Development timeline and milestones
+- [Observability Guide](./observability-guide.md) - **NEW** - LangSmith tracing and cost tracking
 
 ## External Resources
 
@@ -677,16 +838,10 @@ Testing, linting, formatting, type checking, development tools
 - [SQLAlchemy 2.0 Documentation](https://docs.sqlalchemy.org/en/20/)
 - [OpenAI API Reference](https://platform.openai.com/docs/)
 - [Pinecone Documentation](https://docs.pinecone.io/)
+- [LangChain Documentation](https://python.langchain.com/) **NEW**
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) **NEW**
+- [LangSmith Documentation](https://docs.smith.langchain.com/) **NEW**
 - [Clean Architecture Guide](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
-
-## Unresolved Questions
-
-1. **Test Coverage Target**: Maintain 85%+ or push for 90%?
-2. **API Versioning**: v1 in URL or headers when API stabilizes?
-3. **Logging Strategy**: JSON logs in production? Which logging library?
-4. **Monitoring**: Prometheus/Grafana or cloud-native solutions?
-5. **Deployment Target**: AWS, GCP, Azure, or multi-cloud?
-6. **State Persistence**: How to handle WebSocket disconnections with domain state?
 
 ---
 

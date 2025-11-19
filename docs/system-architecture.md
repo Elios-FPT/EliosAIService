@@ -1,9 +1,11 @@
 # System Architecture
 
-**Last Updated**: 2025-11-15
-**Version**: 0.2.2
+**Last Updated**: 2025-11-20
+**Version**: 0.3.0
 **Project**: Elios AI Interview Service
 **Repository**: https://github.com/elios/elios-ai-service
+
+**V0.3.0 Update**: Integrated LangChain/LangGraph workflow layer with PostgreSQL checkpointing and LangSmith observability.
 
 ## Table of Contents
 
@@ -18,6 +20,9 @@
 9. [Security Architecture](#security-architecture)
 10. [Deployment Architecture](#deployment-architecture)
 11. [Scalability & Performance](#scalability--performance)
+12. [LangGraph Workflow Architecture](#langgraph-workflow-architecture) (NEW v0.3.0)
+13. [Observability Layer Architecture](#observability-layer-architecture) (NEW v0.3.0)
+14. [PostgreSQL Checkpointing Architecture](#postgresql-checkpointing-architecture) (NEW v0.3.0)
 
 ## Architecture Overview
 
@@ -1801,6 +1806,800 @@ async def get_cv_analysis(cv_id: UUID) -> CVAnalysis:
 - Database connection issues
 - External API failures
 
+## LangGraph Workflow Architecture
+
+**Added**: v0.3.0 (LangChain/LangGraph Integration)
+
+### Workflow Layer in Clean Architecture
+
+**Position**: Between Application and Adapters layers
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Infrastructure Layer                    │
+│          (Config, DI, Database, Logging)                 │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌─────────────────────────────────────────────────────────┐
+│                    Adapters Layer                        │
+│  (LangChain, PostgreSQL, Pinecone, OpenAI, FastAPI)     │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌─────────────────────────────────────────────────────────┐
+│               **WORKFLOW LAYER** (NEW v0.3.0)            │
+│  ┌────────────────┬──────────────────────────────────┐  │
+│  │ LangGraph      │  StateGraph Orchestration        │  │
+│  │ Workflows      │  - Planning Workflow (497 LOC)   │  │
+│  │                │  - Adaptive Eval (879 LOC)       │  │
+│  │                │  - PostgreSQL Checkpointing      │  │
+│  └────────────────┴──────────────────────────────────┘  │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌─────────────────────────────────────────────────────────┐
+│                  Application Layer                       │
+│           (Use Cases, DTOs)                              │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌─────────────────────────────────────────────────────────┐
+│                    Domain Layer                          │
+│        (Models, Ports, Business Logic)                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### StateGraph Architecture Pattern
+
+**Components**:
+
+```python
+# 1. State Definition (TypedDict)
+class PlanningState(TypedDict):
+    cv_analysis_id: UUID
+    candidate_id: UUID
+    generated_questions: list[str]
+    errors: list[str]
+    retry_count: int
+    checkpoint_thread_id: str
+
+# 2. Nodes (Functions)
+async def _load_cv_node(state: PlanningState) -> dict:
+    """Load CV from repository."""
+    cv = await repo.get_by_id(state["cv_analysis_id"])
+    return {"cv_analysis": cv}
+
+# 3. Edges (Flow Control)
+graph.add_edge("load_cv", "calculate_count")  # Linear edge
+graph.add_conditional_edges(                   # Conditional edge
+    "load_cv",
+    check_errors,
+    {"continue": "next_node", "error": "error_handler"}
+)
+
+# 4. Compilation with Checkpointer
+app = graph.compile(checkpointer=AsyncPostgresSaver())
+```
+
+### Node Execution Flow
+
+```
+┌─────────────┐
+│  Start      │
+└──────┬──────┘
+       │
+       ↓
+┌─────────────────────────┐
+│  Load CV Node           │  ← Checkpoint 1 saved
+│  - Fetch from DB        │
+│  - Return {"cv": ...}   │
+└──────┬──────────────────┘
+       │
+       ↓
+┌─────────────────────────┐
+│  Calculate Count Node   │  ← Checkpoint 2 saved
+│  - Analyze skills       │
+│  - Return {"count": n}  │
+└──────┬──────────────────┘
+       │
+       ↓
+┌─────────────────────────┐
+│  Generate Batch Node    │  ← Checkpoint 3 saved
+│  - LLM calls (parallel) │
+│  - Return {"qs": [...]} │
+└──────┬──────────────────┘
+       │
+       ↓ (CRASH HERE? Resume from Checkpoint 3)
+       │
+┌─────────────────────────┐
+│  Store Questions Node   │  ← Checkpoint 4 saved
+│  - Save to DB           │
+│  - Return {"ids": [...]}│
+└──────┬──────────────────┘
+       │
+       ↓
+┌─────────────┐
+│     END     │
+└─────────────┘
+```
+
+### Conditional Routing Architecture
+
+**Pattern**: Router functions determine next node:
+
+```python
+def _check_for_errors(state: PlanningState) -> str:
+    """Router function returns edge key."""
+    if state.get("errors"):
+        return "error"  # → error_handler node
+    return "continue"    # → next_node
+
+# Graph definition
+graph.add_conditional_edges(
+    source_node="load_cv",
+    path=_check_for_errors,
+    path_map={
+        "continue": "calculate_count",
+        "error": "handle_error"
+    }
+)
+```
+
+**Conditional Flow Diagram**:
+
+```
+         ┌─────────────┐
+         │  Load CV    │
+         └──────┬──────┘
+                │
+         _check_for_errors()
+                │
+       ┌────────┴────────┐
+       │                 │
+   errors?           no errors?
+       │                 │
+       ↓                 ↓
+┌─────────────┐   ┌──────────────┐
+│Handle Error │   │Calculate     │
+│   Node      │   │Count Node    │
+└─────────────┘   └──────────────┘
+```
+
+### State Management Lifecycle
+
+**State Evolution Through Workflow**:
+
+```
+Initial State:
+{
+    "cv_analysis_id": UUID,
+    "candidate_id": UUID,
+    "generated_questions": [],
+    "errors": [],
+    "retry_count": 0
+}
+
+After load_cv node:
+{
+    ...,
+    "cv_analysis": CVAnalysis(...),  # Added
+}
+
+After calculate_count node:
+{
+    ...,
+    "question_count": 5,  # Added
+    "question_specs": [...],  # Added
+}
+
+After generate_batch node:
+{
+    ...,
+    "generated_questions": ["Q1", "Q2", ...],  # Added
+    "generated_answers": ["A1", "A2", ...],  # Added
+}
+
+Final State:
+{
+    ...,
+    "stored_question_ids": [UUID, ...],  # Added
+    "interview": Interview(...),  # Added
+}
+```
+
+### Crash Recovery Mechanism
+
+**How Checkpointing Works**:
+
+```
+1. Execute Node → 2. Update State → 3. Save Checkpoint → 4. Next Node
+                              ↓
+                      PostgreSQL checkpoints table
+                      {
+                         thread_id: "planning_abc123",
+                         checkpoint_id: "checkpoint_3",
+                         state: {...},  # Serialized state
+                         next_node: "store_questions"
+                      }
+                              ↓
+                      (CRASH/FAILURE)
+                              ↓
+                      Resume with same thread_id
+                              ↓
+                      Load Checkpoint 3 → Continue from "store_questions"
+```
+
+**Code Example**:
+
+```python
+# Initial execution
+result = await workflow.execute(cv_id, candidate_id)
+# Returns: {"thread_id": "planning_abc123", "question_ids": [...]}
+
+# Resume after crash (same thread_id)
+result = await workflow.execute(
+    cv_id,
+    candidate_id,
+    thread_id="planning_abc123"  # Resume from last checkpoint
+)
+```
+
+### Workflow Initialization Pattern
+
+**From `src/application/workflows/planning_workflow.py`**:
+
+```python
+class PlanningWorkflow(BaseWorkflow):
+    def __init__(
+        self,
+        checkpointer: AsyncPostgresSaver,
+        llm_port: LLMPort,
+        cv_repo: CVAnalysisRepositoryPort,
+        question_repo: QuestionRepositoryPort,
+        interview_repo: InterviewRepositoryPort,
+        vector_search: VectorSearchPort,
+    ):
+        super().__init__(checkpointer)
+        self.llm = llm_port
+        self.cv_repo = cv_repo
+        self.question_repo = question_repo
+        self.interview_repo = interview_repo
+        self.vector_search = vector_search
+        self.app = self._build_graph()  # Build on init
+
+    def _build_graph(self) -> CompiledStateGraph:
+        graph = StateGraph(PlanningState)
+
+        # Add all nodes
+        graph.add_node("load_cv", self._load_cv_node)
+        # ... more nodes
+
+        # Add all edges
+        graph.add_edge("load_cv", "calculate_count")
+        # ... more edges
+
+        # Compile with checkpointer
+        return graph.compile(checkpointer=self.checkpointer)
+```
+
+**Dependency Injection in DI Container**:
+
+```python
+# infrastructure/dependency_injection/container.py
+def planning_workflow(self, session: AsyncSession) -> PlanningWorkflow:
+    """Create planning workflow with all dependencies."""
+
+    # Get checkpointer
+    checkpointer = await get_checkpointer(self.settings.database_url)
+
+    # Create workflow
+    return PlanningWorkflow(
+        checkpointer=checkpointer,
+        llm_port=self.llm_port(),
+        cv_repo=self.cv_analysis_repository_port(session),
+        question_repo=self.question_repository_port(session),
+        interview_repo=self.interview_repository_port(session),
+        vector_search=self.vector_search_port(),
+    )
+```
+
+### Diagram: Workflow Execution Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    API Endpoint                          │
+│         POST /api/interviews/plan                        │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│              PlanInterviewUseCase                        │
+│  - Validates input                                       │
+│  - Calls workflow.execute()                              │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│              PlanningWorkflow.execute()                  │
+│  - Generate thread_id                                    │
+│  - Create initial state                                  │
+│  - await app.ainvoke(state, config)                      │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+            ┌────────────┴─────────────┐
+            │  LangGraph StateGraph    │
+            │  (Compiled)              │
+            └────────────┬─────────────┘
+                         │
+         ┌───────────────┼───────────────┐
+         │               │               │
+         ↓               ↓               ↓
+    ┌────────┐     ┌─────────┐    ┌──────────┐
+    │ Node 1 │ →   │ Node 2  │ →  │  Node 3  │
+    └────┬───┘     └────┬────┘    └────┬─────┘
+         │              │              │
+    Checkpoint 1   Checkpoint 2   Checkpoint 3
+         ↓              ↓              ↓
+    ┌─────────────────────────────────────┐
+    │  PostgreSQL checkpoints table       │
+    └─────────────────────────────────────┘
+```
+
+### Performance Implications
+
+**Checkpointing Overhead**:
+- **Latency**: +50-100ms per node (PostgreSQL write)
+- **Storage**: ~5-10 KB per checkpoint (serialized state)
+- **Throughput**: Minimal impact (async writes)
+
+**Benefits vs Cost**:
+- ✅ Crash recovery (resume from any node)
+- ✅ Debugging (inspect state at each step)
+- ✅ Audit trail (state history persisted)
+- ❌ Slight latency increase per node
+- ❌ PostgreSQL storage usage
+
+**Optimization Strategies**:
+- Checkpoint only critical nodes (not every node)
+- Use connection pooling for checkpointer
+- Clean up old checkpoints (retention policy)
+
+## Observability Layer Architecture
+
+**Added**: v0.3.0 (LangChain/LangGraph Integration)
+
+### Observability as Cross-Cutting Concern
+
+**Architecture Pattern**: Callback-based observability that wraps all LLM calls without modifying business logic.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Application Code                        │
+│  (Use Cases, Workflows, Domain Logic)                    │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│                LangChain Adapter                         │
+│  - Builds LCEL chains                                    │
+│  - Injects observability callbacks                       │
+│  - Adds metadata for tracing                             │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│           **OBSERVABILITY LAYER** (NEW v0.3.0)           │
+│  ┌────────────────┬──────────────────────────────────┐  │
+│  │ PIIFilteringTracer  │  Cost Tracking              │  │
+│  │ - Redacts PII       │  - Token counting           │  │
+│  │ - Truncates long    │  - USD cost calculation     │  │
+│  │   text              │  - Per-interview tracking   │  │
+│  └────────────────┴──────────────────────────────────┘  │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│                   LangSmith API                          │
+│  - Stores traces (PII-filtered)                          │
+│  - Provides UI for debugging                             │
+│  - Queryable via API for cost tracking                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### LangSmith Integration Architecture
+
+**Components**:
+
+1. **PIIFilteringTracer** (`src/infrastructure/observability/langsmith_config.py`):
+   - Extends `LangChainTracer`
+   - Intercepts all LLM events
+   - Filters PII before sending to LangSmith
+   - Implements 5 PII patterns (email, phone, SSN, credit card, names)
+
+2. **Cost Tracking** (`src/infrastructure/observability/cost_tracking.py`):
+   - Queries LangSmith API post-interview
+   - Calculates USD cost from token usage
+   - Supports 6 LLM models (GPT-4, Claude, Llama)
+   - Per-interview and daily aggregation
+
+3. **Metadata Injection** (`langsmith_config.create_metadata_for_tracing()`):
+   - Standard fields: interview_id, candidate_id, question_id
+   - Contextual fields: difficulty, skill, method
+   - Enables filtering in LangSmith UI
+
+### Callback Handler Chain Pattern
+
+**How Callbacks Work**:
+
+```python
+# 1. Setup callbacks at application startup
+tracer = PIIFilteringTracer(project_name="elios-interviews")
+callbacks = [tracer]
+
+# 2. Inject callbacks into LangChain model
+model = ChatOpenAI(model="gpt-4", callbacks=callbacks)
+
+# 3. Create adapter with callbacks
+adapter = LangChainAdapter(model=model, callbacks=callbacks)
+
+# 4. Every chain invocation automatically traced
+result = await adapter.evaluate_answer(question, answer, context)
+# → tracer.on_llm_start() called
+# → tracer.on_llm_end() called
+# → Data sent to LangSmith (PII-filtered)
+```
+
+**Callback Execution Flow**:
+
+```
+Chain.ainvoke()
+    │
+    ├─→ on_chain_start(inputs)
+    │   └─→ PIIFilteringTracer._filter_dict(inputs)
+    │       └─→ LangSmith API (filtered inputs)
+    │
+    ├─→ on_llm_start(prompts)
+    │   └─→ PIIFilteringTracer._filter_pii(prompts)
+    │       └─→ LangSmith API (filtered prompts)
+    │
+    ├─→ [LLM API Call]
+    │
+    ├─→ on_llm_end(response)
+    │   └─→ PIIFilteringTracer._filter_pii(response)
+    │       └─→ LangSmith API (filtered response + token counts)
+    │
+    └─→ on_chain_end(outputs)
+        └─→ PIIFilteringTracer._filter_dict(outputs)
+            └─→ LangSmith API (filtered outputs)
+```
+
+### Cost Tracking Data Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                 Interview Session                        │
+│  (15 LLM calls, gpt-4, 12,500 tokens total)              │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓ (Each LLM call traces to LangSmith)
+┌─────────────────────────────────────────────────────────┐
+│                  LangSmith API                           │
+│  Stores runs with metadata:                              │
+│  - run_id: UUID                                          │
+│  - metadata: {interview_id: "abc123", ...}               │
+│  - total_tokens: 850                                     │
+│  - prompt_tokens: 600                                    │
+│  - completion_tokens: 250                                │
+│  - model_name: "gpt-4"                                   │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓ (Post-interview)
+┌─────────────────────────────────────────────────────────┐
+│          get_interview_cost(interview_id)                │
+│  1. Query LangSmith: filter by interview_id              │
+│  2. Aggregate tokens across all runs                     │
+│  3. Calculate cost: (input * $0.03 + output * $0.06)/1K  │
+│  4. Return cost breakdown                                │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│                 Cost Analytics                           │
+│  {                                                        │
+│    "total_cost_usd": 0.45,                               │
+│    "total_tokens": 12500,                                │
+│    "trace_count": 15,                                    │
+│    "model_breakdown": {                                  │
+│      "gpt-4": {"tokens": 12500, "cost": 0.45}            │
+│    }                                                      │
+│  }                                                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+### PII Filtering Pipeline
+
+**Redaction Flow**:
+
+```
+Raw Input:
+"My name is John Doe, email: john.doe@example.com, phone: 555-123-4567.
+I have 5 years of Python experience..."
+
+        ↓ [PIIFilteringTracer._filter_pii()]
+
+Email Redaction (regex):
+john.doe@example.com → [EMAIL_REDACTED]
+
+Phone Redaction (regex):
+555-123-4567 → [PHONE_REDACTED]
+
+Name Redaction (pattern):
+"My name is John Doe" → "My name is [NAME_REDACTED]"
+
+Truncation (answer_text):
+If len(text) > 200: text = text[:200] + "... [TRUNCATED]"
+
+        ↓
+
+Filtered Output (sent to LangSmith):
+"My name is [NAME_REDACTED], email: [EMAIL_REDACTED], phone: [PHONE_REDACTED].
+I have 5 years of Python experience..."
+```
+
+**What Gets Filtered vs Preserved**:
+
+| Data Type        | Action                      | Reason                            |
+|------------------|-----------------------------|-----------------------------------|
+| Emails           | Redact → `[EMAIL_REDACTED]` | PII                               |
+| Phone numbers    | Redact → `[PHONE_REDACTED]` | PII                               |
+| SSNs             | Redact → `[SSN_REDACTED]`   | PII                               |
+| Names (explicit) | Redact → `[NAME_REDACTED]`  | PII                               |
+| Long answers     | Truncate to 200 chars       | Privacy + storage                 |
+| CV text          | Truncate to 100 chars       | Privacy + storage                 |
+| interview_id     | Preserve (UUID)             | Non-PII, needed for cost tracking |
+| candidate_id     | Preserve (UUID)             | Non-PII, needed for analytics     |
+| question_type    | Preserve                    | Non-PII metadata                  |
+| difficulty       | Preserve                    | Non-PII metadata                  |
+| skill            | Preserve                    | Non-PII metadata                  |
+
+### Example: Callback Propagation
+
+**From `src/adapters/llm/langchain_adapter.py`**:
+
+```python
+class LangChainAdapter(LLMPort):
+    def __init__(self, model: BaseChatModel, callbacks: list[Any] | None = None):
+        self.model = model
+        self.callbacks = callbacks or []  # Store callbacks
+        self._chains = self._build_chains()
+
+    def _build_chains(self) -> dict[str, Any]:
+        # Chains automatically inherit callbacks from model
+        chains = {}
+        for method_name, prompt_template in PROMPT_REGISTRY.items():
+            chains[method_name] = prompt_template | self.model | JsonOutputParser()
+        return chains
+
+    async def evaluate_answer(self, question, answer_text, context):
+        # Create config with metadata + callbacks
+        config = RunnableConfig(
+            metadata=create_metadata_for_tracing(
+                interview_id=context.get("interview_id"),
+                question_id=str(question.id),
+                method="evaluate_answer",
+            ),
+            callbacks=self.callbacks  # Propagate callbacks
+        )
+
+        # Execute chain (callbacks automatically invoked)
+        result = await self._chains["evaluate_answer"].ainvoke({
+            "question_text": question.text,
+            "answer_text": answer_text,
+        }, config=config)
+
+        # All LLM events traced with PII filtering + metadata
+        return AnswerEvaluation(**result)
+```
+
+## PostgreSQL Checkpointing Architecture
+
+**Added**: v0.3.0 (LangChain/LangGraph Integration)
+
+### Checkpoint Storage Architecture
+
+**Database Schema**:
+
+```sql
+-- LangGraph checkpoints table (created by AsyncPostgresSaver)
+CREATE TABLE checkpoints (
+    thread_id TEXT NOT NULL,
+    checkpoint_id TEXT NOT NULL,
+    parent_checkpoint_id TEXT,
+    checkpoint BYTEA NOT NULL,  -- Serialized state
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (thread_id, checkpoint_id)
+);
+
+CREATE INDEX idx_checkpoints_thread_id ON checkpoints(thread_id);
+CREATE INDEX idx_checkpoints_created_at ON checkpoints(created_at);
+```
+
+**Example Checkpoint Data**:
+
+```json
+{
+  "thread_id": "planning_550e8400-e29b-41d4-a716-446655440000",
+  "checkpoint_id": "1e10e7e0-8c3d-4b84-9c5e-7d8a9b0c1d2e",
+  "parent_checkpoint_id": null,
+  "checkpoint": <serialized PlanningState>,
+  "metadata": {
+    "source": "update",
+    "step": 3,
+    "writes": {"generate_batch": {"generated_questions": ["Q1", "Q2", ...]}}
+  },
+  "created_at": "2025-11-20T10:30:45.123Z"
+}
+```
+
+### State Serialization/Deserialization
+
+**How State is Stored**:
+
+```python
+# Before checkpoint (in-memory state)
+state: PlanningState = {
+    "cv_analysis_id": UUID("abc123..."),
+    "cv_analysis": CVAnalysis(id=UUID("abc123"), ...),  # Complex object
+    "generated_questions": ["Q1", "Q2"],
+    "errors": [],
+}
+
+# Serialization (by AsyncPostgresSaver)
+serialized = pickle.dumps(state)  # BYTEA column
+checkpoint_id = generate_checkpoint_id()
+
+# Insert into PostgreSQL
+INSERT INTO checkpoints (thread_id, checkpoint_id, checkpoint, metadata)
+VALUES ('planning_abc123', checkpoint_id, serialized, {...});
+
+# Deserialization (on resume)
+row = SELECT checkpoint FROM checkpoints WHERE thread_id = 'planning_abc123'
+      ORDER BY created_at DESC LIMIT 1;
+state = pickle.loads(row['checkpoint'])  # Restored in-memory state
+```
+
+### Recovery Mechanism on Crash
+
+**Crash Scenario**:
+
+```
+Normal Execution:
+├─ Node 1: load_cv       → Checkpoint 1 saved
+├─ Node 2: calculate_count → Checkpoint 2 saved
+├─ Node 3: generate_batch  → Checkpoint 3 saved
+└─ [CRASH HERE] (e.g., OOM, network failure)
+
+Recovery Execution (same thread_id):
+├─ Load Checkpoint 3 from PostgreSQL
+├─ Restore state: {cv_analysis, question_count, generated_questions, ...}
+├─ Resume from next node: store_questions
+└─ Continue to END
+```
+
+**Code Flow**:
+
+```python
+# Initial execution (crashes after checkpoint 3)
+try:
+    result = await workflow.execute(cv_id, candidate_id)
+    # thread_id = "planning_abc123"
+    # Crash after generate_batch node
+except Exception as e:
+    logger.error(f"Workflow crashed: {e}")
+    # thread_id "planning_abc123" has 3 checkpoints in DB
+
+# Resume execution (manual or automatic retry)
+result = await workflow.execute(
+    cv_id,
+    candidate_id,
+    thread_id="planning_abc123"  # Resume from last checkpoint
+)
+# → Loads Checkpoint 3
+# → Resumes from "store_questions" node
+# → Completes successfully
+```
+
+### Performance Implications
+
+**Write Performance**:
+- **Per-node overhead**: 50-100ms (PostgreSQL INSERT + serialization)
+- **State size**: 5-10 KB typical, up to 50 KB for large CVs
+- **Mitigation**: Async writes, connection pooling
+
+**Read Performance**:
+- **Resume latency**: 100-200ms (SELECT + deserialization)
+- **Query pattern**: `ORDER BY created_at DESC LIMIT 1` (indexed)
+
+**Storage Growth**:
+- **Per workflow**: 5-10 checkpoints × 10 KB = 50-100 KB
+- **Daily volume**: 1000 interviews × 100 KB = 100 MB/day
+- **Retention policy**: Delete checkpoints older than 7 days
+
+### Checkpoint Cleanup Strategy
+
+**Retention Policy**:
+
+```sql
+-- Delete old checkpoints (runs daily via cron job)
+DELETE FROM checkpoints
+WHERE created_at < NOW() - INTERVAL '7 days';
+
+-- Keep only latest checkpoint per thread (optional aggressive cleanup)
+DELETE FROM checkpoints c1
+WHERE EXISTS (
+    SELECT 1 FROM checkpoints c2
+    WHERE c2.thread_id = c1.thread_id
+    AND c2.created_at > c1.created_at
+);
+```
+
+**Configuration**:
+
+```python
+# settings.py
+class Settings(BaseSettings):
+    checkpoint_retention_days: int = 7
+    checkpoint_cleanup_enabled: bool = True
+```
+
+### Example: Checkpoint Save/Restore Flow
+
+**From `src/application/workflows/planning_workflow.py`**:
+
+```python
+# Workflow execution with automatic checkpointing
+async def execute(
+    self,
+    cv_analysis_id: UUID,
+    candidate_id: UUID,
+    thread_id: str | None = None
+) -> dict[str, Any]:
+    # Generate or reuse thread_id
+    if thread_id is None:
+        thread_id = self.generate_thread_id("planning")
+        logger.info(f"New workflow execution: {thread_id}")
+    else:
+        logger.info(f"Resuming workflow: {thread_id}")
+
+    # Initial state (or resume from checkpoint)
+    initial_state: PlanningState = {
+        "cv_analysis_id": cv_analysis_id,
+        "candidate_id": candidate_id,
+        "generated_questions": [],
+        "errors": [],
+        "retry_count": 0,
+        "checkpoint_thread_id": thread_id,
+    }
+
+    # Execute workflow (checkpoints saved automatically after each node)
+    final_state = await self.app.ainvoke(
+        initial_state,
+        {"configurable": {"thread_id": thread_id}}
+    )
+    # If thread_id exists in DB:
+    #   1. Load latest checkpoint
+    #   2. Restore state
+    #   3. Resume from next node
+    # Else:
+    #   1. Start from entry point
+    #   2. Save checkpoint after each node
+
+    return {
+        "question_ids": final_state["stored_question_ids"],
+        "interview": final_state["interview"],
+        "thread_id": thread_id,
+    }
+```
+
 ## References
 
 ### Internal Documentation
@@ -1815,6 +2614,9 @@ async def get_cv_analysis(cv_id: UUID) -> CVAnalysis:
 - [Domain-Driven Design](https://martinfowler.com/bliki/DomainDrivenDesign.html)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [SQLAlchemy 2.0](https://docs.sqlalchemy.org/en/20/)
+- [LangChain Documentation](https://python.langchain.com/docs/get_started/introduction)
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
+- [LangSmith Documentation](https://docs.smith.langchain.com/)
 
 ---
 
