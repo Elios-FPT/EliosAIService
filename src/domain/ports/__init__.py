@@ -9,6 +9,7 @@ from .evaluation_repository_port import EvaluationRepositoryPort
 from .follow_up_question_repository_port import FollowUpQuestionRepositoryPort
 from .interview_repository_port import InterviewRepositoryPort
 from .llm_port import LLMPort
+from .prompt_repository_port import PromptRepositoryPort
 from .question_repository_port import QuestionRepositoryPort
 from .speech_to_text_port import SpeechToTextPort
 from .text_to_speech_port import TextToSpeechPort
@@ -28,4 +29,5 @@ __all__ = [
     "SpeechToTextPort",
     "TextToSpeechPort",
     "AnalyticsPort",
+    "PromptRepositoryPort",
 ]

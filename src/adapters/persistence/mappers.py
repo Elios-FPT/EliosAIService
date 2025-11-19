@@ -372,3 +372,175 @@ class FollowUpQuestionMapper:
         db_model.text = domain_model.text
         db_model.generated_reason = domain_model.generated_reason
         db_model.order_in_sequence = domain_model.order_in_sequence
+
+
+class PromptTemplateMapper:
+    """Mapper for PromptTemplate domain model and PromptTemplateModel."""
+
+    @staticmethod
+    def to_domain(db_model: "PromptTemplateModel") -> "PromptTemplate":
+        """Convert database model to domain model.
+
+        Args:
+            db_model: PromptTemplateModel SQLAlchemy model
+
+        Returns:
+            PromptTemplate domain model
+        """
+        from ...domain.models.prompt_template import PromptTemplate
+
+        return PromptTemplate(
+            id=db_model.id,
+            name=db_model.name,
+            version=db_model.version,
+            parent_version_id=db_model.parent_version_id,
+            change_summary=db_model.change_summary,
+            template_json=db_model.template_json,
+            is_active=db_model.is_active,
+            is_draft=db_model.is_draft,
+            ab_test_group=db_model.ab_test_group,
+            traffic_percentage=db_model.traffic_percentage,
+            created_at=db_model.created_at,
+            created_by=db_model.created_by,
+            notes=db_model.notes,
+        )
+
+    @staticmethod
+    def to_db_model(domain_model: "PromptTemplate") -> "PromptTemplateModel":
+        """Convert domain model to database model.
+
+        Args:
+            domain_model: PromptTemplate domain model
+
+        Returns:
+            PromptTemplateModel SQLAlchemy model
+        """
+        from .models import PromptTemplateModel
+
+        return PromptTemplateModel(
+            id=domain_model.id,
+            name=domain_model.name,
+            version=domain_model.version,
+            parent_version_id=domain_model.parent_version_id,
+            change_summary=domain_model.change_summary,
+            template_json=domain_model.template_json,
+            is_active=domain_model.is_active,
+            is_draft=domain_model.is_draft,
+            ab_test_group=domain_model.ab_test_group,
+            traffic_percentage=domain_model.traffic_percentage,
+            created_at=domain_model.created_at,
+            created_by=domain_model.created_by,
+            notes=domain_model.notes,
+        )
+
+
+class PromptMetadataChangeMapper:
+    """Mapper for PromptMetadataChange domain model and PromptMetadataChangeModel."""
+
+    @staticmethod
+    def to_domain(db_model: "PromptMetadataChangeModel") -> "PromptMetadataChange":
+        """Convert database model to domain model.
+
+        Args:
+            db_model: PromptMetadataChangeModel SQLAlchemy model
+
+        Returns:
+            PromptMetadataChange domain model
+        """
+        from ...domain.models.prompt_metadata_change import PromptMetadataChange
+
+        return PromptMetadataChange(
+            id=db_model.id,
+            prompt_template_id=db_model.prompt_template_id,
+            field_name=db_model.field_name,
+            old_value=db_model.old_value,
+            new_value=db_model.new_value,
+            changed_by=db_model.changed_by,
+            changed_at=db_model.changed_at,
+            reason=db_model.reason,
+        )
+
+    @staticmethod
+    def to_db_model(domain_model: "PromptMetadataChange") -> "PromptMetadataChangeModel":
+        """Convert domain model to database model.
+
+        Args:
+            domain_model: PromptMetadataChange domain model
+
+        Returns:
+            PromptMetadataChangeModel SQLAlchemy model
+        """
+        from .models import PromptMetadataChangeModel
+
+        return PromptMetadataChangeModel(
+            id=domain_model.id,
+            prompt_template_id=domain_model.prompt_template_id,
+            field_name=domain_model.field_name,
+            old_value=domain_model.old_value,
+            new_value=domain_model.new_value,
+            changed_by=domain_model.changed_by,
+            changed_at=domain_model.changed_at,
+            reason=domain_model.reason,
+        )
+
+
+class PromptExecutionMapper:
+    """Mapper for PromptExecution domain model and PromptExecutionModel."""
+
+    @staticmethod
+    def to_domain(db_model: "PromptExecutionModel") -> "PromptExecution":
+        """Convert database model to domain model.
+
+        Args:
+            db_model: PromptExecutionModel SQLAlchemy model
+
+        Returns:
+            PromptExecution domain model
+        """
+        from ...domain.models.prompt_execution import PromptExecution
+
+        return PromptExecution(
+            id=db_model.id,
+            prompt_template_id=db_model.prompt_template_id,
+            interview_id=db_model.interview_id,
+            candidate_id=db_model.candidate_id,
+            input_variables=db_model.input_variables,
+            output_text=db_model.output_text,
+            tokens_used=db_model.tokens_used,
+            prompt_tokens=db_model.prompt_tokens,
+            completion_tokens=db_model.completion_tokens,
+            latency_ms=db_model.latency_ms,
+            model_name=db_model.model_name,
+            success=db_model.success,
+            error_message=db_model.error_message,
+            executed_at=db_model.executed_at,
+        )
+
+    @staticmethod
+    def to_db_model(domain_model: "PromptExecution") -> "PromptExecutionModel":
+        """Convert domain model to database model.
+
+        Args:
+            domain_model: PromptExecution domain model
+
+        Returns:
+            PromptExecutionModel SQLAlchemy model
+        """
+        from .models import PromptExecutionModel
+
+        return PromptExecutionModel(
+            id=domain_model.id,
+            prompt_template_id=domain_model.prompt_template_id,
+            interview_id=domain_model.interview_id,
+            candidate_id=domain_model.candidate_id,
+            input_variables=domain_model.input_variables,
+            output_text=domain_model.output_text,
+            tokens_used=domain_model.tokens_used,
+            prompt_tokens=domain_model.prompt_tokens,
+            completion_tokens=domain_model.completion_tokens,
+            latency_ms=domain_model.latency_ms,
+            model_name=domain_model.model_name,
+            success=domain_model.success,
+            error_message=domain_model.error_message,
+            executed_at=domain_model.executed_at,
+        )
