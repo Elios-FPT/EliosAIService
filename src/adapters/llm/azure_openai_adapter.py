@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from typing import Any
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
+from ...domain.ports.prompt_repository_port import PromptRepositoryPort
 
 
 class AzureOpenAIAdapter(LLMPort):
@@ -18,6 +20,9 @@ class AzureOpenAIAdapter(LLMPort):
 
     This adapter encapsulates all Azure OpenAI-specific logic, making it easy
     to swap for another LLM provider without touching domain logic.
+
+    Supports optional DB-based prompt management for version control
+    and A/B testing of prompts.
     """
 
     def __init__(
@@ -27,6 +32,7 @@ class AzureOpenAIAdapter(LLMPort):
         api_version: str,
         deployment_name: str,
         temperature: float = 0.7,
+        prompt_repository: PromptRepositoryPort | None = None,
     ):
         """Initialize Azure OpenAI adapter.
 
@@ -36,6 +42,7 @@ class AzureOpenAIAdapter(LLMPort):
             api_version: Azure API version (e.g., "2024-02-15-preview")
             deployment_name: Azure deployment name (not model name)
             temperature: Sampling temperature (default: 0.7)
+            prompt_repository: Optional prompt repository for DB-managed prompts
         """
         self.client = AsyncAzureOpenAI(
             api_key=api_key,
@@ -44,6 +51,7 @@ class AzureOpenAIAdapter(LLMPort):
         )
         self.model = deployment_name  # Azure uses deployment names instead of model names
         self.temperature = temperature
+        self.prompt_repo = prompt_repository
 
     @staticmethod
     def _extract_json_from_markdown(content: str) -> str:
@@ -325,10 +333,35 @@ class AzureOpenAIAdapter(LLMPort):
         Raises:
             Exception: If generation fails
         """
-        system_prompt = """You are an expert technical interviewer creating reference answers.
+        start_time = time.time()
+        prompt_template = None
+
+        # Try to load prompt from DB (if repository available)
+        if self.prompt_repo:
+            try:
+                prompt_template = await self.prompt_repo.get_active_prompt(
+                    name="ideal_answer_generation"
+                )
+            except Exception:
+                # Fallback to hardcoded if DB load fails
+                prompt_template = None
+
+        # Build prompt (DB or hardcoded)
+        if prompt_template:
+            # Use DB-managed prompt
+            prompt_text = prompt_template.get_prompt_text(
+                question_text=question_text,
+                summary=context.get('summary', 'Not provided'),
+                skills=', '.join(context.get('skills', [])[:5]),
+                experience=str(context.get('experience', 'Not specified')),
+            )
+            messages = [{"role": "user", "content": prompt_text}]
+        else:
+            # Use hardcoded prompt (fallback)
+            system_prompt = """You are an expert technical interviewer creating reference answers.
         Generate comprehensive, technically accurate ideal answers."""
 
-        user_prompt = f"""
+            user_prompt = f"""
         Question: {question_text}
 
         Candidate Background:
@@ -345,19 +378,57 @@ class AzureOpenAIAdapter(LLMPort):
 
         Output only the ideal answer text.
         """
-
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
+            messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,  # Low for consistency
-            max_tokens=500,
-        )
+            ]
 
-        content = response.choices[0].message.content
-        return content.strip() if content else ""
+        # Execute LLM call
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.3,  # Low for consistency
+                max_tokens=500,
+            )
+
+            content = response.choices[0].message.content
+            output_text = content.strip() if content else ""
+
+            # Log successful execution (if repo available)
+            if self.prompt_repo and prompt_template:
+                await self._log_execution(
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables={
+                        "question_text": question_text,
+                        "summary": context.get('summary'),
+                        "skills": context.get('skills'),
+                        "experience": context.get('experience'),
+                    },
+                    output_text=output_text,
+                    tokens_used=response.usage.total_tokens,
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    start_time=start_time,
+                    success=True,
+                )
+
+            return output_text
+
+        except Exception as e:
+            # Log failed execution (if repo available)
+            if self.prompt_repo and prompt_template:
+                await self._log_execution(
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables={"question_text": question_text},
+                    output_text=None,
+                    start_time=start_time,
+                    success=False,
+                    error_message=str(e),
+                )
+            raise
 
     async def generate_rationale(
         self,
@@ -862,4 +933,57 @@ Provide specific, data-driven recommendations that help candidates improve."""
             return [r.strip() if r else "" for r in rationales]
         except (json.JSONDecodeError, KeyError) as e:
             raise ValueError(f"Failed to parse batch rationale response: {e}") from e
+
+    async def _log_execution(
+        self,
+        prompt_template,
+        context: dict[str, Any],
+        input_variables: dict,
+        output_text: str | None,
+        start_time: float,
+        success: bool,
+        tokens_used: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Log prompt execution to database.
+
+        Args:
+            prompt_template: The prompt template used
+            context: Execution context
+            input_variables: Variables passed to prompt
+            output_text: LLM output (None if failed)
+            start_time: Start timestamp
+            success: Whether execution succeeded
+            tokens_used: Total tokens (optional)
+            prompt_tokens: Prompt tokens (optional)
+            completion_tokens: Completion tokens (optional)
+            error_message: Error message if failed (optional)
+        """
+        try:
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            await self.prompt_repo.log_execution(
+                prompt_template_id=prompt_template.id,
+                execution_data={
+                    "interview_id": context.get("interview_id"),
+                    "candidate_id": context.get("candidate_id"),
+                    "input_variables": input_variables,
+                    "output_text": output_text[:10000] if output_text else None,  # Truncate
+                    "tokens_used": tokens_used,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "latency_ms": latency_ms,
+                    "model_name": self.model,
+                    "success": success,
+                    "error_message": error_message,
+                },
+            )
+        except Exception as log_error:
+            # Don't fail the main operation if logging fails
+            import logging
+            logging.getLogger(__name__).error(
+                f"Failed to log prompt execution: {log_error}"
+            )
 
