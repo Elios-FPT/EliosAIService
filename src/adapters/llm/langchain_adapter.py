@@ -5,6 +5,7 @@ all LLMPort methods with structured outputs and cleaner code.
 """
 
 import json
+import time
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
+from ...domain.ports.prompt_repository_port import PromptRepositoryPort
 from .langchain_models import (
     CVSummaryOutput,
     EvaluationOutput,
@@ -35,17 +37,27 @@ class LangChainAdapter(LLMPort):
 
     Uses LCEL chains for cleaner code and structured outputs.
     All LangChain-specific logic is contained in this adapter.
+
+    Supports optional DB-based prompt management for version control
+    and A/B testing of prompts.
     """
 
-    def __init__(self, model: BaseChatModel, callbacks: list[Any] | None = None):
+    def __init__(
+        self,
+        model: BaseChatModel,
+        callbacks: list[Any] | None = None,
+        prompt_repository: PromptRepositoryPort | None = None,
+    ):
         """Initialize LangChain adapter.
 
         Args:
             model: LangChain chat model (ChatOpenAI, ChatAnthropic, etc.)
             callbacks: Optional list of LangChain callbacks (e.g., PIIFilteringTracer)
+            prompt_repository: Optional prompt repository for DB-managed prompts
         """
         self.model = model
         self.callbacks = callbacks or []
+        self.prompt_repo = prompt_repository
         self._chains = self._build_chains()
 
     def _build_chains(self) -> dict[str, Any]:
@@ -209,19 +221,79 @@ Apply attempt-based penalty:
         context: dict[str, Any],
     ) -> str:
         """Generate ideal answer for a question."""
-        # Create config with metadata
-        config = self._create_config(
-            context=context,
-            method="generate_ideal_answer",
-        )
+        start_time = time.time()
+        prompt_template = None
 
-        result = await self._chains["generate_ideal_answer"].ainvoke({
-            "question_text": question_text,
-            "cv_summary": context.get("cv_summary", "Not provided"),
-            "skill_level": context.get("skill_level", "intermediate"),
-        }, config=config)
+        # Try to load prompt from DB (if repository available)
+        if self.prompt_repo:
+            try:
+                prompt_template = await self.prompt_repo.get_active_prompt(
+                    name="ideal_answer_generation"
+                )
+            except Exception:
+                # Fallback to chain if DB load fails
+                prompt_template = None
 
-        return result["answer_text"]
+        # Use DB-managed prompt or fallback to chain
+        if prompt_template:
+            # Use DB-managed prompt with direct model invocation
+            try:
+                from langchain_core.messages import HumanMessage
+
+                prompt_text = prompt_template.get_prompt_text(
+                    question_text=question_text,
+                    summary=context.get('summary', context.get('cv_summary', 'Not provided')),
+                    skills=', '.join(context.get('skills', [])[:5]) if context.get('skills') else 'Not specified',
+                    experience=str(context.get('experience', 'Not specified')),
+                )
+
+                # Direct model invocation (bypass chain)
+                response = await self.model.ainvoke([HumanMessage(content=prompt_text)])
+                output_text = response.content
+
+                # Log successful execution
+                await self._log_execution(
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables={
+                        "question_text": question_text,
+                        "summary": context.get('summary', context.get('cv_summary')),
+                        "skills": context.get('skills'),
+                        "experience": context.get('experience'),
+                    },
+                    output_text=output_text,
+                    start_time=start_time,
+                    success=True,
+                )
+
+                return output_text
+
+            except Exception as e:
+                # Log failed execution
+                await self._log_execution(
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables={"question_text": question_text},
+                    output_text=None,
+                    start_time=start_time,
+                    success=False,
+                    error_message=str(e),
+                )
+                raise
+        else:
+            # Fallback to existing chain-based approach
+            config = self._create_config(
+                context=context,
+                method="generate_ideal_answer",
+            )
+
+            result = await self._chains["generate_ideal_answer"].ainvoke({
+                "question_text": question_text,
+                "cv_summary": context.get("cv_summary", "Not provided"),
+                "skill_level": context.get("skill_level", "intermediate"),
+            }, config=config)
+
+            return result["answer_text"]
 
     async def generate_rationale(
         self,
@@ -450,3 +522,60 @@ Apply attempt-based penalty:
             formatted.append(f"Feedback: {a.get('feedback', '')[:150]}...")
 
         return "\n".join(formatted)
+
+    async def _log_execution(
+        self,
+        prompt_template,
+        context: dict[str, Any],
+        input_variables: dict,
+        output_text: str | None,
+        start_time: float,
+        success: bool,
+        tokens_used: int | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Log prompt execution to database.
+
+        Args:
+            prompt_template: The prompt template used
+            context: Execution context
+            input_variables: Variables passed to prompt
+            output_text: LLM output (None if failed)
+            start_time: Start timestamp
+            success: Whether execution succeeded
+            tokens_used: Total tokens (optional, LangChain models may not provide)
+            prompt_tokens: Prompt tokens (optional)
+            completion_tokens: Completion tokens (optional)
+            error_message: Error message if failed (optional)
+        """
+        try:
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            # Get model name from LangChain model
+            model_name = getattr(self.model, 'model_name',
+                                getattr(self.model, 'model', 'unknown'))
+
+            await self.prompt_repo.log_execution(
+                prompt_template_id=prompt_template.id,
+                execution_data={
+                    "interview_id": context.get("interview_id"),
+                    "candidate_id": context.get("candidate_id"),
+                    "input_variables": input_variables,
+                    "output_text": output_text[:10000] if output_text else None,  # Truncate
+                    "tokens_used": tokens_used,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "latency_ms": latency_ms,
+                    "model_name": model_name,
+                    "success": success,
+                    "error_message": error_message,
+                },
+            )
+        except Exception as log_error:
+            # Don't fail the main operation if logging fails
+            import logging
+            logging.getLogger(__name__).error(
+                f"Failed to log prompt execution: {log_error}"
+            )
