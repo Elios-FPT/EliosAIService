@@ -1,0 +1,30 @@
+Nguyễn Văn An
+Email: nguyen.van.an@gmail.com
+Điện thoại: +84-9-1234-5678
+LinkedIn: https://linkedin.com/in/nguyenvanan
+
+TÓM TẮT
+Kỹ sư phần mềm với 3+ năm kinh nghiệm phát triển ứng dụng web.
+Chuyên về backend development với Python và FastAPI.
+
+KINH NGHIỆM
+Kỹ Sư Phần Mềm | Công ty Tech Vietnam | Tháng 1 2021 - Hiện tại
+- Phát triển API với FastAPI và PostgreSQL
+- Triển khai ứng dụng trên AWS
+- Làm việc với đội ngũ 5 người
+
+Lập Trình Viên | StartupVN | Tháng 6 2019 - Tháng 12 2020
+- Xây dựng ứng dụng web với Django
+- Quản lý cơ sở dữ liệu MySQL
+- Tích hợp thanh toán trực tuyến
+
+HỌC VẤN
+Cử Nhân Khoa Học Máy Tính | Đại Học Bách Khoa | 2015-2019
+Điểm TB: 8.5/10
+
+KỸ NĂNG
+Python, FastAPI, Django, PostgreSQL, MySQL, Docker, AWS, Git
+
+NGÔN NGỮ
+Tiếng Việt (Bản ngữ)
+Tiếng Anh (Trung cấp)

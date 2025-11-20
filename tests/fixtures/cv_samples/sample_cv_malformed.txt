@@ -1,0 +1,12 @@
+Jane Smith
+Contact: jane.smith@@invalid..domain.com
+Phone: 123
+Website: not-a-url
+
+Some random text without clear structure.
+I worked at various companies doing things.
+Graduated from some university.
+
+Skills: Python, Java, C++
+
+No clear sections or dates.

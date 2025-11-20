@@ -1,0 +1,54 @@
+John Doe
+Email: john.doe@example.com
+Phone: (202) 555-0123
+LinkedIn: https://linkedin.com/in/johndoe
+GitHub: https://github.com/johndoe
+
+SUMMARY
+Experienced software engineer with 5+ years in Python development.
+Passionate about building scalable backend systems and AI applications.
+
+EXPERIENCE
+Senior Software Engineer | Tech Corp | Jan 2020 - Present
+- Led backend development team of 8 engineers
+- Designed microservices architecture using FastAPI and Docker
+- Reduced API latency by 40% through optimization
+- Mentored junior developers and conducted code reviews
+
+Software Engineer | StartupXYZ | Jun 2018 - Dec 2019
+- Built REST APIs with FastAPI and PostgreSQL
+- Deployed applications on AWS using Docker and Kubernetes
+- Implemented CI/CD pipelines with GitHub Actions
+- Collaborated with frontend team on feature development
+
+Junior Developer | WebAgency | Jan 2017 - May 2018
+- Developed web applications using Python and Django
+- Maintained database schemas and wrote SQL queries
+- Fixed bugs and implemented new features
+
+EDUCATION
+B.S. Computer Science | University of Tech | 2014-2018
+GPA: 3.8/4.0
+Relevant Coursework: Data Structures, Algorithms, Database Systems, Machine Learning
+
+SKILLS
+Python, FastAPI, Django, PostgreSQL, MongoDB, Docker, Kubernetes, AWS, Redis, Git, CI/CD
+
+CERTIFICATIONS
+AWS Certified Solutions Architect | 2021-06-15
+Python Professional Certification | 2020-03-20
+
+PROJECTS
+AI Interview Platform | 2023
+- Built mock interview system using LangChain and GPT-4
+- Implemented vector search with Pinecone
+- Deployed on Google Cloud Platform
+
+E-commerce Backend | 2022
+- Designed REST API with FastAPI
+- Integrated payment processing with Stripe
+- Implemented user authentication and authorization
+
+LANGUAGES
+English (Native)
+Spanish (Intermediate)
