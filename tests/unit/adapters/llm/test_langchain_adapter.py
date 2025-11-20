@@ -16,6 +16,7 @@ from src.adapters.llm.langchain_adapter import LangChainAdapter
 from src.domain.models.answer import AnswerEvaluation
 from src.domain.models.evaluation import FollowUpEvaluationContext
 from src.domain.models.question import DifficultyLevel, Question, QuestionType
+from src.domain.models.prompt_template import PromptTemplate
 
 
 @pytest.fixture
@@ -33,6 +34,7 @@ def langchain_adapter(mock_chat_model):
     for chain_name in adapter._chains:
         adapter._chains[chain_name] = MagicMock()
         adapter._chains[chain_name].ainvoke = AsyncMock()
+    adapter._log_execution = AsyncMock()
     return adapter
 
 
@@ -68,6 +70,55 @@ class TestInitialization:
         for chain_name in expected_chains:
             assert chain_name in langchain_adapter._chains, \
                 f"Chain '{chain_name}' not found in adapter chains"
+
+
+class TestDynamicChainHelper:
+    """Test dynamic chain helper behavior."""
+
+    def test_get_or_build_chain_with_db_template_and_cache(self, mock_chat_model):
+        adapter = LangChainAdapter(model=mock_chat_model)
+        db_template = {
+            "system": "System",
+            "user_template": "User says {question_text}",
+            "variables": ["question_text"],
+        }
+
+        chain = adapter._get_or_build_chain(
+            "generate_ideal_answer",
+            db_template_json=db_template,
+            cache_key="ideal:v1",
+        )
+
+        cache_key = "generate_ideal_answer:ideal:v1"
+        assert cache_key in adapter._db_chain_cache
+        assert adapter._db_chain_cache[cache_key] is chain
+
+        # Subsequent calls should reuse cache
+        chain_again = adapter._get_or_build_chain(
+            "generate_ideal_answer",
+            db_template_json=db_template,
+            cache_key="ideal:v1",
+        )
+        assert chain is chain_again
+
+    def test_get_or_build_chain_invalid_template_falls_back(self, mock_chat_model):
+        adapter = LangChainAdapter(model=mock_chat_model)
+        fallback_chain = adapter._chains["generate_ideal_answer"]
+
+        chain = adapter._get_or_build_chain(
+            "generate_ideal_answer",
+            db_template_json={"system": "sys"},  # missing user_template
+        )
+
+        assert chain is fallback_chain
+
+    def test_get_or_build_chain_without_db_template_returns_fallback(self, mock_chat_model):
+        adapter = LangChainAdapter(model=mock_chat_model)
+        fallback_chain = adapter._chains["generate_ideal_answer"]
+
+        chain = adapter._get_or_build_chain("generate_ideal_answer")
+
+        assert chain is fallback_chain
 
 
 class TestGenerateQuestion:
@@ -325,6 +376,76 @@ class TestGenerateIdealAnswer:
         assert isinstance(result, str)
         assert "base case" in result.lower()
         assert "recursive case" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_ideal_answer_with_db_prompt_uses_chain(self, mock_chat_model):
+        prompt_repo = MagicMock()
+        prompt_repo.get_active_prompt = AsyncMock(return_value=PromptTemplate(
+            name="ideal_answer_generation",
+            version=2,
+            template_json={
+                "system": "system",
+                "user_template": "{question_text} :: {summary} :: {skills} :: {experience}",
+                "variables": ["question_text", "summary", "skills", "experience"],
+            },
+            is_active=True,
+            is_draft=False,
+        ))
+
+        adapter = LangChainAdapter(model=mock_chat_model, prompt_repository=prompt_repo)
+        adapter._log_execution = AsyncMock()
+        mock_chain = MagicMock()
+        mock_chain.ainvoke = AsyncMock(return_value={"answer_text": "Ideal answer"})
+        adapter._get_or_build_chain = MagicMock(return_value=mock_chain)
+
+        context = {
+            "summary": "Seasoned dev",
+            "skills": ["python", "fastapi"],
+            "experience": "10",
+            "cv_summary": "Seasoned dev resume",
+            "skill_level": "advanced",
+        }
+
+        result = await adapter.generate_ideal_answer(
+            question_text="Explain recursion",
+            context=context,
+        )
+
+        assert result == "Ideal answer"
+        adapter._get_or_build_chain.assert_called_once()
+        mock_chain.ainvoke.assert_awaited_once()
+        variables = mock_chain.ainvoke.call_args[0][0]
+        assert variables["summary"] == "Seasoned dev"
+        assert "python" in variables["skills"]
+        adapter._log_execution.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_generate_ideal_answer_logs_failure_on_exception(self, mock_chat_model):
+        prompt_repo = MagicMock()
+        prompt_repo.get_active_prompt = AsyncMock(return_value=PromptTemplate(
+            name="ideal_answer_generation",
+            version=3,
+            template_json={
+                "system": "system",
+                "user_template": "{question_text}",
+                "variables": ["question_text"],
+            },
+            is_active=True,
+            is_draft=False,
+        ))
+
+        adapter = LangChainAdapter(model=mock_chat_model, prompt_repository=prompt_repo)
+        adapter._log_execution = AsyncMock()
+        failing_chain = MagicMock()
+        failing_chain.ainvoke = AsyncMock(side_effect=RuntimeError("chain failure"))
+        adapter._get_or_build_chain = MagicMock(return_value=failing_chain)
+
+        context = {}
+
+        with pytest.raises(RuntimeError):
+            await adapter.generate_ideal_answer("Explain recursion", context)
+
+        adapter._log_execution.assert_awaited_once()
 
 
 class TestGenerateRationale:

@@ -5,13 +5,15 @@ all LLMPort methods with structured outputs and cleaner code.
 """
 
 import json
+import logging
 import time
 from typing import Any
 from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.runnables import RunnableParallel, RunnableConfig
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable, RunnableParallel, RunnableConfig
 
 from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
@@ -30,6 +32,9 @@ from .langchain_models import (
     SkillExtractionOutput,
 )
 from .prompts import PROMPT_REGISTRY
+
+
+logger = logging.getLogger(__name__)
 
 
 class LangChainAdapter(LLMPort):
@@ -59,6 +64,7 @@ class LangChainAdapter(LLMPort):
         self.callbacks = callbacks or []
         self.prompt_repo = prompt_repository
         self._chains = self._build_chains()
+        self._db_chain_cache: dict[str, Runnable] = {}
 
     def _build_chains(self) -> dict[str, Any]:
         """Build all LCEL chains for the 12 LLMPort methods.
@@ -77,6 +83,39 @@ class LangChainAdapter(LLMPort):
             chains[method_name] = prompt_template | self.model | json_parser
 
         return chains
+
+    def _get_or_build_chain(
+        self,
+        method_name: str,
+        db_template_json: dict[str, Any] | None = None,
+        cache_key: str | None = None,
+    ) -> Runnable:
+        """Return cached chain or build a dynamic one from DB template."""
+        if not db_template_json:
+            return self._chains[method_name]
+
+        required_keys = {"system", "user_template"}
+        missing = required_keys - set(db_template_json.keys())
+        if missing:
+            logger.warning(
+                "Invalid template for %s missing keys %s. Falling back to hardcoded chain.",
+                method_name,
+                ", ".join(sorted(missing)),
+            )
+            return self._chains[method_name]
+
+        cache_identifier = f"{method_name}:{cache_key or json.dumps(db_template_json, sort_keys=True)}"
+        if cache_identifier in self._db_chain_cache:
+            return self._db_chain_cache[cache_identifier]
+
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", db_template_json["system"]),
+            ("human", db_template_json["user_template"]),
+        ])
+        json_parser = JsonOutputParser()
+        chain = prompt_template | self.model | json_parser
+        self._db_chain_cache[cache_identifier] = chain
+        return chain
 
     def _create_config(self, context: dict[str, Any] | None = None, **metadata_kwargs: Any) -> RunnableConfig:
         """Create RunnableConfig with metadata for tracing.
@@ -223,77 +262,74 @@ Apply attempt-based penalty:
         """Generate ideal answer for a question."""
         start_time = time.time()
         prompt_template = None
+        template_json = None
+        cache_key = None
 
-        # Try to load prompt from DB (if repository available)
         if self.prompt_repo:
             try:
                 prompt_template = await self.prompt_repo.get_active_prompt(
                     name="ideal_answer_generation"
                 )
-            except Exception:
-                # Fallback to chain if DB load fails
+                if prompt_template:
+                    template_json = prompt_template.template_json
+                    cache_key = f"{prompt_template.name}:v{prompt_template.version}"
+            except Exception as exc:
+                logger.warning(
+                    "Failed loading DB prompt for generate_ideal_answer: %s", exc
+                )
                 prompt_template = None
+                template_json = None
 
-        # Use DB-managed prompt or fallback to chain
-        if prompt_template:
-            # Use DB-managed prompt with direct model invocation
-            try:
-                from langchain_core.messages import HumanMessage
+        chain = self._get_or_build_chain(
+            "generate_ideal_answer",
+            db_template_json=template_json,
+            cache_key=cache_key,
+        )
 
-                prompt_text = prompt_template.get_prompt_text(
-                    question_text=question_text,
-                    summary=context.get('summary', context.get('cv_summary', 'Not provided')),
-                    skills=', '.join(context.get('skills', [])[:5]) if context.get('skills') else 'Not specified',
-                    experience=str(context.get('experience', 'Not specified')),
-                )
+        variables = {
+            "question_text": question_text,
+            "summary": context.get("summary", context.get("cv_summary", "Not provided")),
+            "skills": ", ".join(context.get("skills", [])[:5])
+            if context.get("skills")
+            else "Not specified",
+            "experience": str(context.get("experience", "Not specified")),
+            "cv_summary": context.get("cv_summary", "Not provided"),
+            "skill_level": context.get("skill_level", "intermediate"),
+        }
 
-                # Direct model invocation (bypass chain)
-                response = await self.model.ainvoke([HumanMessage(content=prompt_text)])
-                output_text = response.content
+        config = self._create_config(
+            context=context,
+            method="generate_ideal_answer",
+        )
 
-                # Log successful execution
+        try:
+            result = await chain.ainvoke(variables, config=config)
+        except Exception as exc:
+            if prompt_template:
                 await self._log_execution(
                     prompt_template=prompt_template,
                     context=context,
-                    input_variables={
-                        "question_text": question_text,
-                        "summary": context.get('summary', context.get('cv_summary')),
-                        "skills": context.get('skills'),
-                        "experience": context.get('experience'),
-                    },
-                    output_text=output_text,
-                    start_time=start_time,
-                    success=True,
-                )
-
-                return output_text
-
-            except Exception as e:
-                # Log failed execution
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables={"question_text": question_text},
+                    input_variables=variables,
                     output_text=None,
                     start_time=start_time,
                     success=False,
-                    error_message=str(e),
+                    error_message=str(exc),
                 )
-                raise
-        else:
-            # Fallback to existing chain-based approach
-            config = self._create_config(
+            raise
+
+        output_text = result.get("answer_text") or result.get("answer")
+
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
                 context=context,
-                method="generate_ideal_answer",
+                input_variables=variables,
+                output_text=output_text,
+                start_time=start_time,
+                success=True,
             )
 
-            result = await self._chains["generate_ideal_answer"].ainvoke({
-                "question_text": question_text,
-                "cv_summary": context.get("cv_summary", "Not provided"),
-                "skill_level": context.get("skill_level", "intermediate"),
-            }, config=config)
-
-            return result["answer_text"]
+        return output_text
 
     async def generate_rationale(
         self,
