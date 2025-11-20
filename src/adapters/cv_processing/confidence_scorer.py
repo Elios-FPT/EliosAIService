@@ -16,11 +16,17 @@ class ConfidenceScorer:
 
     # Field-specific confidence weights
     FIELD_WEIGHTS = {
+        # Phase 1: Rule-based extraction fields
         "email": 1.0,  # Critical field
         "phone": 0.9,  # Important
         "dates": 0.7,  # Supporting
         "sections": 0.8,  # Structure indicator
         "urls": 0.6,  # Optional
+        # Phase 2: NER extraction fields
+        "name": 1.0,  # Critical field (PERSON entity)
+        "companies": 0.8,  # Important (ORG entities)
+        "locations": 0.6,  # Supporting (GPE/LOC entities)
+        "skills": 0.95,  # Critical (PhraseMatcher gazetteer)
     }
 
     def score_field(
@@ -72,6 +78,41 @@ class ConfidenceScorer:
         elif field_type == "urls":
             # URLs optional → lower priority
             return 0.85 if validation_passed else 0.40
+        # Phase 2: NER fields
+        elif field_type == "name":
+            # PERSON entity → high confidence if found
+            return 0.90 if validation_passed else 0.50
+        elif field_type == "companies":
+            # ORG entities → confidence based on count
+            count = len(extracted_values) if isinstance(extracted_values, list) else 1
+            if count >= 2:
+                return 0.90
+            elif count == 1:
+                return 0.80
+            else:
+                return 0.50
+        elif field_type == "locations":
+            # GPE/LOC entities → medium confidence
+            count = len(extracted_values) if isinstance(extracted_values, list) else 1
+            if count >= 2:
+                return 0.85
+            elif count == 1:
+                return 0.75
+            else:
+                return 0.50
+        elif field_type == "skills":
+            # PhraseMatcher gazetteer → high confidence
+            count = len(extracted_values) if isinstance(extracted_values, list) else 1
+            if count >= 8:  # Rich skill set
+                return 0.95
+            elif count >= 5:
+                return 0.90
+            elif count >= 3:
+                return 0.85
+            elif count >= 1:
+                return 0.80
+            else:
+                return 0.50
         else:
             return 0.50  # Unknown field type
 
