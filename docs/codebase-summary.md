@@ -1,7 +1,7 @@
 # Codebase Summary
 
-**Last Updated**: 2025-11-20
-**Version**: 0.3.0 (LangChain/LangGraph Integration)
+**Last Updated**: 2025-11-21
+**Version**: 0.3.0 (LangChain/LangGraph Integration + Interview Test Bot)
 **Repository**: https://github.com/elios/elios-ai-service
 
 ## Table of Contents
@@ -26,7 +26,8 @@
 
 Elios AI Interview Service is Python-based AI-powered mock interview platform built with Clean Architecture principles (Hexagonal/Ports & Adapters pattern). Platform emphasizes separation of concerns, testability, flexibility through abstract interfaces and dependency injection. Integrates LangChain/LangGraph for workflow orchestration, OpenAI GPT-4 for NLP, Pinecone for vector-based semantic search, PostgreSQL for persistent storage.
 
-**Recent Major Changes** (2025-11-20):
+**Recent Major Changes** (2025-11-21):
+- **Interview Test Bot** (NEW): Automated WebSocket testing framework with 8 mock + 5 real scenarios
 - **LangChain/LangGraph Integration**: LCEL chains, structured outputs, workflow orchestration
 - **Observability Module**: LangSmith tracing with PII filtering, cost tracking
 - **Workflow Architecture**: Planning workflow, adaptive evaluation workflows (simple & interrupt patterns)
@@ -161,6 +162,20 @@ EliosAIService/
 │   ├── integration/             # Integration tests
 │   │   ├── api/                 # API integration tests
 │   │   └── workflows/           # Workflow integration tests
+│   ├── bot/                     # Interview test bot (NEW)
+│   │   ├── test_bot_client.py   # WebSocket test client
+│   │   ├── answer_generator.py  # Answer generation (good/average/weak)
+│   │   ├── metrics_collector.py # Performance and cost metrics
+│   │   ├── assertion_validator.py # Assertion evaluation logic
+│   │   ├── test_runner.py       # Test orchestration
+│   │   ├── report_generator.py  # JSON/HTML report generation
+│   │   ├── run_tests.py         # CLI entry point
+│   │   ├── scenarios/           # YAML test scenario definitions
+│   │   │   ├── mock_scenarios.yaml   # 8 mock tests (no cost)
+│   │   │   └── real_scenarios.yaml   # 5 real tests (~$0.45)
+│   │   └── fixtures/            # Test fixtures
+│   │       ├── cvs/             # CV JSON files (5 files)
+│   │       └── baselines/       # Performance baselines
 │   ├── prototypes/              # Performance prototypes (NEW)
 │   │   ├── 01_token_benchmark.py
 │   │   ├── 02_interrupt_pattern.py

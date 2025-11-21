@@ -1,0 +1,157 @@
+# Mock test scenarios (USE_MOCK_ADAPTERS=true)
+# Cost: $0.00, Duration: ~20s total
+
+scenarios:
+  # Scenario 1: Basic happy path
+  - id: mock_001_basic_flow
+    name: "Basic interview flow (3 questions, no follow-ups)"
+    description: "Verify happy path: 3 questions answered with good quality, no follow-ups triggered"
+
+    config:
+      use_mock: true
+      cv_fixture: python_senior.json
+      expected_questions: 3
+      answer_quality: good
+      expected_follow_ups: 0
+      timeout: 10.0
+
+    assertions:
+      - expression: "interview.status == 'COMPLETE'"
+        message: "Interview should complete successfully"
+      - expression: "len(answers) == 3"
+        message: "Should answer all 3 questions"
+      - expression: "all(eval.score >= 80 for eval in evaluations)"
+        message: "Good answers should score >=80"
+      - expression: "len(follow_ups) == 0"
+        message: "No follow-ups for good answers"
+
+  # Scenario 2: Follow-up trigger
+  - id: mock_002_follow_up_trigger
+    name: "Follow-up triggered by weak answer"
+    description: "Verify follow-up generation when answer has gaps"
+
+    config:
+      use_mock: true
+      cv_fixture: fullstack_mid.json
+      expected_questions: 2
+      answer_quality: weak
+      expected_follow_ups: 1
+      timeout: 15.0
+
+    assertions:
+      - expression: "interview.status == 'COMPLETE'"
+      - expression: "len(follow_ups) >= 1"
+        message: "Weak answer should trigger follow-up"
+
+  # Scenario 3: State transitions
+  - id: mock_003_state_transitions
+    name: "State transition validation"
+    description: "Track all state transitions, verify no invalid transitions"
+
+    config:
+      use_mock: true
+      cv_fixture: backend_junior.json
+      expected_questions: 3
+      answer_quality: average
+      track_transitions: true
+      timeout: 12.0
+
+    assertions:
+      - expression: "len(state_transitions) > 0"
+        message: "State transitions tracked"
+      - expression: "state_transitions[0] == 'IDLE'"
+        message: "Start in IDLE state"
+      - expression: "state_transitions[-1] == 'COMPLETE'"
+        message: "End in COMPLETE state"
+
+  # Scenario 4: Multi-follow-up
+  - id: mock_004_multi_follow_up
+    name: "Multiple follow-ups (max 3)"
+    description: "Verify follow-up limit (max 3 per question)"
+
+    config:
+      use_mock: true
+      cv_fixture: devops_senior.json
+      expected_questions: 1
+      answer_quality: weak
+      force_follow_ups: 3
+      expected_follow_ups: 3
+      timeout: 20.0
+
+    assertions:
+      - expression: "len(follow_ups) == 3"
+        message: "Max 3 follow-ups per question"
+
+  # Scenario 5: Empty answer handling
+  - id: mock_005_empty_answer
+    name: "Empty answer edge case"
+    description: "Verify empty/whitespace-only answers rejected"
+
+    config:
+      use_mock: true
+      cv_fixture: python_senior.json
+      expected_questions: 1
+      answer_text: "   "
+      expect_error: true
+      timeout: 5.0
+
+    assertions:
+      - expression: "error_occurred == true"
+        message: "Empty answer should raise error"
+
+  # Scenario 6: Long answer handling
+  - id: mock_006_long_answer
+    name: "Long answer (>2000 chars)"
+    description: "Verify system handles long answers without truncation"
+
+    config:
+      use_mock: true
+      cv_fixture: fullstack_mid.json
+      expected_questions: 1
+      answer_text_length: 2500
+      answer_quality: good
+      timeout: 10.0
+
+    assertions:
+      - expression: "len(answers[0].text) == 2500"
+        message: "Long answer not truncated"
+
+  # Scenario 7: Concurrent interviews
+  - id: mock_007_concurrent
+    name: "Concurrent interviews (2 bots)"
+    description: "Verify multiple bots can run simultaneously"
+
+    config:
+      use_mock: true
+      concurrent_bots: 2
+      cv_fixtures:
+        - python_senior.json
+        - devops_senior.json
+      expected_questions: 2
+      answer_quality: good
+      timeout: 15.0
+
+    assertions:
+      - expression: "len(completed_interviews) == 2"
+        message: "Both interviews complete"
+      - expression: "interview_1.id != interview_2.id"
+        message: "Separate interview IDs"
+
+  # Scenario 8: Full metrics tracking
+  - id: mock_008_metrics
+    name: "Metrics collection validation"
+    description: "Verify all metrics tracked correctly"
+
+    config:
+      use_mock: true
+      cv_fixture: frontend_mid.json
+      expected_questions: 3
+      answer_quality: average
+      enable_metrics: true
+      timeout: 12.0
+
+    assertions:
+      - expression: "metrics.latency['connect'] > 0"
+        message: "Connection latency tracked"
+      - expression: "metrics.summary['questions_received'] == 3"
+      - expression: "metrics.summary['answers_sent'] == 3"

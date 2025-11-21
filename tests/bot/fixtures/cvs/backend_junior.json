@@ -1,0 +1,16 @@
+{
+  "name": "John Smith",
+  "title": "Junior Backend Developer",
+  "email": "john.smith@example.com",
+  "summary": "Recent graduate with 1 year Java backend development experience.",
+  "skills": ["Java", "Spring Boot", "MySQL", "JUnit", "Maven"],
+  "experience": [
+    {
+      "role": "Backend Intern",
+      "company": "EnterpriseSoft Ltd.",
+      "years": "2023-Present",
+      "description": "Developed REST APIs with Spring Boot, wrote unit tests with JUnit."
+    }
+  ],
+  "education": "B.S. Computer Science, University of Tech (2023)"
+}

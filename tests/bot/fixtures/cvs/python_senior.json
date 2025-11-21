@@ -1,0 +1,22 @@
+{
+  "name": "Alex Chen",
+  "title": "Senior Python Developer",
+  "email": "alex.chen@example.com",
+  "summary": "Experienced Python developer with 5+ years building scalable backend systems.",
+  "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "Redis", "AWS", "CI/CD"],
+  "experience": [
+    {
+      "role": "Senior Python Developer",
+      "company": "TechCorp Inc.",
+      "years": "2020-Present",
+      "description": "Built microservices with FastAPI, deployed to AWS ECS."
+    },
+    {
+      "role": "Backend Engineer",
+      "company": "StartupXYZ",
+      "years": "2018-2020",
+      "description": "Developed REST APIs with Django, optimized PostgreSQL queries."
+    }
+  ],
+  "education": "B.S. Computer Science, State University (2018)"
+}
