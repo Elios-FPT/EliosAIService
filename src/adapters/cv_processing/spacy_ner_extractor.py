@@ -4,6 +4,8 @@ This module provides entity extraction from CV text using spaCy's pre-trained
 NER models and custom skill matching.
 """
 
+from __future__ import annotations
+
 import re
 from typing import Any
 
@@ -17,42 +19,53 @@ from .skill_matcher import SkillMatcher
 class SpacyNERExtractor:
     """Extract entities from CV text using spaCy NER.
 
-    Supports English (en_core_web_sm) model with lazy loading.
-    Uses PhraseMatcher for skill extraction (gazetteer-based).
+    Supports English (en_core_web_sm) and Vietnamese (vi_core_news_sm) models
+    with lazy loading. Uses PhraseMatcher for skill extraction (gazetteer-based).
     """
+
+    SUPPORTED_LANGUAGES = ("en", "vi")
 
     def __init__(self) -> None:
         """Initialize extractor with lazy model loading."""
         self._nlp_en: spacy.Language | None = None
+        self._nlp_vi: spacy.Language | None = None
         self.skill_matcher = SkillMatcher()
         self.confidence_scorer = ConfidenceScorer()
 
     @property
     def nlp_en(self) -> spacy.Language:
-        """Lazy load English model (singleton).
-
-        Returns:
-            Loaded spaCy English model
-
-        Raises:
-            RuntimeError: If model not found
-        """
+        """Lazy load English model (singleton)."""
         if self._nlp_en is None:
-            try:
-                # Disable parser and lemmatizer for performance (30-40% faster)
-                self._nlp_en = spacy.load("en_core_web_sm", exclude=["parser", "lemmatizer"])
-            except OSError:
-                raise RuntimeError(
-                    "English model not found. Install: python -m spacy download en_core_web_sm"
-                ) from None
+            self._nlp_en = self._load_model("en_core_web_sm")
         return self._nlp_en
+
+    @property
+    def nlp_vi(self) -> spacy.Language | None:
+        """Lazy load Vietnamese model (singleton) if available."""
+        if self._nlp_vi is None:
+            try:
+                self._nlp_vi = self._load_model("vi_core_news_sm")
+            except RuntimeError:
+                # Keep None so callers can gracefully fallback to English model
+                self._nlp_vi = None
+        return self._nlp_vi
+
+    def _load_model(self, model_name: str) -> spacy.Language:
+        """Load spaCy model with parser/lemmatizer disabled for speed."""
+        try:
+            return spacy.load(model_name, exclude=["parser", "lemmatizer"])
+        except OSError:
+            raise RuntimeError(
+                f"spaCy model '{model_name}' not found. "
+                f"Install via: python -m spacy download {model_name}"
+            ) from None
 
     def extract(self, cv_text: str, language: str = "auto") -> dict[str, Any]:
         """Extract entities and skills from CV text.
 
         Args:
             cv_text: Full CV text content
-            language: "en", "vi", or "auto" (auto-detect) - currently only "en" supported
+            language: "en", "vi", or "auto" (auto-detect)
 
         Returns:
             {
@@ -69,8 +82,12 @@ class SpacyNERExtractor:
         if language == "auto":
             language = self._detect_language(cv_text)
 
-        # Load appropriate model (currently only English supported)
-        nlp = self.nlp_en
+        language = language if language in self.SUPPORTED_LANGUAGES else "en"
+        nlp = self._select_model(language)
+        language_used = language if nlp is not None else "en"
+        if nlp is None:
+            # Fallback to English if requested model unavailable
+            nlp = self.nlp_en
 
         # Process text
         doc = nlp(cv_text)
@@ -114,6 +131,7 @@ class SpacyNERExtractor:
                 "fields": confidence_scores,
                 "overall": overall_confidence,
             },
+            "language": language_used,
         }
 
     def _detect_language(self, text: str) -> str:
@@ -133,6 +151,12 @@ class SpacyNERExtractor:
 
         # Threshold: > 5 Vietnamese chars → Vietnamese (more sensitive)
         return "vi" if vietnamese_count > 5 else "en"
+
+    def _select_model(self, language: str) -> spacy.Language | None:
+        """Return model matching requested language if available."""
+        if language == "vi":
+            return self.nlp_vi
+        return self.nlp_en
 
     def _extract_entities(self, doc: spacy.tokens.Doc) -> dict[str, Any]:
         """Extract named entities from spaCy doc.

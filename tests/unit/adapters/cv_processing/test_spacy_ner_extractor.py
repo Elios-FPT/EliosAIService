@@ -34,6 +34,7 @@ class TestSpacyNERExtractor:
         # Verify name extraction
         assert result["name"] is not None
         assert "John" in result["name"] or "Doe" in result["name"]
+        assert result["language"] == "en"
 
         # Verify company extraction
         assert len(result["companies"]) >= 1
@@ -59,6 +60,7 @@ class TestSpacyNERExtractor:
         assert result["name"] is not None
         # spaCy should recognize "Jane Smith" as PERSON
         assert "Jane" in result["name"] or "Smith" in result["name"]
+        assert result["language"] in {"en", "vi"}
 
     def test_extract_companies_org_entity(self, extractor):
         """Test that ORG entities are extracted as companies."""
@@ -74,6 +76,7 @@ class TestSpacyNERExtractor:
         # Should extract multiple companies
         companies = result["companies"]
         assert len(companies) >= 2
+        assert result["language"] in {"en", "vi"}
 
     def test_extract_locations_gpe_entity(self, extractor):
         """Test that GPE/LOC entities are extracted as locations."""
@@ -85,6 +88,7 @@ class TestSpacyNERExtractor:
 
         locations = result["locations"]
         assert len(locations) >= 2
+        assert result["language"] in {"en", "vi"}
 
     def test_extract_dates_date_entity(self, extractor):
         """Test that DATE entities are extracted."""
@@ -99,6 +103,7 @@ class TestSpacyNERExtractor:
         dates = result["dates"]
         # Should extract multiple date references
         assert len(dates) >= 2
+        assert result["language"] in {"en", "vi"}
 
     def test_detect_language_english(self, extractor):
         """Test that English text is detected correctly."""
@@ -156,6 +161,7 @@ class TestSpacyNERExtractor:
         skills = result["skills"]
         # Should extract multiple skills
         assert len(skills) >= 8
+        assert result["language"] in {"en", "vi"}
 
         # Verify skills have categories
         categories = {s.category for s in skills}
@@ -170,6 +176,7 @@ class TestSpacyNERExtractor:
         assert result["name"] is None
         assert len(result["companies"]) == 0
         assert len(result["locations"]) == 0
+        assert result["language"] in {"en", "vi"}
 
     def test_extract_confidence_scores(self, extractor):
         """Test that confidence scores are calculated."""
@@ -184,6 +191,7 @@ class TestSpacyNERExtractor:
 
         assert "confidence" in result
         confidence = result["confidence"]
+        assert result["language"] in {"en", "vi"}
 
         # Verify field scores
         assert "fields" in confidence
@@ -210,6 +218,7 @@ class TestSpacyNERExtractor:
         # Should deduplicate "Google"
         google_count = sum(1 for c in companies if "Google" in c)
         assert google_count == 1
+        assert result["language"] in {"en", "vi"}
 
     def test_extract_deduplicates_locations(self, extractor):
         """Test that duplicate locations are deduplicated."""
@@ -225,6 +234,7 @@ class TestSpacyNERExtractor:
         # Should deduplicate "New York"
         ny_count = sum(1 for loc in locations if "New York" in loc)
         assert ny_count == 1
+        assert result["language"] in {"en", "vi"}
 
     def test_model_lazy_loading(self, extractor):
         """Test that spaCy model is loaded lazily."""
@@ -253,3 +263,14 @@ class TestSpacyNERExtractor:
         assert len(result["skills"]) >= 5
         assert result["experience_years"] is not None
         assert result["confidence"]["overall"] > 0.5
+        assert result["language"] in {"en", "vi"}
+
+    def test_extract_vietnamese_language_flag(self, extractor):
+        """Ensure Vietnamese extraction sets language flag even without model."""
+        cv_text = "Tôi là kỹ sư phần mềm với kinh nghiệm về Python và Django."
+
+        result = extractor.extract(cv_text, language="vi")
+
+        assert "language" in result
+        # If vi model unavailable, fallback to en but still returns text
+        assert result["language"] in {"en", "vi"}
