@@ -36,6 +36,7 @@ from ...adapters.persistence import (
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
 from ...adapters.vector_db.chroma_adapter import ChromaAdapter
 from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
+from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 from ...domain.ports import (
     AnalyticsPort,
     AnswerRepositoryPort,
@@ -261,16 +262,25 @@ class Container:
         """Get CV analyzer port implementation.
 
         Returns:
-            Configured CV analyzer
+            Configured CV analyzer (mock, hybrid, or legacy)
 
-        Raises:
-            NotImplementedError: Real implementation pending
+        Priority:
+        1. Mock adapter (if use_mock_cv_analyzer=True)
+        2. Hybrid adapter (if use_hybrid_cv_analyzer=True)
+        3. Legacy adapter (CVProcessingAdapter)
         """
         if self.settings.use_mock_cv_analyzer:
             return MockCVAnalyzerAdapter()
+        elif self.settings.use_hybrid_cv_analyzer:
+            # Hybrid adapter with configurable threshold and LLM fallback
+            return HybridCVAnalyzerAdapter(
+                confidence_threshold=self.settings.hybrid_confidence_threshold,
+                use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
+            )
         else:
+            # Legacy adapter (default for backward compatibility)
             return CVProcessingAdapter()
-            
+
 
     def speech_to_text_port(self) -> SpeechToTextPort:
         """Get speech-to-text port implementation.
