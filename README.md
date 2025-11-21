@@ -305,9 +305,28 @@ Automated testing framework for interview WebSocket protocol with two execution 
 - **Mock Tests** (8 scenarios, $0 cost): Insert pre-defined data via SQL → Test WebSocket QA phase only
 - **Real Tests** (5 scenarios, ~$0.45 cost): Full API flow (CV upload → plan interview → WebSocket QA → save feedback)
 
+**Setup Test Environment**:
+```bash
+# 1. Copy test configuration template
+cp .env.test.example .env.test
+
+# 2. Edit .env.test with test database and settings
+# IMPORTANT: Ensure ENVIRONMENT=test is set (required for main app to load .env.test)
+
+# 3. Create test database
+createdb elios_test
+
+# 4. Run migrations on test database
+ENVIRONMENT=test alembic upgrade head
+
+# 5. Start server with test configuration
+python -m src.main
+# Server will automatically load .env.test because ENVIRONMENT=test
+```
+
 **Run Tests**:
 ```bash
-# Run all tests
+# Run all tests (server must be running with ENVIRONMENT=test)
 python -m tests.bot.run_tests --scenarios all
 
 # Run only mock tests (no API costs, SQL data insertion)
@@ -319,6 +338,12 @@ python -m tests.bot.run_tests --scenarios real
 # Run single scenario
 python -m tests.bot.run_tests --scenario mock_001_basic_flow
 ```
+
+**Configuration Details**:
+- `.env.test` - Test environment configuration (separate DB, mock settings, API keys)
+- `ENVIRONMENT=test` - Critical variable that tells main app to load `.env.test`
+- Test isolation: Separate test database prevents contaminating dev/prod data
+- Mock adapter control: `USE_MOCK_ADAPTERS=true/false` in `.env.test`
 
 **Features**:
 - WebSocket client simulating candidate interactions

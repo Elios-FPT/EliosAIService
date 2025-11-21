@@ -5,14 +5,50 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Load environment variables from .env file
-# env_path = find_dotenv()
-# print(f"✅ .env file found: {env_path if env_path else 'None'}")
-#
-# load_dotenv(env_path)
+
+# Load environment-specific configuration before Settings class initialization
+# This allows ENVIRONMENT variable to determine which .env file to load
+def _load_environment_config():
+    """Load environment-specific .env file based on ENVIRONMENT variable.
+
+    Priority:
+    1. ENVIRONMENT=test → .env.test (for test isolation)
+    2. ENVIRONMENT=production → .env (for production)
+    3. Default → .env.local (for local development)
+    """
+    environment = os.getenv("ENVIRONMENT", "development").lower()
+
+    # Determine which .env file to load
+    if environment == "test":
+        env_file = Path(__file__).parent.parent.parent.parent / ".env.test"
+        if env_file.exists():
+            load_dotenv(env_file, override=True)
+            print(f"✓ Loaded test configuration from: {env_file}")
+        else:
+            print(f"⚠️  Warning: ENVIRONMENT=test but .env.test not found at {env_file}")
+    elif environment == "production":
+        env_file = Path(__file__).parent.parent.parent.parent / ".env"
+        if env_file.exists():
+            load_dotenv(env_file)
+            print(f"✓ Loaded production configuration from: {env_file}")
+    else:
+        # Development: try .env.local first, fallback to .env
+        env_local = Path(__file__).parent.parent.parent.parent / ".env.local"
+        env_default = Path(__file__).parent.parent.parent.parent / ".env"
+
+        if env_local.exists():
+            load_dotenv(env_local)
+            print(f"✓ Loaded development configuration from: {env_local}")
+        elif env_default.exists():
+            load_dotenv(env_default)
+            print(f"✓ Loaded development configuration from: {env_default}")
+
+
+# Load configuration before Settings class is initialized
+_load_environment_config()
 
 
 class Settings(BaseSettings):
@@ -181,16 +217,13 @@ class Settings(BaseSettings):
     spacy_disable_components: list[str] = ["parser", "lemmatizer"]  # Optimize speed
 
     model_config = SettingsConfigDict(
-        env_file=("../.env.local", "../.env", ".env"),  # Try .env.local first, fallback to .env
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
     def print_loaded_env_file(self):
-        for env_file in self.model_config["env_file"]:
-            if Path(env_file).exists():
-                print(f"Found {env_file} (will be used if values not already set)")
+        """Print active environment (env file already loaded by _load_environment_config)."""
         print(f"Active environment: {self.environment}")
 
     def is_production(self) -> bool:
