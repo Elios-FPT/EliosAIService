@@ -255,22 +255,27 @@ class TestRunner:
         engine = create_async_engine(settings.database_url, echo=False)
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-        async with async_session() as session:
-            db_helper = DatabaseHelper(session)
+        try:
+            async with async_session() as session:
+                db_helper = DatabaseHelper(session)
 
-            # Insert pre-defined data
-            candidate_id, interview_id, question_ids = await db_helper.insert_mock_interview_data(
-                cv_fixture=config["cv_fixture"],
-                expected_questions=config["expected_questions"],
-            )
+                # Insert pre-defined data
+                candidate_id, interview_id, question_ids = await db_helper.insert_mock_interview_data(
+                    cv_fixture=config["cv_fixture"],
+                    expected_questions=config["expected_questions"],
+                )
 
-        # Construct WebSocket URL
-        ws_url = f"{self.ws_base_url}/ws/interviews/{interview_id}"
+            # Construct WebSocket URL
+            ws_url = f"{self.ws_base_url}/ws/interviews/{interview_id}"
 
-        # Run WebSocket QA phase only
-        context = await self._run_websocket_qa(interview_id, ws_url, config)
+            # Run WebSocket QA phase only
+            context = await self._run_websocket_qa(interview_id, ws_url, config)
 
-        return interview_id, ws_url, context
+            return interview_id, ws_url, context
+
+        finally:
+            # Cleanup engine
+            await engine.dispose()
 
     async def _run_real_scenario(
         self, config: dict

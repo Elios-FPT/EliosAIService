@@ -51,8 +51,8 @@ class DatabaseHelper:
         await self.session.execute(
             text(
                 """
-            INSERT INTO candidates (id, name, email, created_at)
-            VALUES (:id, :name, :email, :created_at)
+            INSERT INTO candidates (id, name, email, created_at, updated_at)
+            VALUES (:id, :name, :email, :created_at, :updated_at)
             """
             ),
             {
@@ -60,6 +60,7 @@ class DatabaseHelper:
                 "name": cv_data["name"],
                 "email": cv_data["email"],
                 "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
             },
         )
 
@@ -68,9 +69,9 @@ class DatabaseHelper:
             text(
                 """
             INSERT INTO cv_analyses (id, candidate_id, skills, experience_years,
-                                    education_level, key_technologies, created_at)
+                                    education_level, created_at, updated_at)
             VALUES (:id, :candidate_id, :skills, :experience_years,
-                    :education_level, :key_technologies, :created_at)
+                    :education_level, :created_at, :updated_at)
             """
             ),
             {
@@ -79,8 +80,8 @@ class DatabaseHelper:
                 "skills": json.dumps(cv_data.get("skills", [])),
                 "experience_years": self._extract_experience_years(cv_data),
                 "education_level": cv_data.get("education", "Bachelor's"),
-                "key_technologies": json.dumps(cv_data.get("skills", [])[:3]),
                 "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
             },
         )
 
@@ -89,9 +90,9 @@ class DatabaseHelper:
             text(
                 """
             INSERT INTO interviews (id, candidate_id, cv_analysis_id, status,
-                                   current_question_index, total_questions, created_at)
+                                   current_question_index, question_ids, created_at, updated_at)
             VALUES (:id, :candidate_id, :cv_analysis_id, :status,
-                    :current_question_index, :total_questions, :created_at)
+                    :current_question_index, :question_ids, :created_at, :updated_at)
             """
             ),
             {
@@ -100,22 +101,24 @@ class DatabaseHelper:
                 "cv_analysis_id": cv_analysis_id,
                 "status": "IDLE",
                 "current_question_index": 0,
-                "total_questions": expected_questions,
+                "question_ids": question_ids,  # Array of UUIDs
                 "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
             },
         )
 
         # Insert questions
         for idx, question_id in enumerate(question_ids):
-            skill = cv_data.get("skills", ["General"])[idx % len(cv_data.get("skills", ["General"]))]
+            skills_list = cv_data.get("skills", ["General"])
+            skill = skills_list[idx % len(skills_list)]
 
             await self.session.execute(
                 text(
                     """
                 INSERT INTO questions (id, text, question_type, difficulty,
-                                     skill_category, ideal_answer, created_at)
+                                     skills, ideal_answer, created_at, updated_at)
                 VALUES (:id, :text, :question_type, :difficulty,
-                        :skill_category, :ideal_answer, :created_at)
+                        :skills, :ideal_answer, :created_at, :updated_at)
                 """
                 ),
                 {
@@ -123,24 +126,10 @@ class DatabaseHelper:
                     "text": f"What is your experience with {skill}?",
                     "question_type": "TECHNICAL",
                     "difficulty": ["EASY", "MEDIUM", "HARD"][idx % 3],
-                    "skill_category": skill,
+                    "skills": [skill],  # Array field
                     "ideal_answer": f"Candidate should demonstrate understanding of {skill}.",
                     "created_at": datetime.utcnow(),
-                },
-            )
-
-            # Link question to interview
-            await self.session.execute(
-                text(
-                    """
-                INSERT INTO interview_questions (interview_id, question_id, question_order)
-                VALUES (:interview_id, :question_id, :question_order)
-                """
-                ),
-                {
-                    "interview_id": interview_id,
-                    "question_id": question_id,
-                    "question_order": idx,
+                    "updated_at": datetime.utcnow(),
                 },
             )
 
@@ -159,30 +148,31 @@ class DatabaseHelper:
         Args:
             interview_id: Interview UUID to clean up
         """
-        # Delete in reverse order of foreign key dependencies
-        await self.session.execute(
-            text("DELETE FROM evaluations WHERE answer_id IN (SELECT id FROM answers WHERE interview_id = :id)"),
-            {"id": interview_id},
-        )
-        await self.session.execute(
-            text("DELETE FROM follow_up_questions WHERE interview_id = :id"),
-            {"id": interview_id},
-        )
-        await self.session.execute(
-            text("DELETE FROM answers WHERE interview_id = :id"),
-            {"id": interview_id},
-        )
-        await self.session.execute(
-            text("DELETE FROM interview_questions WHERE interview_id = :id"),
-            {"id": interview_id},
-        )
-        await self.session.execute(
-            text("DELETE FROM interviews WHERE id = :id"),
-            {"id": interview_id},
-        )
+        try:
+            # Delete in reverse order of foreign key dependencies
+            await self.session.execute(
+                text("DELETE FROM evaluations WHERE answer_id IN (SELECT id FROM answers WHERE interview_id = :id)"),
+                {"id": interview_id},
+            )
+            await self.session.execute(
+                text("DELETE FROM follow_up_questions WHERE interview_id = :id"),
+                {"id": interview_id},
+            )
+            await self.session.execute(
+                text("DELETE FROM answers WHERE interview_id = :id"),
+                {"id": interview_id},
+            )
+            await self.session.execute(
+                text("DELETE FROM interviews WHERE id = :id"),
+                {"id": interview_id},
+            )
 
-        await self.session.commit()
-        logger.info(f"Cleaned up interview data: {interview_id}")
+            await self.session.commit()
+            logger.info(f"Cleaned up interview data: {interview_id}")
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Failed to cleanup interview data: {e}")
+            raise
 
     def _extract_experience_years(self, cv_data: dict[str, Any]) -> int:
         """Extract experience years from CV data.
