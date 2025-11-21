@@ -1,0 +1,18 @@
+{
+  "version": "v0.3.0",
+  "date": "2025-11-21",
+  "description": "Baseline performance metrics for interview test bot",
+  "mock_tests": {
+    "avg_duration_sec": 2.1,
+    "avg_latency_ms": 50,
+    "pass_rate": 1.0,
+    "total_tests": 8
+  },
+  "real_tests": {
+    "avg_duration_sec": 12.3,
+    "avg_cost_usd": 0.09,
+    "avg_latency_ms": 1200,
+    "pass_rate": 1.0,
+    "total_tests": 5
+  }
+}

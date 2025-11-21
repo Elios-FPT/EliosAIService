@@ -1,0 +1,16 @@
+{
+  "name": "Sarah Johnson",
+  "title": "Frontend Developer",
+  "email": "sarah.johnson@example.com",
+  "summary": "Frontend developer with 2 years experience in TypeScript and Vue.js.",
+  "skills": ["TypeScript", "Vue.js", "Tailwind CSS", "Vite", "Pinia", "Vitest"],
+  "experience": [
+    {
+      "role": "Frontend Developer",
+      "company": "UIDesign Studio",
+      "years": "2022-Present",
+      "description": "Built responsive web applications with Vue 3 and Tailwind CSS."
+    }
+  ],
+  "education": "B.S. Web Design, Design Institute (2022)"
+}

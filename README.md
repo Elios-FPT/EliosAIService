@@ -297,6 +297,45 @@ pytest tests/e2e/          # End-to-end tests only
 USE_MOCK_ADAPTERS=false pytest
 ```
 
+### Interview Test Bot
+
+Automated testing framework for interview WebSocket protocol with two execution modes:
+
+**Test Modes**:
+- **Mock Tests** (8 scenarios, $0 cost): Insert pre-defined data via SQL → Test WebSocket QA phase only
+- **Real Tests** (5 scenarios, ~$0.45 cost): Full API flow (CV upload → plan interview → WebSocket QA → save feedback)
+
+**Run Tests**:
+```bash
+# Run all tests
+python -m tests.bot.run_tests --scenarios all
+
+# Run only mock tests (no API costs, SQL data insertion)
+python -m tests.bot.run_tests --scenarios mock
+
+# Run only real tests (with OpenAI API, full flow)
+python -m tests.bot.run_tests --scenarios real
+
+# Run single scenario
+python -m tests.bot.run_tests --scenario mock_001_basic_flow
+```
+
+**Features**:
+- WebSocket client simulating candidate interactions
+- Mock tests: DB helper for direct SQL insertion (skip API calls)
+- Real tests: Full API integration testing
+- Performance metrics tracking (latency, tokens, cost)
+- JSON/HTML reports with baseline comparison
+- Answer generation with quality levels (good/average/weak)
+
+**Structure**:
+- `tests/bot/test_bot_client.py` - WebSocket test client
+- `tests/bot/test_runner.py` - Test orchestration (mock vs real execution)
+- `tests/bot/db_helper.py` - SQL insertion helper for mock tests
+- `tests/bot/scenarios/` - Test scenario definitions (YAML)
+- `tests/bot/fixtures/` - CV fixtures and baselines
+- `tests/bot/run_tests.py` - CLI entry point
+
 ### Code Quality
 
 ```bash
