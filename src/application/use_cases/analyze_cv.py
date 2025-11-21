@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from ...domain.models.cv_analysis import CVAnalysis
+from ...domain.models.candidate import Candidate
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
 from ...domain.ports.vector_search_port import VectorSearchPort
 from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
@@ -35,7 +36,7 @@ class AnalyzeCVUseCase:
         self.vector_search = vector_search
         self.candidate_repository_port = candidate_repository_port
         self.cv_analysis_repository_port = cv_analysis_repository_port
-    
+
     async def execute(
         self,
         cv_file_path: str,
@@ -62,10 +63,12 @@ class AnalyzeCVUseCase:
         extracted_text = cv_analysis.extracted_text
         # print(extracted_text)
 
-        candidate = await self.cv_analyzer.generate_candidate_from_summary(
-            extracted_info = extracted_text,
-            cv_file_path = cv_file_path,
-            candidate_id = str(candidate_id)
+        # TODO: replace with data from User Service
+        candidate = Candidate(
+            id=candidate_id,
+            name="Hardcoded Candidate",
+            email="hardcoded@example.com",
+            cv_file_path=cv_file_path,
         )
 
         try:
