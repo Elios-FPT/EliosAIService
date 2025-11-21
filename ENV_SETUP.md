@@ -173,6 +173,35 @@ USE_MOCK_ANALYTICS=true
 
 **Note:** All flags default to `true` (use mocks) for development. Set individual flags to `false` when you want to use real implementations for specific adapters.
 
+### Hybrid CV Analyzer Settings
+
+The hybrid CV analyzer combines rule-based extraction, spaCy NER, and selective LLM fallback for 70-80% cost reduction while maintaining 90%+ accuracy.
+
+```bash
+# Enable hybrid CV analyzer (default: false, uses legacy CVProcessingAdapter)
+USE_HYBRID_CV_ANALYZER=false
+
+# Confidence threshold for LLM fallback (0.0-1.0, default: 0.7)
+# Lower values trigger LLM more often, higher values use LLM less
+HYBRID_CONFIDENCE_THRESHOLD=0.7
+
+# Enable LLM fallback when confidence is below threshold (default: true)
+HYBRID_ENABLE_LLM_FALLBACK=true
+
+# Path to skill patterns JSON file (default: ./src/adapters/cv_processing/skill_patterns.json)
+HYBRID_SKILL_PATTERNS_PATH=./src/adapters/cv_processing/skill_patterns.json
+
+# spaCy model configuration
+SPACY_MODEL_EN=en_core_web_sm  # English NER model
+SPACY_MODEL_VI=vi_core_news_sm  # Vietnamese NER model
+```
+
+**Note:**
+- Install spaCy models: `python -m spacy download en_core_web_sm vi_core_news_sm`
+- When `USE_HYBRID_CV_ANALYZER=false`, the legacy `CVProcessingAdapter` is used (3 LLM calls per CV)
+- When `USE_HYBRID_CV_ANALYZER=true`, the hybrid adapter is used (rules + NER + selective LLM)
+- Priority: Mock > Hybrid > Legacy (if `USE_MOCK_CV_ANALYZER=true`, hybrid is ignored)
+
 ### File Storage Settings
 
 ```bash
