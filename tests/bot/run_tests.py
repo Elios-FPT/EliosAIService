@@ -10,12 +10,24 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from .report_generator import ReportGenerator
 from .test_runner import TestRunner
+
+# Check for test environment setup
+if os.getenv("ENVIRONMENT", "").lower() != "test":
+    print("⚠️  Warning: ENVIRONMENT is not set to 'test'")
+    print("   The main application server will not load .env.test configuration")
+    print("   To fix this:")
+    print("   1. Copy .env.test.example to .env.test")
+    print("   2. Set ENVIRONMENT=test in .env.test")
+    print("   3. Start server: python -m src.main")
+    print("   4. Run tests: python -m tests.bot.run_tests")
+    print()
 
 # Configure logging
 logging.basicConfig(
