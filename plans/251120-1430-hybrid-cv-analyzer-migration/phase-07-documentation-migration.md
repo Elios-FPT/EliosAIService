@@ -109,7 +109,6 @@ USE_HYBRID_CV_ANALYZER=true
 - [ ] Error rate alerts
 - [ ] Cost tracking
 - [ ] LLM fallback rate
-```
 
 ### 3. Update Existing Docs
 
