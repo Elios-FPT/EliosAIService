@@ -112,6 +112,9 @@ class InterviewSessionOrchestrator:
             audio_bytes = await tts.synthesize_speech(question.text)
             audio_data = base64.b64encode(audio_bytes).decode("utf-8")
 
+            # Get total questions from junction table
+            total_questions = await interview_repo.count_interview_questions(self.interview_id)
+
             # Send question message
             await self._send_message(
                 {
@@ -121,7 +124,7 @@ class InterviewSessionOrchestrator:
                     "question_type": question.question_type,
                     "difficulty": question.difficulty,
                     "index": interview.current_question_index,
-                    "total": len(interview.question_ids),
+                    "total": total_questions,
                     "audio_data": audio_data,
                 }
             )
@@ -250,10 +253,11 @@ class InterviewSessionOrchestrator:
             interview.mark_evaluating()
             await interview_repo.update(interview)
 
-            # Get current question ID from interview
-            current_question_id = interview.get_current_question_id()
-            if not current_question_id:
+            # Get current question from junction table
+            current_interview_question = await interview_repo.get_current_question(self.interview_id)
+            if not current_interview_question:
                 raise ValueError("No current question in interview")
+            current_question_id = current_interview_question.question_id
 
             # Phase 3B: Use interrupt workflow if enabled (takes precedence)
             if settings.use_langgraph_adaptive_interrupt:
@@ -588,6 +592,9 @@ class InterviewSessionOrchestrator:
         audio_bytes = await tts.synthesize_speech(question.text)
         audio_data = base64.b64encode(audio_bytes).decode("utf-8")
 
+        # Get total questions from junction table
+        total_questions = await interview_repo.count_interview_questions(self.interview_id)
+
         # Send question message
         await self._send_message(
             {
@@ -597,7 +604,7 @@ class InterviewSessionOrchestrator:
                 "question_type": question.question_type,
                 "difficulty": question.difficulty,
                 "index": interview.current_question_index if interview else 0,
-                "total": len(interview.question_ids) if interview else 0,
+                "total": total_questions,
                 "audio_data": audio_data,
             }
         )
@@ -930,21 +937,24 @@ class InterviewSessionOrchestrator:
                     "last_activity": self.last_activity.isoformat(),
                 }
 
+            # Get total questions from junction table
+            total_questions = await interview_repo.count_interview_questions(self.interview_id)
+
+            # Get current question from junction table
+            current_interview_question = await interview_repo.get_current_question(self.interview_id)
+            current_question_id = current_interview_question.question_id if current_interview_question else None
+
             return {
                 "interview_id": str(self.interview_id),
                 "status": interview.status.value,
-                "current_question_id": (
-                    str(interview.get_current_question_id())
-                    if interview.get_current_question_id()
-                    else None
-                ),
+                "current_question_id": str(current_question_id) if current_question_id else None,
                 "parent_question_id": (
                     str(interview.current_parent_question_id)
                     if interview.current_parent_question_id
                     else None
                 ),
                 "followup_count": interview.current_followup_count,
-                "progress": f"{interview.current_question_index}/{len(interview.question_ids)}",
+                "progress": f"{interview.current_question_index}/{total_questions}",
                 "created_at": self.created_at.isoformat(),
                 "last_activity": self.last_activity.isoformat(),
             }

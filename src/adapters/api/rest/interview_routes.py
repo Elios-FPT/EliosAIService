@@ -60,7 +60,7 @@ async def upload_cv(
         cv_analysis_use_case = AnalyzeCVUseCase(
             cv_analyzer=cv_analyzer,
             vector_search=container.vector_search_port(),
-            candidate_repository_port=container.contcandidate_repository_port(session),
+            candidate_repository_port=container.candidate_repository_port(session),
             cv_analysis_repository_port=container.cv_analysis_repository_port(session),
         )
         cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
@@ -110,8 +110,11 @@ async def get_interview(
             detail=f"Interview {interview_id} not found",
         )
 
+    # Get total questions from junction table
+    question_count = await interview_repo.count_interview_questions(interview_id)
+
     base_url = settings.ws_base_url
-    return InterviewResponse.from_domain(interview, base_url)
+    return InterviewResponse.from_domain(interview, base_url, question_count)
 
 
 @router.put(
@@ -151,8 +154,11 @@ async def start_interview(
         interview.start()
         updated = await interview_repo.update(interview)
 
+        # Get total questions from junction table
+        question_count = await interview_repo.count_interview_questions(interview_id)
+
         base_url = settings.ws_base_url
-        return InterviewResponse.from_domain(updated, base_url)
+        return InterviewResponse.from_domain(updated, base_url, question_count)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -194,7 +200,8 @@ async def get_current_question(
             )
 
         # Get interview for context
-        interview = await container.interview_repository_port(session).get_by_id(interview_id)
+        interview_repo = container.interview_repository_port(session)
+        interview = await interview_repo.get_by_id(interview_id)
 
         if not interview:
             raise HTTPException(
@@ -202,13 +209,16 @@ async def get_current_question(
                 detail=f"Interview {interview_id} not found",
             )
 
+        # Get total questions from junction table
+        total_questions = await interview_repo.count_interview_questions(interview_id)
+
         return QuestionResponse(
             id=question.id,
             text=question.text,
             question_type=question.question_type.value,
             difficulty=question.difficulty.value,
             index=interview.current_question_index,
-            total=len(interview.question_ids),
+            total=total_questions,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e

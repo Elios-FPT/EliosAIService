@@ -569,8 +569,9 @@ class AdaptiveEvalSimpleWorkflow(BaseWorkflow):
             # Save follow-up question
             saved_followup = await self.follow_up_repo.save(followup_question)
 
-            # Check if more main questions available
-            has_more = interview.has_more_questions()
+            # Check if more main questions available using junction table
+            total_questions = await self.interview_repo.count_interview_questions(interview.id)
+            has_more = interview.current_question_index < (total_questions - 1)
 
             logger.info(
                 f"Generated follow-up question {saved_followup.id} (iteration {iteration + 1}), "
@@ -606,8 +607,9 @@ class AdaptiveEvalSimpleWorkflow(BaseWorkflow):
             if not interview:
                 return {"errors": ["Missing interview in finalize"]}
 
-            # Check if more main questions available
-            has_more = interview.has_more_questions()
+            # Check if more main questions available using junction table
+            total_questions = await self.interview_repo.count_interview_questions(interview.id)
+            has_more = interview.current_question_index < (total_questions - 1)
 
             score_str = f"{evaluation.final_score:.1f}" if evaluation else "N/A"
             logger.info(

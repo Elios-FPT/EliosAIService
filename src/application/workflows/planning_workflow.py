@@ -440,9 +440,16 @@ class PlanningWorkflow(BaseWorkflow):
                 )
                 interview = await self.interview_repo.create(interview)
 
-            # Update with question IDs and start
-            interview.question_ids = question_ids
-            interview.start()  # Transitions to QUESTIONING
+            # Add questions to interview via junction table
+            for idx, question_id in enumerate(question_ids):
+                await self.interview_repo.add_question(
+                    interview_id=interview.id,
+                    question_id=question_id,
+                    sequence_order=idx,
+                )
+
+            # Start interview (transitions to QUESTIONING)
+            interview.start()
 
             # Save updated interview
             interview = await self.interview_repo.update(interview)
