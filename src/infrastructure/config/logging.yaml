@@ -1,4 +1,6 @@
 version: 1
+incremental: false
+disable_existing_loggers: true
 
 formatters:
   colored:
@@ -24,6 +26,11 @@ loggers:
     level: INFO
     propagate: False
 
+  sqlalchemy:
+    handlers: []
+    level: INFO
+    propagate: False
+
   sqlalchemy.engine:
     handlers: [console]
     level: INFO
@@ -45,5 +52,5 @@ loggers:
     propagate: False
 
 root:
-  handlers: [console]
   level: INFO
+  handlers: []  # Remove console handler to prevent duplicates, but keep root logger active

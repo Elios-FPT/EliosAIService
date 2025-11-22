@@ -19,18 +19,40 @@ from .adapters.api.websocket.interview_handler import handle_interview_websocket
 from .infrastructure.config import get_settings
 from .infrastructure.database import close_db, init_db
 
-# Configure logging from YAML
-logging_config_path = Path(__file__).parent / "infrastructure" / "config" / "logging.yaml"
-if logging_config_path.exists():
-    with open(logging_config_path, 'r') as f:
-        config = yaml.safe_load(f)
-        logging.config.dictConfig(config)
-else:
-    # Fallback to basic config if YAML not found
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+
+def load_logging_config() -> dict | None:
+    """Load logging configuration from YAML file.
+
+    Returns:
+        Logging config dict if file exists, None otherwise
+    """
+    logging_config_path = Path(__file__).parent / "infrastructure" / "config" / "logging.yaml"
+    if logging_config_path.exists():
+        with open(logging_config_path, 'r') as f:
+            return yaml.safe_load(f)
+    return None
+
+
+# Configure logging at module level - this runs when uvicorn imports the module
+# This ensures logging is configured before uvicorn can add default handlers
+_log_config = load_logging_config()
+if _log_config:
+    # Clear existing handlers to ensure clean setup before applying config
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.propagate = False
+
+    # Clear handlers from loggers that will be configured
+    # This prevents handler accumulation when dictConfig is applied
+    logger_names = ['sqlalchemy', 'sqlalchemy.engine', 'uvicorn', 'uvicorn.error', 'uvicorn.access', 'src', 'src.main']
+    for logger_name in logger_names:
+        logger = logging.getLogger(logger_name)
+        logger.handlers.clear()
+
+    # Apply our config (disable_existing_loggers: true ensures clean reset)
+    logging.config.dictConfig(_log_config)
+
+# Get logger (now properly configured)
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +62,6 @@ async def lifespan(app: FastAPI):
 
     Handles startup and shutdown events.
     """
-    # Startup
     settings = get_settings()
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
@@ -48,6 +69,12 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     logger.info("Initializing database connection...")
+
+    # Configure SQLAlchemy logging level based on debug mode
+    # Since we disabled echo in engine config, we control logging via logger level
+    sqlalchemy_engine_logger = logging.getLogger('sqlalchemy.engine')
+    sqlalchemy_engine_logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+
     await init_db()
     logger.info("Database connection established")
 
@@ -118,10 +145,13 @@ if __name__ == "__main__":
 
     settings = get_settings()
 
+    # Logging is configured at module level
+    # Pass None to prevent uvicorn from adding its own handlers
     uvicorn.run(
         "src.main:app",
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.debug,
-        log_level=settings.log_level.lower(),
+        log_config=None,  # Logging configured at module level
+        access_log=False,  # Disable uvicorn's access log
     )
