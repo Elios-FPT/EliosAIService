@@ -31,6 +31,7 @@ from ...adapters.persistence import (
     PostgreSQLEvaluationRepository,
     PostgreSQLFollowUpQuestionRepository,
     PostgreSQLInterviewRepository,
+    PostgreSQLPromptRepository,
     PostgreSQLQuestionRepository,
 )
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
@@ -47,6 +48,7 @@ from ...domain.ports import (
     FollowUpQuestionRepositoryPort,
     InterviewRepositoryPort,
     LLMPort,
+    PromptRepositoryPort,
     QuestionRepositoryPort,
     SpeechToTextPort,
     TextToSpeechPort,
@@ -244,6 +246,17 @@ class Container:
             Configured evaluation repository
         """
         return PostgreSQLEvaluationRepository(session)
+
+    def prompt_repository_port(self, session: AsyncSession) -> PromptRepositoryPort:
+        """Get prompt repository port implementation.
+
+        Args:
+            session: Async database session
+
+        Returns:
+            Configured prompt repository
+        """
+        return PostgreSQLPromptRepository(session)
 
     def cv_analysis_repository_port(
         self, session: AsyncSession

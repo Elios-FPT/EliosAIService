@@ -10,6 +10,7 @@ from .cv_analysis_repository import PostgreSQLCVAnalysisRepository
 from .evaluation_repository import PostgreSQLEvaluationRepository
 from .follow_up_question_repository import PostgreSQLFollowUpQuestionRepository
 from .interview_repository import PostgreSQLInterviewRepository
+from .postgres_prompt_repository import PostgreSQLPromptRepository
 from .question_repository import PostgreSQLQuestionRepository
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "PostgreSQLAnswerRepository",
     "PostgreSQLEvaluationRepository",
     "PostgreSQLCVAnalysisRepository",
+    "PostgreSQLPromptRepository",
 ]

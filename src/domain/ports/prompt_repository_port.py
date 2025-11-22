@@ -275,3 +275,24 @@ class PromptRepositoryPort(ABC):
             Or None if no executions
         """
         pass
+
+    @abstractmethod
+    async def list_prompts(
+        self,
+        limit: int,
+        offset: int,
+        is_active: bool | None = None,
+        include_deleted: bool = False,
+    ) -> tuple[list[PromptTemplate], int]:
+        """List prompts with pagination and filters.
+
+        Args:
+            limit: Maximum number of prompts to return
+            offset: Number of prompts to skip
+            is_active: Filter by active status (None = no filter)
+            include_deleted: Include soft-deleted prompts (default: False)
+
+        Returns:
+            Tuple of (list of PromptTemplate, total_count)
+        """
+        pass
