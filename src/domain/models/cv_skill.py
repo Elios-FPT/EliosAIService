@@ -51,3 +51,8 @@ class CVSkill(BaseModel):
             f"proficiency={prof}, "
             f"years={self.years_of_experience}, is_primary={self.is_primary})"
         )
+
+    class Config:
+        """Pydantic configuration."""
+
+        pass

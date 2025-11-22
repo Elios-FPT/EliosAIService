@@ -75,7 +75,12 @@ class CVSkillModel(Base):
     )
     skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
     proficiency_level: Mapped[str | None] = mapped_column(
-        SQLEnum(ProficiencyLevel, native_enum=False, length=50),
+        SQLEnum(
+            ProficiencyLevel,
+            native_enum=False,
+            length=50,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=True,
     )
     years_of_experience: Mapped[float | None] = mapped_column(Float, nullable=True)
