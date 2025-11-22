@@ -46,28 +46,52 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         created_by: str,
         notes: str | None = None,
     ) -> PromptTemplate:
-        """Create initial prompt version (v1)."""
+        """Create initial prompt version (v1).
+
+        NOTE: Decomposed schema - accepts template_json for backward compatibility,
+        extracts fields into decomposed structure.
+        """
+        from decimal import Decimal
+
         # Check if prompt already exists
         result = await self.session.execute(
-            select(PromptTemplateModel).where(PromptTemplateModel.name == name).limit(1)
+            select(PromptTemplateModel).where(PromptTemplateModel.prompt_name == name).limit(1)
         )
         existing = result.scalar_one_or_none()
         if existing:
             raise ValueError(f"Prompt '{name}' already exists")
 
-        # Create domain model
+        # Extract decomposed fields from template_json
+        messages = template_json.get("messages", [])
+        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
+        user_template = next((m["content"] for m in messages if m.get("role") == "user"), "")
+
+        model_params = template_json.get("model_params", {})
+
+        # Create domain model with decomposed fields
         prompt = PromptTemplate(
-            name=name,
+            prompt_name=name,
             version=1,
-            template_json=template_json,
-            created_by=created_by,
-            notes=notes,
-            created_at=datetime.utcnow(),
-            is_draft=True,
             is_active=False,
+            traffic_percentage=0,
+            system_prompt=system_prompt,
+            user_template=user_template,
+            input_variables=template_json.get("input_variables", []),
+            partial_variables=template_json.get("partial_variables", {}),
+            output_parser_type=template_json.get("output_parser", {}).get("type", "json_output_parser"),
+            output_schema=template_json.get("output_parser", {}).get("schema", {}),
+            temperature=Decimal(str(model_params.get("temperature", 0.3))),
+            max_tokens=model_params.get("max_tokens", 2000),
+            top_p=Decimal(str(model_params.get("top_p", 0.95))),
+            frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
+            presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
+            deleted_at=None,
+            template_json_legacy=template_json,  # Store original for reference
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
         )
 
-        # Convert to DB model and save
+        # Convert to DB model and save (trigger will generate template_json)
         db_model = PromptTemplateMapper.to_db_model(prompt)
         self.session.add(db_model)
         await self.session.commit()
@@ -84,8 +108,14 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         created_by: str,
         notes: str | None = None,
     ) -> PromptTemplate:
-        """Create new version forked from parent."""
-        # Get parent version
+        """Create new version forked from parent.
+
+        NOTE: Simplified schema removed parent_version_id, change_summary, created_by, notes.
+        Version tracking now simpler - just increment version number.
+        """
+        from decimal import Decimal
+
+        # Get parent version (for validation only)
         parent = await self.get_version(name, parent_version)
         if not parent:
             raise ValueError(f"Parent version {name} v{parent_version} not found")
@@ -93,22 +123,37 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         # Get max version for this prompt
         result = await self.session.execute(
             select(func.max(PromptTemplateModel.version))
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
         )
         max_version = result.scalar() or 0
 
+        # Extract decomposed fields from template_json
+        messages = template_json.get("messages", [])
+        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
+        user_template = next((m["content"] for m in messages if m.get("role") == "user"), "")
+        model_params = template_json.get("model_params", {})
+
         # Create new version
         new_prompt = PromptTemplate(
-            name=name,
+            prompt_name=name,
             version=max_version + 1,
-            parent_version_id=parent.id,
-            template_json=template_json,
-            change_summary=change_summary,
-            created_by=created_by,
-            notes=notes,
-            created_at=datetime.utcnow(),
-            is_draft=True,
             is_active=False,
+            traffic_percentage=0,
+            system_prompt=system_prompt,
+            user_template=user_template,
+            input_variables=template_json.get("input_variables", []),
+            partial_variables=template_json.get("partial_variables", {}),
+            output_parser_type=template_json.get("output_parser", {}).get("type", "json_output_parser"),
+            output_schema=template_json.get("output_parser", {}).get("schema", {}),
+            temperature=Decimal(str(model_params.get("temperature", 0.3))),
+            max_tokens=model_params.get("max_tokens", 2000),
+            top_p=Decimal(str(model_params.get("top_p", 0.95))),
+            frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
+            presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
+            deleted_at=None,
+            template_json_legacy=template_json,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
         )
 
         # Save
@@ -126,17 +171,23 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         changed_by: str,
         reason: str,
     ) -> PromptTemplate:
-        """Rollback by creating new version from target version."""
+        """Rollback by creating new version from target version.
+
+        NOTE: Uses target's decomposed fields via to_langchain_config() for backward compat.
+        """
         # Get target version
         target = await self.get_version(name, target_version)
         if not target:
             raise ValueError(f"Target version {name} v{target_version} not found")
 
+        # Convert target to template_json format via domain model method
+        template_json = target.to_langchain_config()
+
         # Create new version with target's content
         return await self.create_new_version(
             name=name,
             parent_version=target_version,
-            template_json=target.template_json,
+            template_json=template_json,
             change_summary=f"Rollback to v{target_version}: {reason}",
             created_by=changed_by,
             notes=f"Rolled back from v{target_version}",
@@ -169,7 +220,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             if traffic_percentage == 100:
                 result = await self.session.execute(
                     select(PromptTemplateModel)
-                    .where(PromptTemplateModel.name == target.name)
+                    .where(PromptTemplateModel.prompt_name == target.prompt_name)
                     .where(PromptTemplateModel.is_active == True)
                     .where(PromptTemplateModel.id != prompt_id)
                 )
@@ -196,9 +247,8 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 reason=reason,
             )
             target.is_active = True
-            target.is_draft = False
             target.traffic_percentage = traffic_percentage
-            target.ab_test_group = ab_test_group
+            # Note: is_draft and ab_test_group removed from simplified schema
 
         await self.session.commit()
 
@@ -241,7 +291,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         """Get active prompt with A/B testing logic."""
         result = await self.session.execute(
             select(PromptTemplateModel)
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
             .where(PromptTemplateModel.is_active == True)
         )
         active_prompts = list(result.scalars().all())
@@ -267,45 +317,48 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         """Get specific version by name and version number."""
         result = await self.session.execute(
             select(PromptTemplateModel)
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
             .where(PromptTemplateModel.version == version)
         )
         db_model = result.scalar_one_or_none()
         return PromptTemplateMapper.to_domain(db_model) if db_model else None
 
     async def get_version_history(self, name: str) -> list[dict]:
-        """Get version history with JSON diffs."""
+        """Get version history with simplified schema.
+
+        NOTE: Simplified schema removed parent_version_id, change_summary, created_by,
+        is_draft. Template diff calculated from auto-generated template_json.
+        """
         result = await self.session.execute(
             select(PromptTemplateModel)
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
+            .where(PromptTemplateModel.deleted_at.is_(None))  # Exclude soft-deleted
             .order_by(PromptTemplateModel.version)
         )
         versions = result.scalars().all()
 
         history = []
+        prev_version = None
         for version in versions:
             entry = {
                 "version": version.version,
                 "created_at": version.created_at,
-                "created_by": version.created_by,
-                "change_summary": version.change_summary,
                 "is_active": version.is_active,
-                "is_draft": version.is_draft,
+                "traffic_percentage": version.traffic_percentage,
                 "diff": None,
             }
 
-            # Calculate diff with parent
-            if version.parent_version_id:
-                parent = await self.get_by_id(version.parent_version_id)
-                if parent:
-                    diff = DeepDiff(
-                        parent.template_json,
-                        version.template_json,
-                        ignore_order=True,
-                    )
-                    entry["diff"] = diff.to_dict() if diff else {}
+            # Calculate diff with previous version
+            if prev_version and version.template_json and prev_version.template_json:
+                diff = DeepDiff(
+                    prev_version.template_json,
+                    version.template_json,
+                    ignore_order=True,
+                )
+                entry["diff"] = diff.to_dict() if diff else {}
 
             history.append(entry)
+            prev_version = version
 
         return history
 
@@ -314,7 +367,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         # Get all prompt IDs for this name
         result = await self.session.execute(
             select(PromptTemplateModel.id)
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
         )
         prompt_ids = [row[0] for row in result.all()]
 
@@ -379,7 +432,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         # Get prompt template ID
         result = await self.session.execute(
             select(PromptTemplateModel)
-            .where(PromptTemplateModel.name == name)
+            .where(PromptTemplateModel.prompt_name == name)
             .where(PromptTemplateModel.is_active == True)
             .limit(1)
         )
