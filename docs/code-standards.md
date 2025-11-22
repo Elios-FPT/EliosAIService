@@ -1845,6 +1845,64 @@ class LangChainAdapter(LLMPort):
         return result["question_text"]
 ```
 
+#### DB-Driven Prompt Loading
+
+**Pattern** (Standard across all LangChainAdapter methods):
+
+```python
+async def method_name(self, arg: str, context: dict[str, Any]) -> ReturnType:
+    """Method docstring."""
+    start_time = time.time()
+
+    # 1. Load DB prompt
+    prompt_template, template_json, cache_key = await self._load_prompt_from_db("db_prompt_name")
+
+    # 2. Get chain (DB or fallback)
+    chain = self._get_or_build_chain("method_name", template_json, cache_key)
+
+    # 3. Prepare variables
+    variables = {"arg": arg}
+    config = self._create_config(context=context, method="method_name")
+
+    # 4. Execute chain
+    try:
+        result = await chain.ainvoke(variables, config)
+        metadata = self._extract_response_metadata(result)
+
+        # 5. Log execution
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables=variables,
+                output_text=result["output_field"],
+                start_time=start_time,
+                success=True,
+                model_response_metadata=metadata,
+            )
+
+        return result["output_field"]
+
+    except Exception as exc:
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables=variables,
+                output_text=None,
+                start_time=start_time,
+                success=False,
+                error_message=str(exc),
+            )
+        raise
+```
+
+**Key Points**:
+- Always pass `context` parameter (for logging)
+- Handle exceptions gracefully (log failure, then raise)
+- Extract metadata for token tracking
+- Fallback automatic (no error handling needed in method)
+
 ### Best Practices for LCEL Chains
 
 **✅ DO**:

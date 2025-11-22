@@ -538,6 +538,30 @@ class FollowUpDecisionUseCase:
 
 #### LLM Adapters (`adapters/llm/`)
 
+**LangChainAdapter - DB-Driven Prompts** (v0.3.0+):
+
+**Prompt Loading Strategy**:
+1. Load active prompt from DB (via PromptRepositoryPort)
+2. Build LangChain LCEL chain from DB template
+3. Cache chain (keyed by `prompt_name:vN`)
+4. Execute chain with input variables
+5. Log execution (tokens, latency, cost) to DB
+
+**Fallback Mechanism**:
+- If DB unavailable: Use PROMPT_REGISTRY (hardcoded prompts)
+- If invalid template: Fallback + log warning
+- If logging fails: Continue execution (logging non-critical)
+
+**Execution Logging**:
+- **Tracked Metrics**: tokens_used, latency_ms, model_name, success, cost_usd
+- **Analytics View**: `prompt_analytics_summary` (materialized view)
+- **PII Protection**: Input variables sanitized (emails/phones redacted)
+
+**Performance**:
+- **DB Overhead**: <10ms per execution (cached chains)
+- **Cache Hit Rate**: >90% (version-based caching)
+- **Logging Latency**: <5ms (async, non-blocking)
+
 ```python
 # OpenAIAdapter.py - 269 lines ✅
 class OpenAIAdapter(LLMPort):

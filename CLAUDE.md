@@ -148,6 +148,36 @@ When integrating a new external service (e.g., new LLM provider, vector database
 - ✅ Fast unit tests (10x faster)
 - ✅ CI/CD pipelines (no external dependencies)
 - ✅ Deterministic test results
+
+### Prompt Version Control
+
+**DB-Driven Prompts** (v0.3.0+): LangChainAdapter loads prompts from PostgreSQL for version control and A/B testing.
+
+**Workflow**:
+1. **Create Prompt**: Seed via Alembic migration (see `alembic/versions/0013_*.py`, `0014_*.py`)
+2. **Update Prompt**: Create new version via PromptRepositoryPort
+3. **A/B Test**: Activate multiple versions with traffic split
+4. **Rollback**: Revert to previous version (immutable versioning)
+
+**Fallback**: If DB unavailable, methods fall back to PROMPT_REGISTRY (hardcoded prompts).
+
+**Analytics**: All executions logged to `prompt_executions` table (tokens, latency, cost).
+
+**Example**:
+```python
+# Adapter automatically loads from DB
+result = await adapter.evaluate_answer(
+    question=question,
+    answer_text="...",
+    context={"interview_id": "123"}  # Required for logging
+)
+
+# Check analytics
+analytics = await prompt_repo.get_analytics_summary("answer_evaluation")
+print(f"Avg tokens: {analytics['avg_tokens_used']}")
+```
+
+**Migration Guide**: See `plans/251121-1654-db-prompt-migration/plan.md`
 - ❌ Integration tests (use real adapters)
 - ❌ Production deployment
 
