@@ -1,11 +1,11 @@
 # System Architecture
 
-**Last Updated**: 2025-11-20
-**Version**: 0.3.0
+**Last Updated**: 2025-11-22
+**Version**: 0.4.0
 **Project**: Elios AI Interview Service
 **Repository**: https://github.com/elios/elios-ai-service
 
-**V0.3.0 Update**: Integrated LangChain/LangGraph workflow layer with PostgreSQL checkpointing and LangSmith observability.
+**V0.4.0 Update**: Schema redesign with normalized tables (cv_skills, interview_questions) and PostgreSQL ENUMs for type safety.
 
 ## Table of Contents
 
@@ -1233,51 +1233,83 @@ Client              Handler             FollowUpDecision    LLM
 
 ## Database Architecture
 
-### Schema Design
+### Schema Design (v0.4.0 - Normalized)
+
+**Key Changes**:
+- ✅ 2 new tables: `cv_skills`, `interview_questions`
+- ✅ 3 PostgreSQL ENUMs for type safety
+- ✅ Removed JSONB arrays in favor of proper relationships
+- ✅ Cascade deletes for referential integrity
 
 ```sql
--- Core Tables (5 total)
+-- PostgreSQL ENUMs (NEW v0.4.0)
+CREATE TYPE question_type_enum AS ENUM (
+    'technical', 'behavioral', 'situational',
+    'problem_solving', 'system_design'
+);
+
+CREATE TYPE difficulty_enum AS ENUM (
+    'easy', 'medium', 'hard', 'expert'
+);
+
+CREATE TYPE proficiency_level_enum AS ENUM (
+    'beginner', 'intermediate', 'advanced', 'expert'
+);
+
+-- Core Tables (9 total, +2 from v0.3.0)
 
 -- Candidates
 CREATE TABLE candidates (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
-    cv_file_path VARCHAR(500),
+    cv_file_path VARCHAR(500),  -- MOVED from cv_analyses
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
 
--- CV Analyses
+-- CV Analyses (UPDATED v0.4.0)
 CREATE TABLE cv_analyses (
     id UUID PRIMARY KEY,
-    candidate_id UUID NOT NULL REFERENCES candidates(id),
-    cv_file_path VARCHAR(500) NOT NULL,
+    candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
     extracted_text TEXT NOT NULL,
-    skills JSONB,  -- Array of ExtractedSkill
     work_experience_years FLOAT,
     education_level VARCHAR(100),
-    suggested_topics TEXT[],  -- PostgreSQL array
+    suggested_topics TEXT[],
     suggested_difficulty VARCHAR(50),
     embedding FLOAT[],  -- 1536 dimensions
     summary TEXT,
-    metadata JSONB,
     created_at TIMESTAMP NOT NULL
 );
 
 CREATE INDEX idx_cv_analyses_candidate ON cv_analyses(candidate_id);
-CREATE INDEX idx_cv_analyses_skills ON cv_analyses USING GIN(skills);
+CREATE INDEX idx_cv_analyses_created_at ON cv_analyses(created_at);
 
--- Questions
+-- CV Skills (NEW v0.4.0 - Normalized skills)
+CREATE TABLE cv_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cv_analysis_id UUID NOT NULL REFERENCES cv_analyses(id) ON DELETE CASCADE,
+    skill_name VARCHAR(200) NOT NULL,
+    proficiency_level proficiency_level_enum,
+    years_of_experience FLOAT,
+    is_primary BOOLEAN DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_cv_skills_cv_analysis_id ON cv_skills(cv_analysis_id);
+CREATE INDEX idx_cv_skills_skill_name ON cv_skills(skill_name);
+CREATE INDEX idx_cv_skills_proficiency ON cv_skills(proficiency_level);
+CREATE INDEX idx_cv_skills_primary ON cv_skills(is_primary) WHERE is_primary = true;
+
+-- Questions (UPDATED v0.4.0)
 CREATE TABLE questions (
     id UUID PRIMARY KEY,
     text TEXT NOT NULL,
-    question_type VARCHAR(50) NOT NULL,  -- TECHNICAL, BEHAVIORAL, SITUATIONAL
-    difficulty VARCHAR(50) NOT NULL,     -- EASY, MEDIUM, HARD
-    skills TEXT[],  -- PostgreSQL array
-    tags TEXT[],
-    reference_answer TEXT,
-    evaluation_criteria TEXT,
+    question_type question_type_enum NOT NULL,  -- UPDATED: ENUM
+    difficulty difficulty_enum NOT NULL,        -- UPDATED: ENUM
+    skills TEXT[],
+    ideal_answer TEXT,  -- RENAMED from reference_answer
+    rationale TEXT,     -- NEW
     version INT DEFAULT 1,
     embedding FLOAT[],  -- 1536 dimensions for semantic search
     created_at TIMESTAMP NOT NULL,
@@ -1288,15 +1320,17 @@ CREATE INDEX idx_questions_type ON questions(question_type);
 CREATE INDEX idx_questions_difficulty ON questions(difficulty);
 CREATE INDEX idx_questions_skills ON questions USING GIN(skills);
 
--- Interviews
+-- Interviews (UPDATED v0.4.0)
 CREATE TABLE interviews (
     id UUID PRIMARY KEY,
-    candidate_id UUID NOT NULL REFERENCES candidates(id),
-    status VARCHAR(50) NOT NULL,  -- PREPARING, READY, IN_PROGRESS, COMPLETED, CANCELLED
+    candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL,
     cv_analysis_id UUID REFERENCES cv_analyses(id),
-    question_ids UUID[],  -- Ordered array of question IDs
-    answer_ids UUID[],    -- Ordered array of answer IDs
     current_question_index INT DEFAULT 0,
+    plan_metadata JSONB DEFAULT '{}',
+    adaptive_follow_ups UUID[],
+    current_parent_question_id UUID,
+    current_followup_count INT DEFAULT 0,
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL,
@@ -1307,22 +1341,72 @@ CREATE INDEX idx_interviews_candidate ON interviews(candidate_id);
 CREATE INDEX idx_interviews_status ON interviews(status);
 CREATE INDEX idx_interviews_cv_analysis ON interviews(cv_analysis_id);
 
--- Answers
+-- Interview Questions (NEW v0.4.0 - Junction table)
+CREATE TABLE interview_questions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    interview_id UUID NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+    question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    sequence_order INT NOT NULL,
+    asked_at TIMESTAMP,
+    skipped BOOLEAN DEFAULT false,
+    skip_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_interview_questions_sequence UNIQUE(interview_id, sequence_order),
+    CONSTRAINT uq_interview_questions_pair UNIQUE(interview_id, question_id)
+);
+
+CREATE INDEX idx_interview_questions_interview_id ON interview_questions(interview_id, sequence_order);
+CREATE INDEX idx_interview_questions_question_id ON interview_questions(question_id);
+CREATE INDEX idx_interview_questions_asked_at ON interview_questions(asked_at);
+
+-- Answers (UPDATED v0.4.0)
 CREATE TABLE answers (
     id UUID PRIMARY KEY,
-    interview_id UUID NOT NULL REFERENCES interviews(id),
+    interview_id UUID NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
     question_id UUID NOT NULL REFERENCES questions(id),
-    answer_text TEXT NOT NULL,
-    answer_mode VARCHAR(50),  -- TEXT, VOICE
+    text TEXT NOT NULL,
+    is_voice BOOLEAN DEFAULT false,
     audio_file_path VARCHAR(500),
-    transcript TEXT,
-    evaluation JSONB,  -- AnswerEvaluation object
-    metadata JSONB,
+    duration_seconds FLOAT,
+    embedding FLOAT[],
+    evaluation_id UUID,
     created_at TIMESTAMP NOT NULL
 );
 
 CREATE INDEX idx_answers_interview ON answers(interview_id);
 CREATE INDEX idx_answers_question ON answers(question_id);
+CREATE INDEX idx_answers_evaluation ON answers(evaluation_id);
+
+-- Evaluations (v0.3.0)
+CREATE TABLE evaluations (
+    id UUID PRIMARY KEY,
+    answer_id UUID NOT NULL REFERENCES answers(id) ON DELETE CASCADE,
+    interview_id UUID NOT NULL REFERENCES interviews(id),
+    question_id UUID NOT NULL REFERENCES questions(id),
+    context_type VARCHAR(50) NOT NULL,
+    parent_id UUID REFERENCES evaluations(id),
+    evaluation_data JSONB NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_evaluations_answer ON evaluations(answer_id);
+CREATE INDEX idx_evaluations_interview ON evaluations(interview_id);
+CREATE INDEX idx_evaluations_context_type ON evaluations(context_type);
+CREATE INDEX idx_evaluations_parent ON evaluations(parent_id);
+
+-- Follow-up Questions (v0.3.0)
+CREATE TABLE follow_up_questions (
+    id UUID PRIMARY KEY,
+    parent_question_id UUID NOT NULL REFERENCES questions(id),
+    interview_id UUID NOT NULL REFERENCES interviews(id),
+    text TEXT NOT NULL,
+    generated_reason TEXT,
+    order_in_sequence INT NOT NULL,
+    created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_follow_up_questions_parent ON follow_up_questions(parent_question_id);
+CREATE INDEX idx_follow_up_questions_interview ON follow_up_questions(interview_id);
 
 -- Alembic version tracking
 CREATE TABLE alembic_version (
@@ -1330,20 +1414,30 @@ CREATE TABLE alembic_version (
 );
 ```
 
-### Entity Relationships
+### Entity Relationships (Updated v0.4.0)
 
 ```
 Candidate (1) ──────→ (N) CVAnalysis
+    │                       │
+    │                       └──→ (N) CVSkill (NEW - normalized)
     │
     └──────────→ (N) Interview
                        │
                        ├──→ (1) CVAnalysis
-                       ├──→ (N) Question (via question_ids array)
-                       └──→ (N) Answer
-                              └──→ (1) Question
+                       ├──→ (N) InterviewQuestion (NEW - junction)
+                       │         └──→ (1) Question
+                       ├──→ (N) Answer
+                       │         └──→ (1) Question
+                       │         └──→ (1) Evaluation
+                       └──→ (N) FollowUpQuestion
+                                 └──→ (1) Question (parent)
+
+Question (1) ──────→ (N) InterviewQuestion (many-to-many via junction)
+      │
+      └──────────→ (N) FollowUpQuestion
 ```
 
-### Database Access Patterns
+### Database Access Patterns (Updated v0.4.0)
 
 **1. Candidate Lookup** (by email):
 ```python
@@ -1363,9 +1457,41 @@ stmt = select(QuestionModel).where(QuestionModel.skills.contains(["Python"]))
 # Uses GIN index: questions(skills)
 ```
 
-**4. Answers for Interview** (fetch all):
+**4. Get Interview Questions** (NEW - Junction table):
 ```python
-stmt = select(AnswerModel).where(AnswerModel.interview_id == interview_id)
+stmt = (
+    select(InterviewQuestionModel)
+    .where(InterviewQuestionModel.interview_id == interview_id)
+    .order_by(InterviewQuestionModel.sequence_order)
+)
+# Uses index: interview_questions(interview_id, sequence_order)
+```
+
+**5. Get CV Skills** (NEW - Normalized):
+```python
+stmt = (
+    select(CVSkillModel)
+    .where(CVSkillModel.cv_analysis_id == cv_id)
+    .where(CVSkillModel.is_primary == True)
+)
+# Uses index: cv_skills(cv_analysis_id), cv_skills(is_primary)
+```
+
+**6. Count Interview Questions** (NEW):
+```python
+stmt = select(func.count(InterviewQuestionModel.id)).where(
+    InterviewQuestionModel.interview_id == interview_id
+)
+# Uses index: interview_questions(interview_id)
+```
+
+**7. Answers for Interview** (fetch all with eager loading):
+```python
+stmt = (
+    select(AnswerModel)
+    .where(AnswerModel.interview_id == interview_id)
+    .options(selectinload(AnswerModel.evaluation))
+)
 # Uses index: answers(interview_id)
 ```
 

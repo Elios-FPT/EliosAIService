@@ -13,7 +13,7 @@
 
 Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions via vector search and LLMs, conducting real-time interviews through WebSocket, and providing comprehensive feedback with adaptive follow-up questions.
 
-**Branch**: `feature/langchain-langgraph-integration` (v0.3.0)
+**Branch**: `migration/db-redesign` (v0.4.0)
 
 ### Key Features
 
@@ -456,17 +456,25 @@ async with httpx.AsyncClient() as client:
         }
     )
     interview = response.json()
-    print(f"Interview ready with {len(interview['question_ids'])} questions")
+    # Note: v0.4.0+ uses junction table instead of question_ids array
+    # See docs/migrations/0015-schema-redesign.md for details
+    print(f"Interview ready with {interview['question_count']} questions")
 ```
 
 ### 4. Submit Answer
 
 ```python
 async with httpx.AsyncClient() as client:
+    # Get current question from interview
+    question_response = await client.get(
+        f"http://localhost:8000/api/interviews/{interview['id']}/current-question"
+    )
+    current_question = question_response.json()
+
     response = await client.post(
         f"http://localhost:8000/api/interviews/{interview['id']}/answers",
         json={
-            "question_id": interview['question_ids'][0],
+            "question_id": current_question['id'],
             "answer_text": "My answer here..."
         }
     )
@@ -482,7 +490,7 @@ async with httpx.AsyncClient() as client:
 ```
 EliosAIService/
 ├── src/
-│   ├── domain/              # Core business logic (8 models, 13 ports)
+│   ├── domain/              # Core business logic (11 models, 11 ports)
 │   ├── application/         # Use cases (8 total)
 │   ├── adapters/            # External service implementations (20+)
 │   └── infrastructure/      # Config, DI, database
@@ -584,12 +592,12 @@ See [Project Overview & PDR](docs/project-overview-pdr.md) for detailed roadmap.
 
 ## 📊 Current Status
 
-**Version**: 0.2.1 (Foundation + Adaptive Interviews + Session Orchestration)
+**Version**: 0.4.0 (Foundation + Adaptive Interviews + Session Orchestration + Database Schema Redesign)
 
 **Implemented**:
 - ✅ Clean Architecture structure
-- ✅ Domain models (8 entities including Evaluation, ErrorCodes)
-- ✅ Repository ports (13 interfaces including EvaluationRepositoryPort)
+- ✅ Domain models (11 entities: Candidate, CVAnalysis, CVSkill, Interview, Question, Answer, Evaluation, InterviewFeedback, PromptTemplate, PromptExecution, ErrorCodes)
+- ✅ Repository ports (11 interfaces including EvaluationRepositoryPort)
 - ✅ PostgreSQL persistence (7 repositories)
 - ✅ OpenAI & Azure OpenAI LLM adapters
 - ✅ Pinecone & ChromaDB vector adapters

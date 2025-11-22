@@ -59,10 +59,15 @@ This project follows **Clean Architecture / Ports & Adapters (Hexagonal Architec
 📚 **See [Codebase Summary](./docs/codebase-summary.md) for complete structure**
 
 Quick reference:
-- `src/domain/` - Core business logic (5 models, 11 ports)
+- `src/domain/` - Core business logic (11 models, 13 ports)
 - `src/application/` - Use cases and DTOs
 - `src/adapters/` - External service implementations
 - `src/infrastructure/` - Config, DI, logging
+
+**Recent Schema Changes (v0.4.0)**:
+- Normalized `cv_skills` table replaces JSONB array
+- Junction `interview_questions` table replaces question_ids array
+- PostgreSQL ENUMs for type safety
 
 ## Development Commands
 
@@ -126,6 +131,75 @@ When integrating a new external service (e.g., new LLM provider, vector database
 - All business rules belong in `src/domain/services/`
 - Domain entities in `src/domain/models/` should be rich with behavior, not anemic
 - Domain layer must never import from `adapters`, `application`, or `infrastructure`
+
+### Working with New Schema (v0.4.0)
+
+**Adding Questions to Interview** (Junction Table Pattern):
+```python
+# ❌ OLD (deprecated)
+interview.question_ids.append(question_id)
+await interview_repo.update(interview)
+
+# ✅ NEW (correct)
+await interview_repo.add_question(
+    interview_id=interview.id,
+    question_id=question_id,
+    sequence_order=current_count
+)
+```
+
+**Getting Interview Questions**:
+```python
+# ❌ OLD (deprecated)
+question_ids = interview.question_ids
+has_more = interview.has_more_questions()
+
+# ✅ NEW (correct)
+interview_questions = await interview_repo.get_interview_questions(interview_id)
+question_count = await interview_repo.count_interview_questions(interview_id)
+current_question = await interview_repo.get_current_question(interview_id)
+```
+
+**Working with CV Skills**:
+```python
+# ❌ OLD (deprecated)
+cv_analysis.skills  # Was JSONB array
+skill_dict = {"skill": "Python", "proficiency": "expert"}
+
+# ✅ NEW (correct)
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
+
+skill = CVSkill(
+    cv_analysis_id=cv_analysis.id,
+    skill_name="Python",
+    proficiency_level=ProficiencyLevel.EXPERT,
+    years_of_experience=5.0,
+    is_primary=True
+)
+await cv_analysis_repo.add_skill(skill)
+```
+
+**Using ENUMs**:
+```python
+from src.domain.models.question import QuestionType, Difficulty
+from src.domain.models.cv_skill import ProficiencyLevel
+
+# Type-safe question creation
+question = Question(
+    text="Explain SOLID principles",
+    question_type=QuestionType.TECHNICAL,  # ENUM
+    difficulty=Difficulty.MEDIUM,  # ENUM
+    skills=["Python", "OOP"]
+)
+
+# Type-safe skill creation
+skill = CVSkill(
+    skill_name="Python",
+    proficiency_level=ProficiencyLevel.ADVANCED  # ENUM
+)
+```
+
+📚 **See [Migration 0015 Docs](./docs/migrations/0015-schema-redesign.md) for complete migration guide**
 
 ### Testing Strategy
 
