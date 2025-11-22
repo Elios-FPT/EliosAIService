@@ -1,0 +1,49 @@
+version: 1
+
+formatters:
+  colored:
+    "()": colorlog.ColoredFormatter
+    format: "%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(cyan)s%(name)s%(reset)s %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+    log_colors:
+      DEBUG:    cyan
+      INFO:     green
+      WARNING:  yellow
+      ERROR:    red
+      CRITICAL: bold_red
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: colored
+    stream: ext://sys.stdout
+
+loggers:
+  src.main:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  sqlalchemy.engine:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  uvicorn:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  uvicorn.error:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  uvicorn.access:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+root:
+  handlers: [console]
+  level: INFO
