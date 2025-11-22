@@ -171,7 +171,6 @@ class QuestionModel(Base):
         Index("idx_questions_type", "question_type"),
         Index("idx_questions_difficulty", "difficulty"),
         Index("idx_questions_skills", "skills", postgresql_using="gin"),
-        Index("idx_questions_tags", "tags", postgresql_using="gin"),
     )
 
 

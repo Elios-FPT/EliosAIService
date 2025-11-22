@@ -17,7 +17,7 @@ from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
 from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
 
 from ...domain.models.cv_analysis import CVAnalysis
-from ...domain.models.cv_analysis import ExtractedSkill
+from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.models.candidate import Candidate
 
 from ...infrastructure.config import Settings
@@ -281,15 +281,40 @@ class CVProcessingAdapter(CVAnalyzerPort):
         # print(job_rank)
         skills_name = json.loads(summary_info).get("skills", [])
         print("Extracted skills:", skills_name)
-        skills = [
-            ExtractedSkill(skill=skill, category="technical")
-            for skill in skills_name
-        ]
-        # print(skills)
+
         experience_years = json.loads(summary_info).get("experience")
         # print(experience_years)
         education_level = json.loads(summary_info).get("education_level", "N/A")
         # print(education_level)
+
+        # Create CV analysis ID first
+        cv_analysis_id = uuid4()
+
+        # Infer proficiency level from experience years
+        def infer_proficiency(exp_years: float) -> ProficiencyLevel:
+            if exp_years >= 7:
+                return ProficiencyLevel.EXPERT
+            elif exp_years >= 4:
+                return ProficiencyLevel.ADVANCED
+            elif exp_years >= 2:
+                return ProficiencyLevel.INTERMEDIATE
+            else:
+                return ProficiencyLevel.BEGINNER
+
+        # Create CVSkill entities
+        skills = [
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_analysis_id,
+                skill_name=skill,
+                proficiency_level=infer_proficiency(experience_years),
+                years_of_experience=experience_years,
+                is_primary=(idx < 3),  # First 3 skills are primary
+                created_at=datetime.now(),
+            )
+            for idx, skill in enumerate(skills_name)
+        ]
+        # print(skills)
 
         try:
             suggested_topics = await self.generate_interview_topics(
@@ -315,6 +340,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
             print("Error creating metadata: ", e)
         
         return CVAnalysis(
+            id=cv_analysis_id,
             candidate_id=candidate_id,
             cv_file_path=cv_file_path,
             extracted_text=cv_text,
@@ -326,6 +352,6 @@ class CVProcessingAdapter(CVAnalyzerPort):
             embedding=None,
             summary=json.loads(summary_info).get("summary", ""),
             metadata=metadata,
-            created_at=datetime.now().isoformat()   
+            created_at=datetime.now().isoformat()
         )
     

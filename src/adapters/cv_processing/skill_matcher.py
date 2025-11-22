@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import spacy
 from spacy.matcher import PhraseMatcher
 
-from ...domain.models.cv_analysis import ExtractedSkill
+# ExtractedSkill no longer needed - using dict format for skills
 
 if TYPE_CHECKING:
     from spacy.language import Language
@@ -67,7 +67,7 @@ class SkillMatcher:
 
     def match_skills(
         self, doc: "Doc", nlp: "Language | None" = None
-    ) -> list[ExtractedSkill]:
+    ) -> list[dict[str, str]]:
         """Match skills in spaCy doc using PhraseMatcher.
 
         Args:
@@ -75,7 +75,7 @@ class SkillMatcher:
             nlp: Optional spaCy language model (required for first call)
 
         Returns:
-            List of ExtractedSkill objects with categories
+            List of skill dicts with "skill" and "category" keys
         """
         # Lazy init PhraseMatcher
         if self.phrase_matcher is None:
@@ -86,7 +86,7 @@ class SkillMatcher:
         # Find matches
         matches = self.phrase_matcher(doc)
 
-        # Convert to ExtractedSkill objects
+        # Convert to dict objects (will be converted to CVSkill later)
         skills = []
         seen_skills = set()  # Deduplicate
 
@@ -97,14 +97,10 @@ class SkillMatcher:
             if skill_lower not in seen_skills:
                 seen_skills.add(skill_lower)
                 category = self._categorize_skill(skill_lower)
-                skills.append(
-                    ExtractedSkill(
-                        skill=skill_text,
-                        category=category,
-                        proficiency=None,  # TODO: Infer from context in Phase 3
-                        years=None,
-                    )
-                )
+                skills.append({
+                    "skill": skill_text,
+                    "category": category,
+                })
 
         return skills
 
