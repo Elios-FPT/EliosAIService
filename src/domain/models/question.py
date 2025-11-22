@@ -8,19 +8,26 @@ from pydantic import BaseModel, Field
 
 
 class QuestionType(str, Enum):
-    """Question type enumeration."""
+    """Question type categories matching DB ENUM."""
 
     TECHNICAL = "technical"
     BEHAVIORAL = "behavioral"
     SITUATIONAL = "situational"
+    PROBLEM_SOLVING = "problem_solving"
+    SYSTEM_DESIGN = "system_design"
 
 
-class DifficultyLevel(str, Enum):
-    """Question difficulty level."""
+class Difficulty(str, Enum):
+    """Question difficulty levels matching DB ENUM."""
 
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+    EXPERT = "expert"
+
+
+# Alias for backward compatibility
+DifficultyLevel = Difficulty
 
 
 class Question(BaseModel):
@@ -33,10 +40,8 @@ class Question(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     text: str
     question_type: QuestionType
-    difficulty: DifficultyLevel
+    difficulty: Difficulty
     skills: list[str] = Field(default_factory=list)  # e.g., ["Python", "OOP"]
-    tags: list[str] = Field(default_factory=list)  # e.g., ["algorithms", "data-structures"]
-    evaluation_criteria: str | None = None
     version: int = 1
     embedding: list[float] | None = None  # Vector embedding for semantic search
 
@@ -63,18 +68,7 @@ class Question(BaseModel):
         """
         return skill.lower() in [s.lower() for s in self.skills]
 
-    def has_tag(self, tag: str) -> bool:
-        """Check if question has a specific tag.
-
-        Args:
-            tag: Tag to check
-
-        Returns:
-            True if tag exists, False otherwise
-        """
-        return tag.lower() in [t.lower() for t in self.tags]
-
-    def is_suitable_for_difficulty(self, max_difficulty: DifficultyLevel) -> bool:
+    def is_suitable_for_difficulty(self, max_difficulty: Difficulty) -> bool:
         """Check if question difficulty is appropriate.
 
         Args:
@@ -84,9 +78,10 @@ class Question(BaseModel):
             True if suitable, False otherwise
         """
         difficulty_order = {
-            DifficultyLevel.EASY: 1,
-            DifficultyLevel.MEDIUM: 2,
-            DifficultyLevel.HARD: 3,
+            Difficulty.EASY: 1,
+            Difficulty.MEDIUM: 2,
+            Difficulty.HARD: 3,
+            Difficulty.EXPERT: 4,
         }
         return difficulty_order[self.difficulty] <= difficulty_order[max_difficulty]
 
