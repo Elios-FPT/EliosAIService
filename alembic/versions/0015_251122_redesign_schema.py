@@ -33,35 +33,47 @@ def upgrade() -> None:
     # STEP 1: CREATE NEW ENUMS
     # ========================================================================
 
-    # Create question_type ENUM
+    # Create question_type ENUM (IF NOT EXISTS for idempotency)
     op.execute("""
-        CREATE TYPE question_type_enum AS ENUM (
-            'technical',
-            'behavioral',
-            'situational',
-            'problem_solving',
-            'system_design'
-        )
+        DO $$ BEGIN
+            CREATE TYPE question_type_enum AS ENUM (
+                'technical',
+                'behavioral',
+                'situational',
+                'problem_solving',
+                'system_design'
+            );
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
     """)
 
-    # Create difficulty ENUM
+    # Create difficulty ENUM (IF NOT EXISTS for idempotency)
     op.execute("""
-        CREATE TYPE difficulty_enum AS ENUM (
-            'easy',
-            'medium',
-            'hard',
-            'expert'
-        )
+        DO $$ BEGIN
+            CREATE TYPE difficulty_enum AS ENUM (
+                'easy',
+                'medium',
+                'hard',
+                'expert'
+            );
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
     """)
 
-    # Create proficiency_level ENUM
+    # Create proficiency_level ENUM (IF NOT EXISTS for idempotency)
     op.execute("""
-        CREATE TYPE proficiency_level_enum AS ENUM (
-            'beginner',
-            'intermediate',
-            'advanced',
-            'expert'
-        )
+        DO $$ BEGIN
+            CREATE TYPE proficiency_level_enum AS ENUM (
+                'beginner',
+                'intermediate',
+                'advanced',
+                'expert'
+            );
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
     """)
 
     # ========================================================================
@@ -74,7 +86,7 @@ def upgrade() -> None:
         sa.Column('id', postgresql.UUID(as_uuid=True), server_default=sa.text('gen_random_uuid()'), primary_key=True),
         sa.Column('cv_analysis_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('skill_name', sa.String(100), nullable=False),
-        sa.Column('proficiency_level', postgresql.ENUM('beginner', 'intermediate', 'advanced', 'expert', name='proficiency_level_enum'), nullable=True),
+        sa.Column('proficiency_level', postgresql.ENUM('beginner', 'intermediate', 'advanced', 'expert', name='proficiency_level_enum', create_type=False), nullable=True),
         sa.Column('years_of_experience', sa.Float(), nullable=True),
         sa.Column('is_primary', sa.Boolean(), server_default=sa.text('false'), nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('NOW()'), nullable=False),
@@ -115,21 +127,22 @@ def upgrade() -> None:
     # ========================================================================
 
     # Migrate cv_analyses.skills (JSONB) → cv_skills table
+    # Note: JSON keys are 'skill' (not 'name'), 'years' (not 'years_of_experience'), 'proficiency'
     op.execute("""
         INSERT INTO cv_skills (cv_analysis_id, skill_name, proficiency_level, years_of_experience, is_primary, created_at)
         SELECT
             cv.id AS cv_analysis_id,
-            skill->>'name' AS skill_name,
+            skill->>'skill' AS skill_name,
             CASE
                 WHEN skill->>'proficiency' IN ('beginner', 'intermediate', 'advanced', 'expert')
                 THEN (skill->>'proficiency')::proficiency_level_enum
-                ELSE 'intermediate'::proficiency_level_enum
+                ELSE NULL
             END AS proficiency_level,
             NULLIF(skill->>'years', '')::FLOAT AS years_of_experience,
             COALESCE((skill->>'is_primary')::BOOLEAN, false) AS is_primary,
             cv.created_at
         FROM cv_analyses cv
-        CROSS JOIN LATERAL jsonb_array_elements(cv.skills) AS skill
+        CROSS JOIN LATERAL jsonb_array_elements(cv.skills::jsonb) AS skill
         WHERE cv.skills IS NOT NULL
           AND jsonb_typeof(cv.skills) = 'array'
           AND jsonb_array_length(cv.skills) > 0
@@ -164,9 +177,9 @@ def upgrade() -> None:
     op.drop_column('cv_analyses', 'metadata')
 
     # 4.2: questions - Convert to ENUMs and drop columns
-    # Add temporary columns
-    op.add_column('questions', sa.Column('question_type_new', postgresql.ENUM('technical', 'behavioral', 'situational', 'problem_solving', 'system_design', name='question_type_enum'), nullable=True))
-    op.add_column('questions', sa.Column('difficulty_new', postgresql.ENUM('easy', 'medium', 'hard', 'expert', name='difficulty_enum'), nullable=True))
+    # Add temporary columns (create_type=False since ENUMs already created in STEP 1)
+    op.add_column('questions', sa.Column('question_type_new', postgresql.ENUM('technical', 'behavioral', 'situational', 'problem_solving', 'system_design', name='question_type_enum', create_type=False), nullable=True))
+    op.add_column('questions', sa.Column('difficulty_new', postgresql.ENUM('easy', 'medium', 'hard', 'expert', name='difficulty_enum', create_type=False), nullable=True))
 
     # Migrate data with fallback defaults
     op.execute("""
@@ -310,32 +323,55 @@ def upgrade() -> None:
     # Rename old template_json to template_json_legacy (backup)
     op.alter_column('prompt_templates', 'template_json', new_column_name='template_json_legacy')
 
-    # Create computed template_json column for LangChain compatibility
-    # Note: PostgreSQL GENERATED columns require specific syntax
+    # Add new template_json column (trigger-based instead of GENERATED due to immutability constraints)
+    op.add_column('prompt_templates', sa.Column('template_json', postgresql.JSONB(), nullable=True))
+
+    # Create function to generate template_json from decomposed columns
     op.execute("""
-        ALTER TABLE prompt_templates
-        ADD COLUMN template_json JSONB GENERATED ALWAYS AS (
-            jsonb_build_object(
+        CREATE OR REPLACE FUNCTION generate_template_json()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.template_json := jsonb_build_object(
                 'template_type', 'chat',
                 'messages', jsonb_build_array(
-                    jsonb_build_object('role', 'system', 'content', system_prompt),
-                    jsonb_build_object('role', 'user', 'content', user_template)
+                    jsonb_build_object('role', 'system', 'content', NEW.system_prompt),
+                    jsonb_build_object('role', 'user', 'content', NEW.user_template)
                 ),
-                'input_variables', to_jsonb(input_variables),
-                'partial_variables', partial_variables,
+                'input_variables', to_jsonb(NEW.input_variables),
+                'partial_variables', NEW.partial_variables,
                 'output_parser', jsonb_build_object(
-                    'type', output_parser_type,
-                    'schema', output_schema
+                    'type', NEW.output_parser_type,
+                    'schema', NEW.output_schema
                 ),
                 'model_params', jsonb_build_object(
-                    'temperature', temperature,
-                    'max_tokens', max_tokens,
-                    'top_p', top_p,
-                    'frequency_penalty', frequency_penalty,
-                    'presence_penalty', presence_penalty
+                    'temperature', NEW.temperature,
+                    'max_tokens', NEW.max_tokens,
+                    'top_p', NEW.top_p,
+                    'frequency_penalty', NEW.frequency_penalty,
+                    'presence_penalty', NEW.presence_penalty
                 )
-            )
-        ) STORED
+            );
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """)
+
+    # Create trigger to auto-generate template_json on INSERT/UPDATE
+    op.execute("""
+        CREATE TRIGGER trg_generate_template_json
+        BEFORE INSERT OR UPDATE OF system_prompt, user_template, input_variables, partial_variables,
+                                   output_parser_type, output_schema, temperature, max_tokens,
+                                   top_p, frequency_penalty, presence_penalty
+        ON prompt_templates
+        FOR EACH ROW
+        EXECUTE FUNCTION generate_template_json();
+    """)
+
+    # Populate template_json for existing rows
+    op.execute("""
+        UPDATE prompt_templates
+        SET system_prompt = system_prompt
+        WHERE system_prompt IS NOT NULL;
     """)
 
     # Create index for soft deletes
@@ -452,6 +488,10 @@ def downgrade() -> None:
     op.drop_constraint('ck_prompt_templates_top_p', 'prompt_templates', type_='check')
     op.drop_constraint('ck_prompt_templates_max_tokens', 'prompt_templates', type_='check')
     op.drop_constraint('ck_prompt_templates_temperature', 'prompt_templates', type_='check')
+
+    # Drop trigger and function
+    op.execute('DROP TRIGGER IF EXISTS trg_generate_template_json ON prompt_templates')
+    op.execute('DROP FUNCTION IF EXISTS generate_template_json()')
 
     op.execute('ALTER TABLE prompt_templates DROP COLUMN template_json')
     op.alter_column('prompt_templates', 'template_json_legacy', new_column_name='template_json')
