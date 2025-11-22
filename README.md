@@ -41,6 +41,67 @@ Elios AI Interview Service delivers intelligent mock interview experiences by an
 - **Architecture**: Clean Architecture (Hexagonal/Ports & Adapters)
 - **Testing**: pytest, pytest-asyncio (200+ tests, 85%+ coverage)
 
+## Prompt Management API
+
+Manage LLM prompt templates with version control, A/B testing, rollback, and analytics.
+
+### Endpoints
+
+**Version Management:**
+- `POST /api/prompts` - Create initial prompt (v1)
+- `POST /api/prompts/{name}/versions` - Create new version from parent
+- `POST /api/prompts/{name}/rollback` - Rollback to target version
+- `GET /api/prompts/{name}/versions` - Get version history with diffs
+- `GET /api/prompts/{name}/versions/{version}` - Get specific version
+- `GET /api/prompts/{prompt_id}` - Get prompt by UUID
+
+**Activation & A/B Testing:**
+- `PATCH /api/prompts/{prompt_id}/activate` - Activate version (204 No Content)
+- `PATCH /api/prompts/{prompt_id}/traffic` - Adjust A/B test traffic (204 No Content)
+- `GET /api/prompts/{name}/active` - Get active prompt (with A/B weighted selection)
+
+**Analytics & Audit:**
+- `GET /api/prompts/{name}/analytics` - View analytics summary
+- `GET /api/prompts/{name}/audit-trail` - View change history
+- `GET /api/prompts` - List all prompts (paginated, filterable)
+- `DELETE /api/prompts/{prompt_id}` - Soft delete prompt (204 No Content)
+
+### Usage Example
+
+```python
+import httpx
+
+# Create initial prompt
+response = await client.post("/api/prompts", json={
+    "prompt_name": "answer_evaluation",
+    "system_prompt": "You are an expert interviewer...",
+    "user_template": "Evaluate this answer: {answer}",
+    "input_variables": ["answer"],
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "top_p": 0.9,
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "created_by": "admin",
+})
+prompt = response.json()
+
+# Activate for production
+await client.patch(f"/api/prompts/{prompt['id']}/activate", json={
+    "changed_by": "admin",
+    "reason": "Deploy v1 to production",
+    "traffic_percentage": 100
+})
+```
+
+### A/B Testing Workflow
+
+1. Create v2 with improved prompt
+2. Activate v2 with traffic=20% (gradual rollout)
+3. Monitor analytics for success rate, cost
+4. Increase traffic to 50%, 75%, 100% based on results
+5. Rollback if v2 underperforms
+
 ### Main flows
 
 #### 1. Preparation Phase (Scan CV & Generate Topics)

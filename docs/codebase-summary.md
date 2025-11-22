@@ -73,12 +73,13 @@ EliosAIService/
 │   │       ├── follow_up_question_repository_port.py  # Follow-up persistence
 │   │       └── evaluation_repository_port.py    # Evaluation persistence
 │   ├── application/             # Use cases and orchestration
-│   │   ├── dto/                 # Data Transfer Objects (5 files)
+│   │   ├── dto/                 # Data Transfer Objects (6 files)
 │   │   │   ├── interview_dto.py # Interview DTOs (incl. PlanningStatusResponse w/ ws_url)
 │   │   │   ├── answer_dto.py    # Answer request/response DTOs
 │   │   │   ├── audio_dto.py     # Audio processing DTOs
 │   │   │   ├── websocket_dto.py # WebSocket message DTOs
-│   │   │   └── detailed_feedback_dto.py # Detailed feedback DTOs (NEW)
+│   │   │   ├── detailed_feedback_dto.py # Detailed feedback DTOs
+│   │   │   └── prompt_dto.py    # Prompt template DTOs (NEW v0.4.0)
 │   │   ├── use_cases/           # Application business flows (8 files)
 │   │   │   ├── analyze_cv.py    # CV analysis workflow
 │   │   │   ├── plan_interview.py # Interview planning with adaptive questions
@@ -129,9 +130,10 @@ EliosAIService/
 │   │   ├── cv_processing/       # CV processing adapters
 │   │   │   └── cv_processing_adapter.py
 │   │   └── api/                 # API layer
-│   │       ├── rest/            # REST endpoints (2 files)
+│   │       ├── rest/            # REST endpoints (3 files)
 │   │       │   ├── health_routes.py     # Health check endpoint
-│   │       │   └── interview_routes.py  # Interview CRUD endpoints
+│   │       │   ├── interview_routes.py  # Interview CRUD endpoints
+│   │       │   └── prompt_routes.py     # Prompt management endpoints (NEW v0.4.0)
 │   │       └── websocket/       # WebSocket handlers (3 files)
 │   │           ├── connection_manager.py # WebSocket connection pool
 │   │           ├── session_orchestrator.py # Session orchestrator (delegated to domain)

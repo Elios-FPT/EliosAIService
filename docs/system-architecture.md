@@ -1650,7 +1650,79 @@ DELETE /api/questions/{id}                        # Delete question ⏳
 
 # Feedback
 GET /api/interviews/{id}/feedback                 # Get comprehensive feedback ⏳
+
+# Prompt Management ✅
+POST   /api/prompts                               # Create initial prompt (v1) ✅
+POST   /api/prompts/{name}/versions               # Create new version from parent ✅
+POST   /api/prompts/{name}/rollback               # Rollback to target version ✅
+GET    /api/prompts/{name}/versions               # Get version history with diffs ✅
+GET    /api/prompts/{name}/versions/{version}     # Get specific version ✅
+GET    /api/prompts/{prompt_id}                   # Get prompt by UUID ✅
+PATCH  /api/prompts/{prompt_id}/activate          # Activate version (A/B testing) ✅
+PATCH  /api/prompts/{prompt_id}/traffic           # Adjust A/B traffic percentage ✅
+GET    /api/prompts/{name}/active                 # Get active prompt (weighted selection) ✅
+GET    /api/prompts/{name}/analytics              # Get analytics summary ✅
+GET    /api/prompts/{name}/audit-trail            # Get audit trail ✅
+GET    /api/prompts                               # List all prompts (paginated) ✅
+DELETE /api/prompts/{prompt_id}                   # Soft delete prompt ✅
 ```
+
+### Prompt Management API ✅
+
+**Added**: v0.4.0 (Post-schema redesign)
+
+Prompt Management API provides version control, A/B testing, rollback, and analytics for LLM prompt templates. Enables DB-driven prompts with immutable versioning.
+
+**Key Features**:
+- Immutable version history (create new versions, never modify)
+- A/B testing with traffic percentage distribution
+- Rollback to any previous version
+- Analytics tracking (executions, tokens, latency, cost)
+- Audit trail for metadata changes
+- Soft delete (preserves data for auditing)
+- Pagination and filtering
+
+**Version Management Flow**:
+```
+Create v1 → Activate (100%) → Monitor Analytics →
+Create v2 (improvements) → Activate (20% traffic) → A/B test →
+Increase traffic (50% → 75% → 100%) OR Rollback to v1
+```
+
+**A/B Testing Workflow**:
+1. Create v2 from v1 with improved prompt
+2. Activate v2 with `traffic_percentage=20` (gradual rollout)
+3. Monitor analytics: success_rate, avg_latency, cost
+4. Adjust traffic: PATCH /api/prompts/{id}/traffic (increase to 50%, 75%, 100%)
+5. If v2 underperforms: POST /api/prompts/{name}/rollback (creates v3 with v1 content)
+
+**Architecture Integration**:
+```
+LangChainAdapter (LLMPort)
+    └→ load_prompt_from_db(name)
+        └→ PromptRepositoryPort.get_active_prompt(name)
+            ├→ Single active: Return that version
+            └→ Multiple active (A/B test): Weighted random selection
+```
+
+**Analytics Metrics**:
+- Total executions
+- Average tokens used (input + output)
+- Average latency (milliseconds)
+- Success rate (percentage)
+- Estimated cost (USD, based on model pricing)
+- Last executed timestamp
+
+**Audit Trail**:
+- Tracks metadata changes (is_active, traffic_percentage)
+- Records who changed what, when, and why
+- Immutable log for compliance
+
+**Soft Delete**:
+- Sets `deleted_at` timestamp
+- Deactivates prompt
+- Preserves all data for audit purposes
+- Excluded from list queries (unless `include_deleted=true`)
 
 ### WebSocket API ✅
 
