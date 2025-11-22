@@ -298,6 +298,42 @@ BATCH_QUESTIONS_PROMPT = GENERATE_QUESTION_PROMPT
 BATCH_IDEAL_ANSWERS_PROMPT = IDEAL_ANSWER_PROMPT
 BATCH_RATIONALES_PROMPT = RATIONALE_PROMPT
 
+# 11. Generate Question with Answer and Rationale (Unified)
+GENERATE_QUESTION_WITH_ANSWER_AND_RATIONALE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_INTERVIEWER),
+    ("human", """Generate a complete interview question set: question, ideal answer, and rationale.
+
+Generate a {difficulty} difficulty interview question to test: {skill}
+
+Context:
+- Candidate's background: {cv_summary}
+- Previous topics covered: {covered_topics}
+- Interview stage: {stage}
+
+{exemplar_section}
+
+**IMPORTANT CONSTRAINTS**:
+The question MUST be verbal/discussion-based. DO NOT generate questions that require:
+- Writing code ("write a function", "implement", "create a class", "code a solution")
+- Drawing diagrams ("draw", "sketch", "diagram", "visualize", "map out")
+- Whiteboard exercises ("design on whiteboard", "show on board", "illustrate")
+- Visual outputs ("create a flowchart", "design a schema visually")
+
+Focus on conceptual understanding, best practices, trade-offs, and problem-solving approaches that can be explained verbally.
+
+Requirements:
+1. Question: Clear, relevant, and appropriate for the skill and difficulty level
+2. Ideal Answer: 150-300 words demonstrating expert-level understanding with key concepts, practical examples, and best practices
+3. Rationale: 50-100 words explaining why this answer is ideal, focusing on key concepts covered, depth, clarity, and practical value
+
+Return in JSON format:
+{{
+    "question_text": "your question here",
+    "ideal_answer": "ideal answer here (150-300 words)",
+    "rationale": "explanation of why this answer is ideal (50-100 words)"
+}}""")
+])
+
 
 # Prompt registry for easy access
 PROMPT_REGISTRY = {
@@ -314,4 +350,5 @@ PROMPT_REGISTRY = {
     "generate_questions_batch": BATCH_QUESTIONS_PROMPT,
     "generate_ideal_answers_batch": BATCH_IDEAL_ANSWERS_PROMPT,
     "generate_rationales_batch": BATCH_RATIONALES_PROMPT,
+    "generate_questions_with_answers_and_rationales_batch": GENERATE_QUESTION_WITH_ANSWER_AND_RATIONALE_PROMPT,
 }

@@ -314,9 +314,10 @@ class PlanningWorkflow(BaseWorkflow):
             return {"errors": [error_msg]}
 
     async def _generate_batch_node(self, state: PlanningState) -> dict[str, Any]:
-        """Generate questions, answers, and rationales in parallel.
+        """Generate questions with ideal answers and rationales in a single LLM call per spec.
 
-        Uses LLM batch methods with RunnableParallel for concurrent execution.
+        Uses unified LLM method to ensure question, ideal_answer, and rationale are generated
+        together in one call for consistency.
 
         Args:
             state: Current workflow state
@@ -338,18 +339,19 @@ class PlanningWorkflow(BaseWorkflow):
                 "stage": "planning"
             }
 
-            # Generate questions in parallel
-            logger.info(f"Generating {len(specs)} questions in parallel...")
-            questions = await self.llm.generate_questions_batch(specs, context)
+            # Generate complete question sets (question, ideal_answer, rationale) in parallel
+            # Each spec generates all three components in a single LLM call
+            logger.info(f"Generating {len(specs)} complete question sets (question, answer, rationale) in parallel...")
+            question_sets = await self.llm.generate_questions_with_answers_and_rationales_batch(specs, context)
 
-            # Generate ideal answers in parallel
-            logger.info(f"Generating {len(questions)} ideal answers in parallel...")
-            answers = await self.llm.generate_ideal_answers_batch(questions, context)
-
-            # Generate rationales in parallel
-            logger.info(f"Generating {len(questions)} rationales in parallel...")
-            question_answer_pairs = list(zip(questions, answers))
-            rationales = await self.llm.generate_rationales_batch(question_answer_pairs)
+            # Unpack tuples into separate lists
+            questions = []
+            answers = []
+            rationales = []
+            for question_text, ideal_answer, rationale in question_sets:
+                questions.append(question_text)
+                answers.append(ideal_answer)
+                rationales.append(rationale)
 
             logger.info(f"Successfully generated {len(questions)} complete question sets")
 
