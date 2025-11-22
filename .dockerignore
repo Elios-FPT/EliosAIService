@@ -1,0 +1,62 @@
+# Virtual environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files and coverage
+tests/
+htmlcov/
+.pytest_cache/
+.coverage
+*.cover
+.hypothesis/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Backup files
+backups/
+*.bak
+*.backup
+
+# Environment files (should be provided separately)
+.env.local
+.env.test
+.env.example
+
+# Reports and logs
+reports/
+validation_reports/
+*.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific
+plans/
+nul
+
