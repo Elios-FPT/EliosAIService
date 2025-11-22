@@ -21,12 +21,95 @@ Connection Pool Management:
     - Consider reducing SQLAlchemy pool_size if connection limits are an issue
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
+import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 # Lazy import to avoid hanging during module import
 # AsyncPostgresSaver will be imported only when create_checkpointer is called
 logger = logging.getLogger(__name__)
+
+
+class CheckpointerWrapper:
+    """Wrapper to keep AsyncPostgresSaver context manager alive.
+
+    AsyncPostgresSaver.from_conn_string() returns a context manager that must
+    remain open for the connection pool to stay alive. This wrapper keeps the
+    context manager alive while proxying all method calls to the checkpointer.
+    """
+
+    def __init__(self, context_manager, checkpointer):
+        """Initialize wrapper.
+
+        Args:
+            context_manager: The async context manager from AsyncPostgresSaver.from_conn_string()
+            checkpointer: The AsyncPostgresSaver instance
+        """
+        self._context_manager = context_manager
+        self._checkpointer = checkpointer
+        self._context_entered = False
+
+    async def __aenter__(self):
+        """Enter context manager."""
+        if not self._context_entered:
+            await self._context_manager.__aenter__()
+            self._context_entered = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager (should not be called during normal operation)."""
+        if self._context_entered:
+            await self._context_manager.__aexit__(exc_type, exc_val, exc_tb)
+            self._context_entered = False
+
+    def __getattr__(self, name):
+        """Proxy all attribute access to the checkpointer."""
+        return getattr(self._checkpointer, name)
+
+
+def _convert_to_standard_postgres_url(sqlalchemy_url: str) -> str:
+    """Convert SQLAlchemy connection URL to standard PostgreSQL format.
+
+    AsyncPostgresSaver uses psycopg which expects standard PostgreSQL URLs
+    (postgresql:// or postgres://), not SQLAlchemy format (postgresql+asyncpg://).
+
+    For Neon pooler endpoints, we convert to direct connection as psycopg
+    may not work well with poolers. Neon poolers use port 5432, direct uses 5432.
+    We replace '-pooler' with nothing to get the direct endpoint.
+
+    Args:
+        sqlalchemy_url: SQLAlchemy connection string (e.g., postgresql+asyncpg://...)
+
+    Returns:
+        Standard PostgreSQL connection string (e.g., postgresql://...)
+    """
+    # Replace postgresql+asyncpg:// with postgresql://
+    # Also handle postgres+asyncpg:// for compatibility
+    url = re.sub(r'^postgresql\+asyncpg:', 'postgresql:', sqlalchemy_url)
+    url = re.sub(r'^postgres\+asyncpg:', 'postgres:', url)
+
+    # Convert Neon pooler endpoint to direct endpoint
+    # Pooler: ep-xxx-pooler.region.aws.neon.tech
+    # Direct: ep-xxx.region.aws.neon.tech (remove -pooler)
+    # psycopg may not work well with poolers, so use direct connection
+    url = re.sub(r'([\w-]+)-pooler\.([\w.-]+)', r'\1.\2', url)
+
+    # For cloud providers (Neon, etc.), psycopg may need SSL
+    # Check if URL contains cloud provider indicators
+    is_cloud = any(provider in url.lower() for provider in ['neon', 'aws', 'azure', 'gcp', 'cloud'])
+
+    # If it's a cloud provider and no sslmode is specified, add sslmode=require
+    if is_cloud and 'sslmode=' not in url:
+        separator = '?' if '?' not in url else '&'
+        url = f"{url}{separator}sslmode=require"
+
+    return url
 
 
 async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
@@ -36,7 +119,9 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
     enabling workflows to resume after crashes or interruptions.
 
     Args:
-        conn_string: PostgreSQL connection string (postgresql+asyncpg://...)
+        conn_string: PostgreSQL connection string (postgresql+asyncpg://... or postgresql://...)
+            SQLAlchemy format (postgresql+asyncpg://) will be automatically converted to
+            standard PostgreSQL format (postgresql://) for AsyncPostgresSaver.
             Note: AsyncPostgresSaver creates its own connection pool internally.
             Pool size cannot be configured via connection string parameters.
 
@@ -63,45 +148,69 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
         >>> checkpointer = await create_checkpointer(settings.async_database_url)
         >>> # Use with LangGraph: app.compile(checkpointer=checkpointer)
     """
-    # Create checkpointer with connection string
-    # AsyncPostgresSaver.from_conn_string() returns an async context manager
-    # The pool size is managed internally by LangGraph and cannot be configured
-    # via the API. This creates a separate pool from SQLAlchemy's pool.
-
     # Lazy import to avoid hanging during module import
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-    logger.info("Creating AsyncPostgresSaver checkpointer...")
+    # Convert SQLAlchemy connection string to standard PostgreSQL format
+    # AsyncPostgresSaver uses psycopg which expects postgresql:// not postgresql+asyncpg://
+    # Also convert pooler endpoints to direct endpoints (psycopg may not work with poolers)
+    standard_conn_string = _convert_to_standard_postgres_url(conn_string)
+
+    # Log connection string (mask password for security)
+    masked_conn_string = re.sub(r':([^:@]+)@', ':***@', standard_conn_string)
+    logger.info(f"Creating AsyncPostgresSaver checkpointer with connection: {masked_conn_string}")
+    logger.info("Note: Using separate connection pool from SQLAlchemy (psycopg vs asyncpg)")
 
     try:
-        # Use context manager to initialize the checkpointer
-        # Add timeout to prevent indefinite hanging (30 seconds)
-        async def _create():
-            async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
-                logger.info("AsyncPostgresSaver context entered, calling setup()...")
+        # AsyncPostgresSaver.from_conn_string() returns an async context manager
+        # that MUST remain open for the connection pool to stay alive.
+        # We create a wrapper that keeps the context manager alive.
+        logger.info("Creating AsyncPostgresSaver context manager...")
+        logger.debug(f"Full connection string (masked): {masked_conn_string}")
 
-                # Initialize (creates 'checkpoints' table if not exists)
-                # This is idempotent - safe to call multiple times
-                await checkpointer.setup()
+        # Get the context manager
+        context_manager = AsyncPostgresSaver.from_conn_string(standard_conn_string)
 
-                logger.info("Checkpointer setup completed successfully")
+        # Enter the context manager and keep it alive
+        # We'll use a wrapper to maintain the context
+        logger.info("Entering AsyncPostgresSaver context...")
+        checkpointer = await context_manager.__aenter__()
 
-                # IMPORTANT: The checkpointer should maintain its connection pool
-                # even after the context manager exits. We return it here, and the
-                # context will exit, but the checkpointer's internal pool should remain active.
-                # If this doesn't work, we may need to keep the context manager alive.
-                return checkpointer
+        logger.info("AsyncPostgresSaver context entered, calling setup()...")
 
-        checkpointer = await asyncio.wait_for(_create(), timeout=30.0)
-        return checkpointer
-    except asyncio.TimeoutError:
-        logger.error("Timeout while creating checkpointer - connection may be hanging")
-        raise RuntimeError(
-            "Checkpointer creation timed out after 30 seconds. "
-            "Check database connectivity and connection string."
+        # Initialize (creates 'checkpoints' table if not exists)
+        # This is idempotent - safe to call multiple times
+        # Note: setup() may take time on first run if table doesn't exist
+        logger.debug("Calling checkpointer.setup()...")
+        await asyncio.wait_for(checkpointer.setup(), timeout=60.0)
+        logger.debug("checkpointer.setup() completed")
+
+        logger.info("Checkpointer setup completed successfully")
+
+        # Create wrapper that keeps context manager alive
+        # The context manager is already entered and will stay entered
+        wrapper = CheckpointerWrapper(context_manager, checkpointer)
+        wrapper._context_entered = True  # Mark as already entered
+
+        logger.info("Checkpointer created and initialized successfully")
+        return wrapper
+    except asyncio.TimeoutError as e:
+        logger.error(
+            f"Timeout while creating checkpointer after 60 seconds. "
+            f"Connection string: {masked_conn_string}. "
+            f"This may indicate database connectivity issues or slow network."
         )
+        raise RuntimeError(
+            "Checkpointer creation timed out after 60 seconds. "
+            "Possible causes: database connectivity issues, slow network, "
+            "or database server not responding. Check database connectivity and connection string."
+        ) from e
     except Exception as e:
-        logger.error(f"Error creating checkpointer: {e}", exc_info=True)
+        logger.error(
+            f"Error creating checkpointer: {e}. "
+            f"Connection string: {masked_conn_string}",
+            exc_info=True
+        )
         raise
 
 
