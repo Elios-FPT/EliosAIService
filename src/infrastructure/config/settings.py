@@ -19,6 +19,7 @@ def _load_environment_config():
     2. ENVIRONMENT=production → .env (for production)
     3. Default → .env.local (for local development)
     """
+    load_dotenv()
     environment = os.getenv("ENVIRONMENT", "development").lower()
 
     # Determine which .env file to load
