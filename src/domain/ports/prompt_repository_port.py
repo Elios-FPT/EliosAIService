@@ -296,3 +296,18 @@ class PromptRepositoryPort(ABC):
             Tuple of (list of PromptTemplate, total_count)
         """
         pass
+
+    @abstractmethod
+    async def update(self, prompt: PromptTemplate) -> PromptTemplate:
+        """Update an existing prompt template.
+
+        Args:
+            prompt: PromptTemplate domain model with updated data
+
+        Returns:
+            Updated PromptTemplate
+
+        Raises:
+            ValueError: If prompt not found
+        """
+        pass

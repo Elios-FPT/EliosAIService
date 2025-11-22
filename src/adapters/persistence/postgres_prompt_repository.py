@@ -496,6 +496,21 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
 
         return prompts, total_count
 
+    async def update(self, prompt: PromptTemplate) -> PromptTemplate:
+        """Update an existing prompt template."""
+        result = await self.session.execute(
+            select(PromptTemplateModel).where(PromptTemplateModel.id == prompt.id)
+        )
+        db_model = result.scalar_one_or_none()
+
+        if not db_model:
+            raise ValueError(f"Prompt with id {prompt.id} not found")
+
+        PromptTemplateMapper.update_db_model(db_model, prompt)
+        await self.session.commit()
+        await self.session.refresh(db_model)
+        return PromptTemplateMapper.to_domain(db_model)
+
     # ========== Internal Helpers ==========
 
     def _select_ab_variant(self, prompts: list[PromptTemplateModel]) -> PromptTemplate:

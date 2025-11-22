@@ -556,15 +556,6 @@ async def soft_delete_prompt(
     # Use domain method to soft delete
     prompt.soft_delete()
 
-    # Update via repository (need to check if update method exists)
-    # Since repository doesn't have update, we'll use mapper to update DB model
-    from ....adapters.persistence.mappers import PromptTemplateMapper
-    from ....adapters.persistence.models import PromptTemplateModel
-
-    db_model = PromptTemplateMapper.to_db_model(prompt)
-    db_model.deleted_at = prompt.deleted_at
-    db_model.is_active = prompt.is_active
-
-    await session.merge(db_model)
-    await session.commit()
+    # Update via repository (follows Clean Architecture)
+    await prompt_repo.update(prompt)
 
