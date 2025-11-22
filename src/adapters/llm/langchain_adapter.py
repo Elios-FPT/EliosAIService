@@ -807,6 +807,16 @@ Apply attempt-based penalty:
         context: dict[str, Any],
     ) -> list[str]:
         """Generate multiple questions in parallel using asyncio.gather()."""
+        start_time = time.time()
+
+        # Load DB prompt
+        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+            "question_generation"
+        )
+
+        # Get chain (DB or fallback)
+        chain = self._get_or_build_chain("generate_questions_batch", template_json, cache_key)
+
         # Build coroutines for all questions
         coroutines = []
         for spec in question_specs:
@@ -834,9 +844,7 @@ Apply attempt-based penalty:
             }
 
             # Add coroutine to list
-            coroutines.append(
-                self._chains["generate_questions_batch"].ainvoke(chain_input)
-            )
+            coroutines.append(chain.ainvoke(chain_input))
 
         # Execute all in parallel
         results = await asyncio.gather(*coroutines)
@@ -846,6 +854,18 @@ Apply attempt-based penalty:
         for result in results:
             questions.append(result["question_text"])
 
+        # Log execution (if DB prompt was used)
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables={"question_specs_count": len(question_specs)},
+                output_text=str(questions),
+                start_time=start_time,
+                success=True,
+                model_response_metadata=None,
+            )
+
         return questions
 
     async def generate_ideal_answers_batch(
@@ -854,6 +874,16 @@ Apply attempt-based penalty:
         context: dict[str, Any],
     ) -> list[str]:
         """Generate ideal answers in parallel."""
+        start_time = time.time()
+
+        # Load DB prompt
+        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+            "ideal_answer_generation"
+        )
+
+        # Get chain (DB or fallback)
+        chain = self._get_or_build_chain("generate_ideal_answers_batch", template_json, cache_key)
+
         # Build coroutines for all answers
         coroutines = []
         for question_text in question_texts:
@@ -862,9 +892,7 @@ Apply attempt-based penalty:
                 "cv_summary": context.get("cv_summary", "Not provided"),
                 "skill_level": context.get("skill_level", "intermediate"),
             }
-            coroutines.append(
-                self._chains["generate_ideal_answers_batch"].ainvoke(chain_input)
-            )
+            coroutines.append(chain.ainvoke(chain_input))
 
         # Execute all in parallel
         results = await asyncio.gather(*coroutines)
@@ -874,6 +902,18 @@ Apply attempt-based penalty:
         for result in results:
             answers.append(result["answer_text"])
 
+        # Log execution (if DB prompt was used)
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables={"question_count": len(question_texts)},
+                output_text=str(answers),
+                start_time=start_time,
+                success=True,
+                model_response_metadata=None,
+            )
+
         return answers
 
     async def generate_rationales_batch(
@@ -881,6 +921,17 @@ Apply attempt-based penalty:
         question_ideal_pairs: list[tuple[str, str]],
     ) -> list[str]:
         """Generate rationales in parallel."""
+        start_time = time.time()
+        context = {}
+
+        # Load DB prompt
+        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+            "rationale_generation"
+        )
+
+        # Get chain (DB or fallback)
+        chain = self._get_or_build_chain("generate_rationales_batch", template_json, cache_key)
+
         # Build coroutines for all rationales
         coroutines = []
         for question_text, ideal_answer in question_ideal_pairs:
@@ -888,9 +939,7 @@ Apply attempt-based penalty:
                 "question_text": question_text,
                 "ideal_answer": ideal_answer,
             }
-            coroutines.append(
-                self._chains["generate_rationales_batch"].ainvoke(chain_input)
-            )
+            coroutines.append(chain.ainvoke(chain_input))
 
         # Execute all in parallel
         results = await asyncio.gather(*coroutines)
@@ -899,6 +948,18 @@ Apply attempt-based penalty:
         rationales = []
         for result in results:
             rationales.append(result["rationale_text"])
+
+        # Log execution (if DB prompt was used)
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables={"pairs_count": len(question_ideal_pairs)},
+                output_text=str(rationales),
+                start_time=start_time,
+                success=True,
+                model_response_metadata=None,
+            )
 
         return rationales
 
@@ -912,6 +973,18 @@ Apply attempt-based penalty:
         For each question_spec, generates question, ideal_answer, and rationale together
         in one LLM call to ensure consistency.
         """
+        start_time = time.time()
+
+        # Load DB prompt (uses same prompt as question generation)
+        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+            "question_generation"
+        )
+
+        # Get chain (DB or fallback)
+        chain = self._get_or_build_chain(
+            "generate_questions_with_answers_and_rationales_batch", template_json, cache_key
+        )
+
         # Build coroutines for all question sets
         coroutines = []
         for spec in question_specs:
@@ -939,9 +1012,7 @@ Apply attempt-based penalty:
             }
 
             # Add coroutine to list
-            coroutines.append(
-                self._chains["generate_questions_with_answers_and_rationales_batch"].ainvoke(chain_input)
-            )
+            coroutines.append(chain.ainvoke(chain_input))
 
         # Execute all in parallel
         results = await asyncio.gather(*coroutines)
@@ -966,6 +1037,18 @@ Apply attempt-based penalty:
         if len(question_sets) != len(question_specs):
             raise ValueError(
                 f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
+            )
+
+        # Log execution (if DB prompt was used)
+        if prompt_template:
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables={"question_specs_count": len(question_specs)},
+                output_text=str(question_sets),
+                start_time=start_time,
+                success=True,
+                model_response_metadata=None,
             )
 
         return question_sets

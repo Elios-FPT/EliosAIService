@@ -447,6 +447,18 @@ class Container:
         Note:
             This is async and must be called with await.
             Checkpointer is lazy-initialized on first access.
+
+        Connection Pool Management:
+            AsyncPostgresSaver creates its own connection pool separate from
+            SQLAlchemy's pool. Total database connections:
+
+            - SQLAlchemy: 10 base + 20 overflow = up to 30 connections (production)
+            - AsyncPostgresSaver: ~5-10 connections (internal, not configurable)
+            - Total: ~35-40 connections
+
+            Ensure PostgreSQL max_connections is configured appropriately (100+ recommended).
+            The langgraph_checkpointer_pool_size setting is available for future use
+            if LangGraph adds pool configuration support.
         """
         if self._checkpointer is None:
             if self.settings.langgraph_checkpointer_type != "postgresql":
@@ -455,14 +467,15 @@ class Container:
                 )
 
             # Import here to avoid circular dependency
-            from ..database.session import get_async_engine
             from ..database.langgraph_checkpointer import create_checkpointer
 
-            # Get async engine (reuses existing connection pool)
-            engine = get_async_engine()
+            # Get connection string (AsyncPostgresSaver uses its own connection pool)
+            # Note: Pool size cannot be configured via AsyncPostgresSaver API.
+            # The langgraph_checkpointer_pool_size setting is reserved for future use.
+            conn_string = self.settings.async_database_url
 
             # Create and setup checkpointer
-            self._checkpointer = await create_checkpointer(engine)
+            self._checkpointer = await create_checkpointer(conn_string)
 
         return self._checkpointer
 
