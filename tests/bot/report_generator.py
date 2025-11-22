@@ -41,6 +41,7 @@ class ReportGenerator:
                     "assertions_passed": s.assertions_passed,
                     "assertions_failed": s.assertions_failed,
                     "errors": s.errors,
+                    "logs": s.logs,
                 }
                 for s in results.scenarios
             ],
@@ -67,12 +68,22 @@ class ReportGenerator:
 
         # Generate scenario rows
         scenario_rows = ""
-        for s in results.scenarios:
+        for idx, s in enumerate(results.scenarios):
             status_class = {
                 "passed": "success",
                 "failed": "danger",
                 "skipped": "secondary",
             }.get(s.status, "secondary")
+
+            # Format logs for display
+            logs_html = ""
+            if s.logs:
+                logs_html = "<br>".join(
+                    f"<div class='log-entry'>{log}</div>"
+                    for log in s.logs
+                )
+            else:
+                logs_html = "<em>No logs captured</em>"
 
             scenario_rows += f"""
             <tr class="table-{status_class}">
@@ -82,6 +93,23 @@ class ReportGenerator:
                 <td>{s.duration_sec:.2f}s</td>
                 <td>${s.cost_usd:.4f}</td>
                 <td>{s.assertions_passed}/{s.assertions_passed + s.assertions_failed}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#logs-{idx}"
+                            aria-expanded="false" aria-controls="logs-{idx}">
+                        View Logs
+                    </button>
+                </td>
+            </tr>
+            <tr class="collapse" id="logs-{idx}">
+                <td colspan="7">
+                    <div class="card card-body logs-container">
+                        <h6>Test Logs:</h6>
+                        <div class="logs-content">
+                            {logs_html}
+                        </div>
+                    </div>
+                </td>
             </tr>
             """
 
@@ -113,6 +141,28 @@ class ReportGenerator:
     <style>
         body {{ padding: 20px; }}
         .summary-card {{ margin-bottom: 20px; }}
+        .logs-container {{
+            background-color: #f8f9fa;
+            border-left: 4px solid #0d6efd;
+            margin-top: 10px;
+        }}
+        .logs-content {{
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 10px;
+            background-color: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+        }}
+        .log-entry {{
+            padding: 2px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }}
+        .log-entry:last-child {{
+            border-bottom: none;
+        }}
     </style>
 </head>
 <body>
@@ -177,6 +227,7 @@ class ReportGenerator:
                     <th>Duration</th>
                     <th>Cost</th>
                     <th>Assertions</th>
+                    <th>Logs</th>
                 </tr>
             </thead>
             <tbody>
@@ -184,6 +235,7 @@ class ReportGenerator:
             </tbody>
         </table>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
         """

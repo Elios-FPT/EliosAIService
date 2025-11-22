@@ -23,6 +23,27 @@ from .test_bot_client import InterviewTestBot
 logger = logging.getLogger(__name__)
 
 
+class LogCaptureHandler(logging.Handler):
+    """Custom log handler that captures log records in memory."""
+
+    def __init__(self):
+        super().__init__()
+        self.logs: list[str] = []
+
+    def emit(self, record: logging.LogRecord):
+        """Capture log record as formatted string."""
+        log_entry = self.format(record)
+        self.logs.append(log_entry)
+
+    def get_logs(self) -> list[str]:
+        """Get captured logs."""
+        return self.logs
+
+    def clear(self):
+        """Clear captured logs."""
+        self.logs.clear()
+
+
 @dataclass
 class ScenarioResult:
     """Result of single test scenario."""
@@ -36,6 +57,7 @@ class ScenarioResult:
     assertions_failed: int
     errors: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
+    logs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -182,6 +204,18 @@ class TestRunner:
         config = scenario["config"]
         assertions = scenario.get("assertions", [])
 
+        # Setup log capture
+        log_handler = LogCaptureHandler()
+        log_handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        log_handler.setFormatter(formatter)
+
+        # Add handler to root logger to capture all logs
+        root_logger = logging.getLogger()
+        root_logger.addHandler(log_handler)
+
         start_time = time.time()
         errors = []
         bot_metrics = {}
@@ -228,6 +262,11 @@ class TestRunner:
             errors.append(str(e))
             assertions_failed = len(assertions)
 
+        finally:
+            # Capture logs and remove handler
+            captured_logs = log_handler.get_logs()
+            root_logger.removeHandler(log_handler)
+
         duration = time.time() - start_time
 
         return ScenarioResult(
@@ -240,6 +279,7 @@ class TestRunner:
             assertions_failed=assertions_failed,
             errors=errors,
             metrics=bot_metrics,
+            logs=captured_logs,
         )
 
     async def _run_mock_scenario(
