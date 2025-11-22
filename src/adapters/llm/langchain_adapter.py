@@ -902,6 +902,74 @@ Apply attempt-based penalty:
 
         return rationales
 
+    async def generate_questions_with_answers_and_rationales_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        """Generate questions with ideal answers and rationales in a single LLM call per spec.
+
+        For each question_spec, generates question, ideal_answer, and rationale together
+        in one LLM call to ensure consistency.
+        """
+        # Build coroutines for all question sets
+        coroutines = []
+        for spec in question_specs:
+            # Format exemplars for this spec
+            exemplar_section = ""
+            exemplars = spec.get("exemplars")
+            if exemplars:
+                exemplar_section = "Similar questions for inspiration (do NOT copy exactly):\n"
+                for j, ex in enumerate(exemplars[:3], 1):
+                    exemplar_section += (
+                        f"{j}. \"{ex.get('text', '')}\" ({ex.get('difficulty', 'UNKNOWN')})\n"
+                    )
+                exemplar_section += (
+                    "\nGenerate a NEW question inspired by the style and structure above.\n"
+                )
+
+            # Create chain input for this question set
+            chain_input = {
+                "skill": spec["skill"],
+                "difficulty": spec["difficulty"],
+                "cv_summary": context.get("cv_summary", "Not provided"),
+                "covered_topics": context.get("covered_topics", []),
+                "stage": context.get("stage", "early"),
+                "exemplar_section": exemplar_section,
+            }
+
+            # Add coroutine to list
+            coroutines.append(
+                self._chains["generate_questions_with_answers_and_rationales_batch"].ainvoke(chain_input)
+            )
+
+        # Execute all in parallel
+        results = await asyncio.gather(*coroutines)
+
+        # Extract question sets in order and return as tuples
+        question_sets = []
+        for result in results:
+            question_text = result.get("question_text", "").strip()
+            ideal_answer = result.get("ideal_answer", "").strip()
+            rationale = result.get("rationale", "").strip()
+
+            # Validate all three components are present
+            if not question_text or not ideal_answer or not rationale:
+                raise ValueError(
+                    f"Incomplete response from LLM: missing question_text, ideal_answer, or rationale. "
+                    f"Got: question_text={bool(question_text)}, ideal_answer={bool(ideal_answer)}, "
+                    f"rationale={bool(rationale)}"
+                )
+
+            question_sets.append((question_text, ideal_answer, rationale))
+
+        if len(question_sets) != len(question_specs):
+            raise ValueError(
+                f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
+            )
+
+        return question_sets
+
     # Helper methods
     def _format_previous_evaluations(self, evaluations: list[Any]) -> str:
         """Format previous evaluations for context."""

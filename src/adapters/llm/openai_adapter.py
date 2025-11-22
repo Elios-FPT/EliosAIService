@@ -1,5 +1,6 @@
 """OpenAI LLM adapter implementation."""
 
+import asyncio
 import json
 import re
 import time
@@ -919,6 +920,112 @@ Provide specific, data-driven recommendations that help candidates improve."""
             return [r.strip() if r else "" for r in rationales]
         except (json.JSONDecodeError, KeyError) as e:
             raise ValueError(f"Failed to parse batch rationale response: {e}") from e
+
+    async def generate_questions_with_answers_and_rationales_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        """Generate questions with ideal answers and rationales in a single LLM call per spec.
+
+        For each question_spec, generates question, ideal_answer, and rationale together
+        in one LLM call to ensure consistency.
+        """
+        system_prompt = """You are an expert technical interviewer creating complete question sets.
+        Generate questions, ideal answers, and rationales that are consistent and well-aligned."""
+
+        async def generate_one_question_set(spec: dict[str, Any]) -> tuple[str, str, str]:
+            """Generate one complete question set (question, ideal_answer, rationale)."""
+            # Format exemplars for this spec
+            exemplar_section = ""
+            exemplars = spec.get("exemplars", [])
+            if exemplars:
+                exemplar_section = "Similar questions for inspiration (do NOT copy exactly):\n"
+                for j, ex in enumerate(exemplars[:3], 1):
+                    exemplar_section += (
+                        f"{j}. \"{ex.get('text', '')}\" ({ex.get('difficulty', 'UNKNOWN')})\n"
+                    )
+                exemplar_section += (
+                    "\nGenerate a NEW question inspired by the style and structure above.\n"
+                )
+
+            skill = spec.get("skill", "general knowledge")
+            difficulty = spec.get("difficulty", "medium")
+
+            user_prompt = f"""Generate a complete interview question set: question, ideal answer, and rationale.
+
+Generate a {difficulty} difficulty interview question to test: {skill}
+
+Context:
+- Candidate's background: {context.get('cv_summary', 'Not provided')}
+- Previous topics covered: {context.get('covered_topics', [])}
+- Interview stage: {context.get('stage', 'early')}
+
+{exemplar_section}
+
+**IMPORTANT CONSTRAINTS**:
+The question MUST be verbal/discussion-based. DO NOT generate questions that require:
+- Writing code ("write a function", "implement", "create a class", "code a solution")
+- Drawing diagrams ("draw", "sketch", "diagram", "visualize", "map out")
+- Whiteboard exercises ("design on whiteboard", "show on board", "illustrate")
+- Visual outputs ("create a flowchart", "design a schema visually")
+
+Focus on conceptual understanding, best practices, trade-offs, and problem-solving approaches that can be explained verbally.
+
+Requirements:
+1. Question: Clear, relevant, and appropriate for the skill and difficulty level
+2. Ideal Answer: 150-300 words demonstrating expert-level understanding with key concepts, practical examples, and best practices
+3. Rationale: 50-100 words explaining why this answer is ideal, focusing on key concepts covered, depth, clarity, and practical value
+
+Return as JSON with this exact format:
+{{
+    "question_text": "your question here",
+    "ideal_answer": "ideal answer here (150-300 words)",
+    "rationale": "explanation of why this answer is ideal (50-100 words)"
+}}"""
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=self.temperature,
+                response_format={"type": "json_object"},
+            )
+
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("Empty response from LLM for unified question generation")
+
+            try:
+                content = self._extract_json_from_markdown(content)
+                result = json.loads(content)
+                question_text = result.get("question_text", "").strip()
+                ideal_answer = result.get("ideal_answer", "").strip()
+                rationale = result.get("rationale", "").strip()
+
+                # Validate all three components are present
+                if not question_text or not ideal_answer or not rationale:
+                    raise ValueError(
+                        f"Incomplete response from LLM: missing question_text, ideal_answer, or rationale. "
+                        f"Got: question_text={bool(question_text)}, ideal_answer={bool(ideal_answer)}, "
+                        f"rationale={bool(rationale)}"
+                    )
+
+                return (question_text, ideal_answer, rationale)
+            except (json.JSONDecodeError, KeyError) as e:
+                raise ValueError(f"Failed to parse unified question response: {e}") from e
+
+        # Execute all in parallel
+        results = await asyncio.gather(*[generate_one_question_set(spec) for spec in question_specs])
+
+        if len(results) != len(question_specs):
+            raise ValueError(
+                f"Expected {len(question_specs)} question sets, got {len(results)}"
+            )
+
+        return results
 
     async def _log_execution(
         self,

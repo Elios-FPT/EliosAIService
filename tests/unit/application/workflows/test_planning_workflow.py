@@ -26,6 +26,7 @@ def mock_llm():
     llm.generate_questions_batch = AsyncMock()
     llm.generate_ideal_answers_batch = AsyncMock()
     llm.generate_rationales_batch = AsyncMock()
+    llm.generate_questions_with_answers_and_rationales_batch = AsyncMock()
     return llm
 
 
@@ -260,19 +261,19 @@ class TestPlanningWorkflow:
     async def test_generate_batch_node_success(
         self, workflow, sample_cv_analysis, mock_llm
     ):
-        """Test generate_batch_node generates questions in parallel."""
-        # Setup
-        mock_llm.generate_questions_batch.return_value = [
-            "What is Python GIL?",
-            "Explain async/await in Python",
-        ]
-        mock_llm.generate_ideal_answers_batch.return_value = [
-            "GIL is Global Interpreter Lock...",
-            "Async/await enables asynchronous programming...",
-        ]
-        mock_llm.generate_rationales_batch.return_value = [
-            "This tests understanding of Python internals",
-            "This assesses async programming knowledge",
+        """Test generate_batch_node generates complete question sets using unified method."""
+        # Setup - unified method returns list of tuples (question, ideal_answer, rationale)
+        mock_llm.generate_questions_with_answers_and_rationales_batch.return_value = [
+            (
+                "What is Python GIL?",
+                "GIL is Global Interpreter Lock...",
+                "This tests understanding of Python internals",
+            ),
+            (
+                "Explain async/await in Python",
+                "Async/await enables asynchronous programming...",
+                "This assesses async programming knowledge",
+            ),
         ]
 
         state = {
@@ -293,11 +294,12 @@ class TestPlanningWorkflow:
         assert len(result["generated_questions"]) == 2
         assert len(result["generated_answers"]) == 2
         assert len(result["generated_rationales"]) == 2
+        assert result["generated_questions"][0] == "What is Python GIL?"
+        assert result["generated_answers"][0] == "GIL is Global Interpreter Lock..."
+        assert result["generated_rationales"][0] == "This tests understanding of Python internals"
 
-        # Verify LLM methods called correctly
-        mock_llm.generate_questions_batch.assert_called_once()
-        mock_llm.generate_ideal_answers_batch.assert_called_once()
-        mock_llm.generate_rationales_batch.assert_called_once()
+        # Verify unified LLM method called correctly
+        mock_llm.generate_questions_with_answers_and_rationales_batch.assert_called_once()
 
     async def test_generate_batch_node_missing_specs(self, workflow):
         """Test generate_batch_node handles missing specs."""
@@ -319,7 +321,7 @@ class TestPlanningWorkflow:
     ):
         """Test generate_batch_node handles LLM errors."""
         # Setup
-        mock_llm.generate_questions_batch.side_effect = Exception("LLM API timeout")
+        mock_llm.generate_questions_with_answers_and_rationales_batch.side_effect = Exception("LLM API timeout")
         state = {
             "cv_analysis": sample_cv_analysis,
             "question_specs": [
@@ -524,9 +526,10 @@ class TestPlanningWorkflow:
 
         mock_cv_repo.get_by_id.return_value = sample_cv_analysis
 
-        mock_llm.generate_questions_batch.return_value = ["Question 1", "Question 2"]
-        mock_llm.generate_ideal_answers_batch.return_value = ["Answer 1", "Answer 2"]
-        mock_llm.generate_rationales_batch.return_value = ["Rationale 1", "Rationale 2"]
+        mock_llm.generate_questions_with_answers_and_rationales_batch.return_value = [
+            ("Question 1", "Answer 1", "Rationale 1"),
+            ("Question 2", "Answer 2", "Rationale 2"),
+        ]
 
         question_1 = Question(
             id=uuid4(),
