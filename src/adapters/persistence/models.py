@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -25,7 +26,8 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...domain.models.interview import InterviewStatus
-from ...domain.models.question import DifficultyLevel, QuestionType
+from ...domain.models.question import Difficulty, DifficultyLevel, QuestionType
+from ...domain.models.cv_skill import ProficiencyLevel
 from ...infrastructure.database.base import Base
 
 
@@ -52,15 +54,82 @@ class CandidateModel(Base):
         back_populates="candidate",
         cascade="all, delete-orphan",
     )
-    answers: Mapped[list["AnswerModel"]] = relationship(
-        "AnswerModel",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
 
     __table_args__ = (
         Index("idx_candidates_email", "email"),
         Index("idx_candidates_created_at", "created_at"),
+    )
+
+
+class CVSkillModel(Base):
+    """SQLAlchemy model for CV Skill entity (normalized from JSONB)."""
+
+    __tablename__ = "cv_skills"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    cv_analysis_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("cv_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    proficiency_level: Mapped[str | None] = mapped_column(
+        SQLEnum(ProficiencyLevel, native_enum=False, length=50),
+        nullable=True,
+    )
+    years_of_experience: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Relationships
+    cv_analysis: Mapped["CVAnalysisModel"] = relationship(
+        "CVAnalysisModel",
+        back_populates="skills",
+    )
+
+    __table_args__ = (
+        Index("idx_cv_skills_cv_analysis_id", "cv_analysis_id"),
+        Index("idx_cv_skills_skill_name", "skill_name"),
+        Index("idx_cv_skills_proficiency", "proficiency_level"),
+    )
+
+
+class InterviewQuestionModel(Base):
+    """SQLAlchemy model for Interview-Question junction table."""
+
+    __tablename__ = "interview_questions"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    interview_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    asked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    skipped: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Relationships
+    interview: Mapped["InterviewModel"] = relationship(
+        "InterviewModel",
+        back_populates="interview_questions",
+    )
+    question: Mapped["QuestionModel"] = relationship("QuestionModel")
+
+    __table_args__ = (
+        Index("idx_interview_questions_interview_id", "interview_id", "sequence_order"),
+        Index("idx_interview_questions_question_id", "question_id"),
+        Index("idx_interview_questions_asked_at", "asked_at"),
     )
 
 
@@ -77,13 +146,11 @@ class QuestionModel(Base):
         index=True,
     )
     difficulty: Mapped[str] = mapped_column(
-        SQLEnum(DifficultyLevel, native_enum=False, length=50),
+        SQLEnum(Difficulty, native_enum=False, length=50),
         nullable=False,
         index=True,
     )
     skills: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=[])
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=[])
-    evaluation_criteria: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
 
@@ -130,16 +197,6 @@ class InterviewModel(Base):
         ForeignKey("cv_analyses.id", ondelete="SET NULL"),
         nullable=True,
     )
-    question_ids: Mapped[list[UUID]] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True)),
-        nullable=False,
-        default=[],
-    )
-    answer_ids: Mapped[list[UUID]] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True)),
-        nullable=False,
-        default=[],
-    )
     current_question_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # NEW: Pre-planning metadata for adaptive interviews
@@ -181,6 +238,12 @@ class InterviewModel(Base):
         back_populates="interview",
         cascade="all, delete-orphan",
     )
+    interview_questions: Mapped[list["InterviewQuestionModel"]] = relationship(
+        "InterviewQuestionModel",
+        back_populates="interview",
+        cascade="all, delete-orphan",
+        order_by="InterviewQuestionModel.sequence_order",
+    )
 
     __table_args__ = (
         Index("idx_interviews_candidate_id", "candidate_id"),
@@ -207,20 +270,13 @@ class AnswerModel(Base):
         nullable=False,
         index=True,
     )
-    candidate_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("candidates.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     is_voice: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     audio_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
-    answer_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default={})
 
-    # NEW: Link to Evaluation entity (Phase 1 refactoring)
+    # Link to Evaluation entity
     evaluation_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("evaluations.id", ondelete="SET NULL"),
@@ -228,12 +284,8 @@ class AnswerModel(Base):
         index=True,
     )
 
-    # OLD fields (keep for backward compatibility during migration)
-    # These will be dropped after migration completes
-    evaluation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    gaps: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Voice metrics (will be stored in Evaluation entity in future)
+    voice_metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -246,15 +298,10 @@ class AnswerModel(Base):
         "QuestionModel",
         back_populates="answers",
     )
-    candidate: Mapped["CandidateModel"] = relationship(
-        "CandidateModel",
-        back_populates="answers",
-    )
 
     __table_args__ = (
         Index("idx_answers_interview_id", "interview_id"),
         Index("idx_answers_question_id", "question_id"),
-        Index("idx_answers_candidate_id", "candidate_id"),
         Index("idx_answers_created_at", "created_at"),
     )
 
@@ -271,9 +318,7 @@ class CVAnalysisModel(Base):
         nullable=False,
         index=True,
     )
-    cv_file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     extracted_text: Mapped[str] = mapped_column(Text, nullable=False)
-    skills: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=[])
     work_experience_years: Mapped[float | None] = mapped_column(Float, nullable=True)
     education_level: Mapped[str | None] = mapped_column(String(100), nullable=True)
     suggested_topics: Mapped[list[str]] = mapped_column(
@@ -284,13 +329,17 @@ class CVAnalysisModel(Base):
     suggested_difficulty: Mapped[str] = mapped_column(String(50), nullable=False, default="medium")
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    cv_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Relationships
     candidate: Mapped["CandidateModel"] = relationship(
         "CandidateModel",
         back_populates="cv_analyses",
+    )
+    skills: Mapped[list["CVSkillModel"]] = relationship(
+        "CVSkillModel",
+        back_populates="cv_analysis",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -429,27 +478,49 @@ class EvaluationGapModel(Base):
 
 
 class PromptTemplateModel(Base):
-    """SQLAlchemy model for PromptTemplate entity."""
+    """SQLAlchemy model for PromptTemplate entity (decomposed schema)."""
 
     __tablename__ = "prompt_templates"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    version: Mapped[int] = mapped_column(Integer, nullable=False)
-    parent_version_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    template_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    prompt_name: Mapped[str] = mapped_column("name", String(100), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    ab_test_group: Mapped[str | None] = mapped_column(String(50), nullable=True)
     traffic_percentage: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    # Decomposed prompt structure (editable fields)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    user_template: Mapped[str] = mapped_column(Text, nullable=False)
+    input_variables: Mapped[list[str]] = mapped_column(
+        ARRAY(String),
+        nullable=False,
+        server_default="{}",
+    )
+    partial_variables: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    output_parser_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        server_default="json_output_parser",
+    )
+    output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    # Model parameters
+    temperature: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, server_default="0.30")
+    max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2000")
+    top_p: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, server_default="0.95")
+    frequency_penalty: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, server_default="0.00")
+    presence_penalty: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, server_default="0.00")
+
+    # Soft delete
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Auto-generated fields (read-only, created by trigger)
+    template_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    template_json_legacy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Relationships
     executions: Mapped[list["PromptExecutionModel"]] = relationship(
@@ -466,6 +537,7 @@ class PromptTemplateModel(Base):
     __table_args__ = (
         Index("idx_prompt_templates_name", "name"),
         Index("idx_prompt_templates_version", "name", "version"),
+        Index("idx_prompt_templates_deleted_at", "deleted_at"),
     )
 
 

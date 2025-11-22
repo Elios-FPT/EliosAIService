@@ -1,14 +1,17 @@
 """PostgreSQL implementation of InterviewRepositoryPort."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
+from ...domain.models.interview_question import InterviewQuestion
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from .mappers import InterviewMapper
-from .models import InterviewModel
+from .mappers import InterviewMapper, InterviewQuestionMapper
+from .models import InterviewModel, InterviewQuestionModel
 
 
 class PostgreSQLInterviewRepository(InterviewRepositoryPort):
@@ -113,3 +116,132 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         )
         db_models = result.scalars().all()
         return [InterviewMapper.to_domain(db_model) for db_model in db_models]
+
+    # New methods for interview_questions junction table management
+
+    async def get_interview_questions(self, interview_id: UUID) -> list[InterviewQuestion]:
+        """Get all questions for an interview, ordered by sequence.
+
+        Args:
+            interview_id: UUID of the interview
+
+        Returns:
+            List of InterviewQuestion domain models ordered by sequence_order
+        """
+        result = await self.session.execute(
+            select(InterviewQuestionModel)
+            .where(InterviewQuestionModel.interview_id == interview_id)
+            .order_by(InterviewQuestionModel.sequence_order)
+        )
+        db_models = result.scalars().all()
+        return [InterviewQuestionMapper.to_domain(db_model) for db_model in db_models]
+
+    async def add_question(
+        self,
+        interview_id: UUID,
+        question_id: UUID,
+        sequence_order: int,
+    ) -> InterviewQuestion:
+        """Add a question to an interview with specified sequence order.
+
+        Args:
+            interview_id: UUID of the interview
+            question_id: UUID of the question to add
+            sequence_order: 0-based order in the interview sequence
+
+        Returns:
+            Created InterviewQuestion domain model
+        """
+        from uuid import uuid4
+
+        interview_question = InterviewQuestion(
+            id=uuid4(),
+            interview_id=interview_id,
+            question_id=question_id,
+            sequence_order=sequence_order,
+            asked_at=None,
+            skipped=False,
+            skip_reason=None,
+            created_at=datetime.utcnow(),
+        )
+
+        db_model = InterviewQuestionMapper.to_db_model(interview_question)
+        self.session.add(db_model)
+        await self.session.commit()
+        await self.session.refresh(db_model)
+        return InterviewQuestionMapper.to_domain(db_model)
+
+    async def get_current_question(self, interview_id: UUID) -> InterviewQuestion | None:
+        """Get the current question for an interview based on current_question_index.
+
+        Args:
+            interview_id: UUID of the interview
+
+        Returns:
+            Current InterviewQuestion or None if interview complete or not found
+        """
+        # First get interview to find current_question_index
+        interview_result = await self.session.execute(
+            select(InterviewModel).where(InterviewModel.id == interview_id)
+        )
+        interview_model = interview_result.scalar_one_or_none()
+
+        if not interview_model:
+            return None
+
+        # Get question at current index
+        result = await self.session.execute(
+            select(InterviewQuestionModel)
+            .where(InterviewQuestionModel.interview_id == interview_id)
+            .where(InterviewQuestionModel.sequence_order == interview_model.current_question_index)
+        )
+        db_model = result.scalar_one_or_none()
+        return InterviewQuestionMapper.to_domain(db_model) if db_model else None
+
+    async def mark_question_asked(
+        self,
+        interview_question_id: UUID,
+        asked_at: datetime | None = None,
+    ) -> InterviewQuestion:
+        """Mark a question as asked with timestamp.
+
+        Args:
+            interview_question_id: UUID of the InterviewQuestion record
+            asked_at: Timestamp when question was asked (defaults to now)
+
+        Returns:
+            Updated InterviewQuestion domain model
+
+        Raises:
+            ValueError: If InterviewQuestion not found
+        """
+        result = await self.session.execute(
+            select(InterviewQuestionModel).where(InterviewQuestionModel.id == interview_question_id)
+        )
+        db_model = result.scalar_one_or_none()
+
+        if not db_model:
+            raise ValueError(f"InterviewQuestion with id {interview_question_id} not found")
+
+        db_model.asked_at = asked_at or datetime.utcnow()
+        await self.session.commit()
+        await self.session.refresh(db_model)
+        return InterviewQuestionMapper.to_domain(db_model)
+
+    async def count_interview_questions(self, interview_id: UUID) -> int:
+        """Count total questions for an interview.
+
+        Args:
+            interview_id: UUID of the interview
+
+        Returns:
+            Total number of questions in the interview
+        """
+        from sqlalchemy import func
+
+        result = await self.session.execute(
+            select(func.count(InterviewQuestionModel.id)).where(
+                InterviewQuestionModel.interview_id == interview_id
+            )
+        )
+        return result.scalar_one()
