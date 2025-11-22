@@ -23,16 +23,29 @@ class InterviewResponse(BaseModel):
     started_at: datetime | None
 
     @staticmethod
-    def from_domain(interview: Any, base_url: str) -> "InterviewResponse":
-        """Convert domain Interview to response DTO."""
+    def from_domain(interview: Any, base_url: str, question_count: int) -> "InterviewResponse":
+        """Convert domain Interview to response DTO.
+
+        Args:
+            interview: Domain Interview entity
+            base_url: WebSocket base URL
+            question_count: Total number of questions (from junction table)
+        """
+        # Calculate progress percentage
+        progress_percentage = (
+            (interview.current_question_index / question_count * 100.0)
+            if question_count > 0
+            else 0.0
+        )
+
         return InterviewResponse(
             id=interview.id,
             candidate_id=interview.candidate_id,
             status=interview.status.value,
             cv_analysis_id=interview.cv_analysis_id,
-            question_count=len(interview.question_ids),
+            question_count=question_count,
             current_question_index=interview.current_question_index,
-            progress_percentage=interview.get_progress_percentage(),
+            progress_percentage=progress_percentage,
             ws_url=f"{base_url}/ws/interviews/{interview.id}",
             created_at=interview.created_at,
             started_at=interview.started_at,
