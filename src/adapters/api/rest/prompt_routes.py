@@ -60,7 +60,7 @@ def _build_template_json(request: CreatePromptRequest | CreateVersionRequest) ->
 async def create_initial_prompt(
     request: CreatePromptRequest,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Create initial prompt version (v1).
 
     Args:
@@ -102,7 +102,7 @@ async def create_new_version(
     name: str,
     request: CreateVersionRequest,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Create new version from parent version.
 
     Args:
@@ -147,7 +147,7 @@ async def rollback_prompt(
     name: str,
     request: RollbackRequest,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Rollback to target version by creating new version with target's content.
 
     Args:
@@ -183,7 +183,7 @@ async def rollback_prompt(
 async def get_version_history(
     name: str,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> list[VersionHistoryResponse]:
     """Get version history with diffs.
 
     Args:
@@ -220,7 +220,7 @@ async def get_specific_version(
     name: str,
     version: int,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Get specific version by name and version number.
 
     Args:
@@ -252,7 +252,7 @@ async def get_specific_version(
 async def get_prompt_by_id(
     prompt_id: UUID,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Get prompt by UUID.
 
     Args:
@@ -287,7 +287,7 @@ async def activate_prompt_version(
     prompt_id: UUID,
     request: ActivatePromptRequest,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> None:
     """Activate prompt version with optional A/B testing traffic percentage.
 
     If traffic_percentage=100, deactivates all other versions of the same prompt.
@@ -332,7 +332,7 @@ async def adjust_ab_traffic(
     prompt_id: UUID,
     request: AdjustTrafficRequest,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> None:
     """Adjust A/B test traffic percentage for active prompt version.
 
     Args:
@@ -372,7 +372,7 @@ async def adjust_ab_traffic(
 async def get_active_prompt(
     name: str,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PromptTemplateResponse:
     """Get active prompt with A/B testing weighted selection.
 
     If single active version: returns that version.
@@ -409,7 +409,7 @@ async def get_active_prompt(
 async def get_analytics_summary(
     name: str,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> AnalyticsSummaryResponse:
     """Get analytics summary for prompt.
 
     Args:
@@ -448,7 +448,7 @@ async def get_analytics_summary(
 async def get_audit_trail(
     name: str,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> list[AuditTrailResponse]:
     """Get audit trail of metadata changes for prompt.
 
     Args:
@@ -483,7 +483,7 @@ async def list_prompts(
     is_active: bool | None = Query(None, description="Filter by active status"),
     include_deleted: bool = Query(False, description="Include soft-deleted prompts"),
     session: AsyncSession = Depends(get_async_session),
-):
+) -> PaginatedPromptsResponse:
     """List all prompts with pagination and filters.
 
     Args:
@@ -523,7 +523,7 @@ async def list_prompts(
 async def soft_delete_prompt(
     prompt_id: UUID,
     session: AsyncSession = Depends(get_async_session),
-):
+) -> None:
     """Soft delete prompt template.
 
     Sets deleted_at timestamp and deactivates the prompt.
@@ -558,4 +558,3 @@ async def soft_delete_prompt(
 
     # Update via repository (follows Clean Architecture)
     await prompt_repo.update(prompt)
-
