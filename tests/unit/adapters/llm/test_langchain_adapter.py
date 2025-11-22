@@ -638,6 +638,47 @@ class TestBatchOperations:
             assert "REST principles" in result[0]
             assert "microservices benefits" in result[1]
 
+    @pytest.mark.asyncio
+    async def test_generate_questions_with_answers_and_rationales_batch(self, langchain_adapter):
+        """Test unified method that generates question, ideal_answer, and rationale together."""
+        # Mock chain responses - each call returns a dict with all three components
+        mock_result_0 = {
+            "question_text": "What is REST?",
+            "ideal_answer": "REST is an architectural style for designing web services...",
+            "rationale": "This answer covers key REST principles and demonstrates understanding."
+        }
+        mock_result_1 = {
+            "question_text": "Explain microservices?",
+            "ideal_answer": "Microservices are independently deployable services...",
+            "rationale": "This answer explains microservices benefits and architecture."
+        }
+
+        # Mock the chain's ainvoke to return different results for each call
+        mock_chain = MagicMock()
+        mock_chain.ainvoke = AsyncMock(side_effect=[mock_result_0, mock_result_1])
+        langchain_adapter._chains["generate_questions_with_answers_and_rationales_batch"] = mock_chain
+
+        question_specs = [
+            {"skill": "API Design", "difficulty": "easy", "exemplars": []},
+            {"skill": "Architecture", "difficulty": "hard", "exemplars": []}
+        ]
+        context = {"cv_summary": "Backend developer", "covered_topics": [], "stage": "planning"}
+
+        result = await langchain_adapter.generate_questions_with_answers_and_rationales_batch(
+            question_specs=question_specs,
+            context=context
+        )
+
+        assert len(result) == 2
+        assert isinstance(result[0], tuple)
+        assert len(result[0]) == 3
+        assert result[0][0] == "What is REST?"
+        assert "REST is an architectural style" in result[0][1]
+        assert "key REST principles" in result[0][2]
+        assert result[1][0] == "Explain microservices?"
+        assert "Microservices are independently" in result[1][1]
+        assert "microservices benefits" in result[1][2]
+
 
 class TestHelperMethods:
     """Test internal helper methods."""
