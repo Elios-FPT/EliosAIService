@@ -35,9 +35,11 @@ def create_engine() -> AsyncEngine:
     poolclass = QueuePool if is_prod else NullPool
 
     # Base engine configuration
+    # Set echo=False to prevent SQLAlchemy from adding its own handler
+    # SQL logging will be handled by the logging configuration instead
     engine_config = {
         "url": settings.async_database_url,
-        "echo": settings.debug,  # Log SQL in debug mode
+        "echo": False,  # Disable echo to prevent duplicate handlers
         "poolclass": poolclass,
     }
 
