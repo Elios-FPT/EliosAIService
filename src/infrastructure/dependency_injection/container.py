@@ -369,7 +369,7 @@ class Container:
             ValueError: If API keys not configured
         """
         # Import LangChain models
-        from langchain_openai import ChatOpenAI
+        from langchain_openai import ChatOpenAI, AzureChatOpenAI
         from langchain_anthropic import ChatAnthropic
         from ..observability.langsmith_config import create_pii_filtering_callback
 
@@ -389,11 +389,11 @@ class Container:
             if not self.settings.azure_openai_endpoint:
                 raise ValueError("Azure OpenAI endpoint not configured for LangChain")
 
-            primary_model = ChatOpenAI(
-                api_key=self.settings.azure_openai_api_key,
+            primary_model = AzureChatOpenAI(
                 azure_endpoint=self.settings.azure_openai_endpoint,
-                api_version=self.settings.azure_openai_api_version,
                 azure_deployment=self.settings.azure_openai_deployment_name,
+                api_version=self.settings.azure_openai_api_version,
+                api_key=self.settings.azure_openai_api_key,
                 temperature=self.settings.langchain_temperature,
                 max_tokens=self.settings.langchain_max_tokens,
             )
