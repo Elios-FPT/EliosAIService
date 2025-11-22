@@ -76,7 +76,6 @@ class PromptTemplate(BaseModel):
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         """Pydantic configuration."""

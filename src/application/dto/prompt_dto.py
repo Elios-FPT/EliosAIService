@@ -99,7 +99,6 @@ class PromptTemplateResponse(BaseModel):
     frequency_penalty: float
     presence_penalty: float
     created_at: datetime
-    updated_at: datetime
     deleted_at: datetime | None
 
     @staticmethod
@@ -130,7 +129,6 @@ class PromptTemplateResponse(BaseModel):
             frequency_penalty=float(prompt.frequency_penalty),
             presence_penalty=float(prompt.presence_penalty),
             created_at=prompt.created_at,
-            updated_at=prompt.updated_at,
             deleted_at=prompt.deleted_at,
         )
 

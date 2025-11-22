@@ -88,7 +88,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             deleted_at=None,
             template_json_legacy=template_json,  # Store original for reference
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
         )
 
         # Convert to DB model and save (trigger will generate template_json)
@@ -153,7 +152,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             deleted_at=None,
             template_json_legacy=template_json,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
         )
 
         # Save
