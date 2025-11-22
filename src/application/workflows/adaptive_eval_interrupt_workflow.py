@@ -14,14 +14,11 @@ Phase 3B adds interrupts to Phase 3A's single-answer evaluation workflow.
 
 import logging
 from datetime import datetime
-from typing import Any, TypedDict, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from langgraph.graph.state import CompiledStateGraph
-
+from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from ...domain.models.answer import Answer, AnswerEvaluation

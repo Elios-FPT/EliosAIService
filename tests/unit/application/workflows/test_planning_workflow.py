@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4, UUID
 
 from src.application.workflows.planning_workflow import PlanningWorkflow, PlanningState
-from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from src.domain.models.cv_analysis import CVAnalysis
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import Question, QuestionType, DifficultyLevel
 
@@ -87,17 +88,19 @@ def workflow(
 @pytest.fixture
 def sample_cv_analysis():
     """Create sample CV analysis for testing."""
+    from datetime import datetime
+    cv_id = uuid4()
     return CVAnalysis(
-        id=uuid4(),
+        id=cv_id,
         candidate_id=uuid4(),
         cv_file_path="/tmp/test_cv.pdf",
         extracted_text="Senior Python developer with 5 years experience...",
         summary="Senior Python developer with 5 years experience",
         skills=[
-            ExtractedSkill(skill="Python", proficiency="expert", years=5),
-            ExtractedSkill(skill="FastAPI", proficiency="intermediate", years=2),
-            ExtractedSkill(skill="PostgreSQL", proficiency="intermediate", years=3),
-            ExtractedSkill(skill="Docker", proficiency="beginner", years=1),
+            CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="Python", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=5.0, is_primary=True, created_at=datetime.now()),
+            CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="FastAPI", proficiency_level=ProficiencyLevel.INTERMEDIATE, years_of_experience=2.0, is_primary=False, created_at=datetime.now()),
+            CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="PostgreSQL", proficiency_level=ProficiencyLevel.INTERMEDIATE, years_of_experience=3.0, is_primary=False, created_at=datetime.now()),
+            CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="Docker", proficiency_level=ProficiencyLevel.BEGINNER, years_of_experience=1.0, is_primary=False, created_at=datetime.now()),
         ],
         work_experience_years=5,
     )

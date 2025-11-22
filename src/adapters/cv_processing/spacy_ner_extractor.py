@@ -112,7 +112,7 @@ class SpacyNERExtractor:
             "locations": self.confidence_scorer.score_field(
                 "locations", entities["locations"], True
             ),
-            "skills": self.confidence_scorer.score_field("skills", [s.skill for s in skills], True),
+            "skills": self.confidence_scorer.score_field("skills", [s["skill"] for s in skills], True),
         }
 
         # Aggregate confidence

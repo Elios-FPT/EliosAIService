@@ -9,7 +9,8 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from src.domain.models.answer import Answer, AnswerEvaluation
-from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from src.domain.models.cv_analysis import CVAnalysis
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.evaluation import Evaluation
 from src.domain.models.follow_up_question import FollowUpQuestion
 from src.domain.models.interview import Interview, InterviewStatus
@@ -50,16 +51,50 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 def sample_cv_analysis() -> CVAnalysis:
     """Sample CV analysis for testing."""
+    cv_id = uuid4()
     return CVAnalysis(
+        id=cv_id,
         candidate_id=uuid4(),
         cv_file_path="/path/to/cv.pdf",
         extracted_text="Sample CV text with Python, FastAPI, PostgreSQL, and Docker experience",
         summary="Experienced Python developer with 5 years of experience",
         skills=[
-            ExtractedSkill(skill="Python", category="technical", proficiency="expert"),
-            ExtractedSkill(skill="FastAPI", category="technical", proficiency="intermediate"),
-            ExtractedSkill(skill="PostgreSQL", category="technical", proficiency="intermediate"),
-            ExtractedSkill(skill="Docker", category="technical", proficiency="beginner"),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="Python",
+                proficiency_level=ProficiencyLevel.EXPERT,
+                years_of_experience=5.0,
+                is_primary=True,
+                created_at=datetime.now(),
+            ),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="FastAPI",
+                proficiency_level=ProficiencyLevel.INTERMEDIATE,
+                years_of_experience=3.0,
+                is_primary=False,
+                created_at=datetime.now(),
+            ),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="PostgreSQL",
+                proficiency_level=ProficiencyLevel.INTERMEDIATE,
+                years_of_experience=4.0,
+                is_primary=False,
+                created_at=datetime.now(),
+            ),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="Docker",
+                proficiency_level=ProficiencyLevel.BEGINNER,
+                years_of_experience=1.0,
+                is_primary=False,
+                created_at=datetime.now(),
+            ),
         ],
         work_experience_years=5,
         education_level="Bachelor's Degree",

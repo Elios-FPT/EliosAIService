@@ -9,7 +9,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from src.domain.models.cv_analysis import CVAnalysis
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import Question, QuestionType, DifficultyLevel
 from src.adapters.persistence.cv_analysis_repository import PostgreSQLCVAnalysisRepository
@@ -124,14 +125,17 @@ class DatabaseHelper:
         """
         # Extract skills from fixture
         skills_list = cv_data.get("skills", [])
-        extracted_skills = [
-            ExtractedSkill(
-                skill=skill,
-                proficiency=self.config.cv_analysis.default_proficiency,
-                years=None,
-                category=self.config.cv_analysis.default_category,
+        cv_skills = [
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_analysis_id,
+                skill_name=skill,
+                proficiency_level=self._map_proficiency(self.config.cv_analysis.default_proficiency),
+                years_of_experience=float(self._extract_experience_years(cv_data)),
+                is_primary=(idx < 3),  # First 3 are primary
+                created_at=datetime.utcnow(),
             )
-            for skill in skills_list
+            for idx, skill in enumerate(skills_list)
         ]
 
         # Use first 3 skills as suggested topics
@@ -142,7 +146,7 @@ class DatabaseHelper:
             candidate_id=candidate_id,
             cv_file_path=f"fixtures/cvs/{cv_data.get('cv_file', 'mock.pdf')}",
             extracted_text=cv_data.get("summary", "Mock CV extracted text"),
-            skills=extracted_skills,
+            skills=cv_skills,
             work_experience_years=self._extract_experience_years(cv_data),
             education_level=cv_data.get("education", "Bachelor's"),
             suggested_topics=suggested_topics,
@@ -288,3 +292,20 @@ class DatabaseHelper:
             return self.config.difficulty_mapping.mid_difficulty
         else:
             return self.config.difficulty_mapping.default_difficulty
+
+    def _map_proficiency(self, proficiency_str: str) -> ProficiencyLevel:
+        """Map string proficiency to ProficiencyLevel enum.
+
+        Args:
+            proficiency_str: Proficiency string (e.g., "expert", "intermediate")
+
+        Returns:
+            ProficiencyLevel enum value
+        """
+        proficiency_map = {
+            "expert": ProficiencyLevel.EXPERT,
+            "advanced": ProficiencyLevel.ADVANCED,
+            "intermediate": ProficiencyLevel.INTERMEDIATE,
+            "beginner": ProficiencyLevel.BEGINNER,
+        }
+        return proficiency_map.get(proficiency_str.lower(), ProficiencyLevel.INTERMEDIATE)

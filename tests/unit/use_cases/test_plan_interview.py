@@ -5,7 +5,8 @@ from uuid import uuid4
 import pytest
 
 from src.application.use_cases.plan_interview import PlanInterviewUseCase
-from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from src.domain.models.cv_analysis import CVAnalysis
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.interview import InterviewStatus
 
 
@@ -23,14 +24,33 @@ class TestPlanInterviewUseCase:
     ):
         """Test planning with 2 skills -> n=2 questions."""
         # Create CV with 2 skills
+        from datetime import datetime
+        cv_id = uuid4()
         cv = CVAnalysis(
+            id=cv_id,
             candidate_id=uuid4(),
             cv_file_path="/path/to/cv.pdf",
             extracted_text="Sample CV text",
             summary="Python developer",
             skills=[
-                ExtractedSkill(skill="Python", category="technical", proficiency="expert"),
-                ExtractedSkill(skill="FastAPI", category="technical", proficiency="intermediate"),
+                CVSkill(
+                    id=uuid4(),
+                    cv_analysis_id=cv_id,
+                    skill_name="Python",
+                    proficiency_level=ProficiencyLevel.EXPERT,
+                    years_of_experience=5.0,
+                    is_primary=True,
+                    created_at=datetime.now(),
+                ),
+                CVSkill(
+                    id=uuid4(),
+                    cv_analysis_id=cv_id,
+                    skill_name="FastAPI",
+                    proficiency_level=ProficiencyLevel.INTERMEDIATE,
+                    years_of_experience=3.0,
+                    is_primary=False,
+                    created_at=datetime.now(),
+                ),
             ],
         )
         await mock_cv_analysis_repo.save(cv)
@@ -65,16 +85,19 @@ class TestPlanInterviewUseCase:
         mock_vector_search,
     ):
         """Test planning with 4 skills -> n=3 questions."""
+        from datetime import datetime
+        cv_id = uuid4()
         cv = CVAnalysis(
+            id=cv_id,
             candidate_id=uuid4(),
             cv_file_path="/path/to/cv.pdf",
             extracted_text="Sample CV text",
             summary="Full-stack developer",
             skills=[
-                ExtractedSkill(skill="Python", category="technical", proficiency="expert"),
-                ExtractedSkill(skill="React", category="technical", proficiency="advanced"),
-                ExtractedSkill(skill="PostgreSQL", category="technical", proficiency="intermediate"),
-                ExtractedSkill(skill="Docker", category="technical", proficiency="beginner"),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="Python", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=5.0, is_primary=True, created_at=datetime.now()),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="React", proficiency_level=ProficiencyLevel.ADVANCED, years_of_experience=4.0, is_primary=False, created_at=datetime.now()),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="PostgreSQL", proficiency_level=ProficiencyLevel.INTERMEDIATE, years_of_experience=3.0, is_primary=False, created_at=datetime.now()),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name="Docker", proficiency_level=ProficiencyLevel.BEGINNER, years_of_experience=1.0, is_primary=False, created_at=datetime.now()),
             ],
         )
         await mock_cv_analysis_repo.save(cv)
@@ -106,13 +129,16 @@ class TestPlanInterviewUseCase:
         mock_vector_search,
     ):
         """Test planning with 7 skills -> n=4 questions."""
+        from datetime import datetime
+        cv_id = uuid4()
         cv = CVAnalysis(
+            id=cv_id,
             candidate_id=uuid4(),
             cv_file_path="/path/to/cv.pdf",
             extracted_text="Sample CV text",
             summary="Senior engineer",
             skills=[
-                ExtractedSkill(skill=f"Skill{i}", category="technical", proficiency="expert")
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name=f"Skill{i}", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=5.0, is_primary=(i==0), created_at=datetime.now())
                 for i in range(7)
             ],
         )
@@ -145,13 +171,16 @@ class TestPlanInterviewUseCase:
         mock_vector_search,
     ):
         """Test planning with 10 skills -> n=5 (max)."""
+        from datetime import datetime
+        cv_id = uuid4()
         cv = CVAnalysis(
+            id=cv_id,
             candidate_id=uuid4(),
             cv_file_path="/path/to/cv.pdf",
             extracted_text="Sample CV text",
             summary="Tech lead",
             skills=[
-                ExtractedSkill(skill=f"Skill{i}", category="technical", proficiency="expert")
+                CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name=f"Skill{i}", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=5.0, is_primary=(i==0), created_at=datetime.now())
                 for i in range(10)
             ],
         )
@@ -328,13 +357,16 @@ class TestQuestionCountCalculation:
         ]
 
         for skill_count, expected_n in test_cases:
+            from datetime import datetime
+            cv_id = uuid4()
             cv = CVAnalysis(
+                id=cv_id,
                 candidate_id=uuid4(),
                 cv_file_path="/path",
-            extracted_text="Test CV",
+                extracted_text="Test CV",
                 summary="Test",
                 skills=[
-                    ExtractedSkill(skill=f"Skill{i}", category="technical", proficiency="expert")
+                    CVSkill(id=uuid4(), cv_analysis_id=cv_id, skill_name=f"Skill{i}", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=5.0, is_primary=(i==0), created_at=datetime.now())
                     for i in range(skill_count)
                 ],
             )
@@ -355,26 +387,31 @@ class TestQuestionCountCalculation:
         )
 
         # Same skills, different experience
+        from datetime import datetime
+        cv_junior_id = uuid4()
         cv_junior = CVAnalysis(
+            id=cv_junior_id,
             candidate_id=uuid4(),
             cv_file_path="/path",
             extracted_text="Test CV",
             summary="Junior",
             skills=[
-                ExtractedSkill(skill="Python", category="technical", proficiency="beginner"),
-                ExtractedSkill(skill="SQL", category="technical", proficiency="beginner"),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_junior_id, skill_name="Python", proficiency_level=ProficiencyLevel.BEGINNER, years_of_experience=1.0, is_primary=True, created_at=datetime.now()),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_junior_id, skill_name="SQL", proficiency_level=ProficiencyLevel.BEGINNER, years_of_experience=1.0, is_primary=False, created_at=datetime.now()),
             ],
             work_experience_years=1,
         )
 
+        cv_senior_id = uuid4()
         cv_senior = CVAnalysis(
+            id=cv_senior_id,
             candidate_id=uuid4(),
             cv_file_path="/path",
             extracted_text="Test CV",
             summary="Senior",
             skills=[
-                ExtractedSkill(skill="Python", category="technical", proficiency="expert"),
-                ExtractedSkill(skill="SQL", category="technical", proficiency="expert"),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_senior_id, skill_name="Python", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=15.0, is_primary=True, created_at=datetime.now()),
+                CVSkill(id=uuid4(), cv_analysis_id=cv_senior_id, skill_name="SQL", proficiency_level=ProficiencyLevel.EXPERT, years_of_experience=15.0, is_primary=False, created_at=datetime.now()),
             ],
             work_experience_years=15,
         )

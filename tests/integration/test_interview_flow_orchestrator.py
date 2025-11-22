@@ -11,7 +11,8 @@ from uuid import UUID, uuid4
 
 from src.adapters.api.websocket.session_orchestrator import InterviewSessionOrchestrator
 from src.domain.models.answer import Answer, AnswerEvaluation
-from src.domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from src.domain.models.cv_analysis import CVAnalysis
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.follow_up_question import FollowUpQuestion
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import DifficultyLevel, Question, QuestionType
@@ -23,14 +24,33 @@ from src.domain.models.question import DifficultyLevel, Question, QuestionType
 @pytest.fixture
 def cv_analysis():
     """Create CV analysis for candidate."""
+    from datetime import datetime
+    cv_id = uuid4()
     return CVAnalysis(
+        id=cv_id,
         candidate_id=uuid4(),
         cv_file_path="/path/to/cv.pdf",
         extracted_text="Python developer with FastAPI experience",
         summary="Experienced developer",
         skills=[
-            ExtractedSkill(skill="Python", category="technical", proficiency="expert"),
-            ExtractedSkill(skill="FastAPI", category="technical", proficiency="intermediate"),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="Python",
+                proficiency_level=ProficiencyLevel.EXPERT,
+                years_of_experience=5.0,
+                is_primary=True,
+                created_at=datetime.now(),
+            ),
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_id,
+                skill_name="FastAPI",
+                proficiency_level=ProficiencyLevel.INTERMEDIATE,
+                years_of_experience=3.0,
+                is_primary=False,
+                created_at=datetime.now(),
+            ),
         ],
         work_experience_years=5,
         education_level="Bachelor's",

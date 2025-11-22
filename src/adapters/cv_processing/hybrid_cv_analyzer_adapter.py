@@ -215,7 +215,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         return CVAnalysis(
             id=cv_analysis_id,
             candidate_id=candidate_id,
-            cv_file_path=cv_file_path,
             extracted_text=cv_text,
             skills=skills,
             work_experience_years=experience_years,
@@ -224,14 +223,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             suggested_difficulty=self._calculate_difficulty(experience_years),
             embedding=None,
             summary=merged_results.get("summary"),
-            metadata={
-                "extraction_method": "hybrid",
-                "confidence": merged_results.get("field_confidences", {}),
-                "emails": merged_results.get("emails", []),
-                "phones": merged_results.get("phones", []),
-                "companies": merged_results.get("companies", []),
-                "language": merged_results.get("language", "en"),
-            },
             created_at=datetime.now().isoformat(),
         )
 
