@@ -160,6 +160,104 @@ Then visit: **http://localhost:8000/docs**
 
 ---
 
+## 🐳 Docker Setup
+
+### Quick Start with Docker
+
+**Prerequisites:**
+- Docker and Docker Compose installed
+- External PostgreSQL database (connection string required)
+
+**Steps:**
+
+1. **Create environment file**
+   ```bash
+   cp .env.docker.example .env
+   ```
+
+2. **Edit `.env` file** - Set at minimum:
+   ```env
+   DATABASE_URL=postgresql://user:password@host:5432/elios_interviews
+   # Add API keys if not using mocks
+   OPENAI_API_KEY=sk-your-key-here
+   PINECONE_API_KEY=your-key-here
+   ```
+
+3. **Build and start services**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Run database migrations**
+   ```bash
+   docker-compose run migrate
+   ```
+
+5. **Access the application**
+   - API: http://localhost:8000
+   - API Docs: http://localhost:8000/docs
+
+### Docker Environment Variables
+
+The Docker image includes **default environment variables** baked into the Dockerfile, so you only need to override what's necessary:
+
+**Required:**
+- `DATABASE_URL` - External PostgreSQL connection string
+
+**Optional (only if not using mocks):**
+- `OPENAI_API_KEY` - OpenAI API key
+- `PINECONE_API_KEY` - Pinecone API key
+- `AZURE_SPEECH_KEY` - Azure Speech Services key
+- Other API keys as needed
+
+**Environment Variable Precedence:**
+1. `docker-compose.yml` `environment:` section (highest priority)
+2. `.env` file
+3. Dockerfile `ENV` statements (defaults)
+
+**Example minimal `.env` file:**
+```env
+# Required
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+# Optional - only if not using mocks
+OPENAI_API_KEY=sk-...
+PINECONE_API_KEY=...
+ENVIRONMENT=production
+DEBUG=false
+```
+
+All other configuration (ports, timeouts, feature flags, etc.) uses sensible defaults from the Dockerfile.
+
+### Docker Commands
+
+```bash
+# Build the image
+docker-compose build
+
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Run migrations
+docker-compose run migrate
+
+# Stop services
+docker-compose down
+
+# Rebuild after code changes
+docker-compose up -d --build
+```
+
+### Development vs Production
+
+- **Development**: Use mock adapters (default), set `ENVIRONMENT=development`, `DEBUG=true`
+- **Production**: Use real services, set `ENVIRONMENT=production`, `DEBUG=false`, provide all API keys
+
+---
+
 ### 📋 Detailed Setup Instructions
 
 #### Prerequisites
