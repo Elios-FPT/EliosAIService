@@ -4,9 +4,12 @@ This module sets up the FastAPI application with all routes and middleware.
 """
 
 import logging
+import logging.config
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import UUID
 
+import yaml
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,11 +19,18 @@ from .adapters.api.websocket.interview_handler import handle_interview_websocket
 from .infrastructure.config import get_settings
 from .infrastructure.database import close_db, init_db
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging from YAML
+logging_config_path = Path(__file__).parent / "infrastructure" / "config" / "logging.yaml"
+if logging_config_path.exists():
+    with open(logging_config_path, 'r') as f:
+        config = yaml.safe_load(f)
+        logging.config.dictConfig(config)
+else:
+    # Fallback to basic config if YAML not found
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 logger = logging.getLogger(__name__)
 
 
