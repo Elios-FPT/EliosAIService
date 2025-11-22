@@ -141,17 +141,39 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    import asyncio
+    import sys
+
     import uvicorn
 
     settings = get_settings()
 
-    # Logging is configured at module level
-    # Pass None to prevent uvicorn from adding its own handlers
-    uvicorn.run(
-        "src.main:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.debug,
-        log_config=None,  # Logging configured at module level
-        access_log=False,  # Disable uvicorn's access log
-    )
+    # Detect PyCharm debugger to avoid loop_factory compatibility issue
+    # PyCharm's debugger patches asyncio.run() but doesn't support loop_factory parameter
+    is_pycharm_debugger = "pydevd" in sys.modules
+
+    if is_pycharm_debugger:
+        # Use alternative startup method for PyCharm debugger compatibility
+        # This avoids the loop_factory parameter that PyCharm's patched asyncio.run() doesn't support
+        config = uvicorn.Config(
+            "src.main:app",
+            host=settings.api_host,
+            port=settings.api_port,
+            reload=settings.debug,
+            log_config=None,  # Logging configured at module level
+            access_log=False,  # Disable uvicorn's access log
+        )
+        server = uvicorn.Server(config)
+        asyncio.run(server.serve())
+    else:
+        # Normal startup for non-PyCharm environments
+        # Logging is configured at module level
+        # Pass None to prevent uvicorn from adding its own handlers
+        uvicorn.run(
+            "src.main:app",
+            host=settings.api_host,
+            port=settings.api_port,
+            reload=settings.debug,
+            log_config=None,  # Logging configured at module level
+            access_log=False,  # Disable uvicorn's access log
+        )
