@@ -4,6 +4,7 @@ This adapter uses LangChain LCEL (Expression Language) chains to implement
 all LLMPort methods with structured outputs and cleaner code.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -13,7 +14,7 @@ from uuid import UUID
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig, RunnableParallel
+from langchain_core.runnables import Runnable, RunnableConfig
 
 from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
@@ -805,10 +806,10 @@ Apply attempt-based penalty:
         question_specs: list[dict[str, Any]],
         context: dict[str, Any],
     ) -> list[str]:
-        """Generate multiple questions in parallel using RunnableParallel."""
-        # Build parallel chain for all questions
-        parallel_chains = {}
-        for i, spec in enumerate(question_specs):
+        """Generate multiple questions in parallel using asyncio.gather()."""
+        # Build coroutines for all questions
+        coroutines = []
+        for spec in question_specs:
             # Format exemplars for this spec
             exemplar_section = ""
             exemplars = spec.get("exemplars")
@@ -832,18 +833,17 @@ Apply attempt-based penalty:
                 "exemplar_section": exemplar_section,
             }
 
-            # Add to parallel chains with unique key
-            parallel_chains[f"q_{i}"] = self._chains["generate_questions_batch"].ainvoke(
-                chain_input
+            # Add coroutine to list
+            coroutines.append(
+                self._chains["generate_questions_batch"].ainvoke(chain_input)
             )
 
         # Execute all in parallel
-        results = await RunnableParallel(**parallel_chains).ainvoke({})
+        results = await asyncio.gather(*coroutines)
 
         # Extract questions in order
         questions = []
-        for i in range(len(question_specs)):
-            result = results[f"q_{i}"]
+        for result in results:
             questions.append(result["question_text"])
 
         return questions
@@ -854,25 +854,24 @@ Apply attempt-based penalty:
         context: dict[str, Any],
     ) -> list[str]:
         """Generate ideal answers in parallel."""
-        # Build parallel chain
-        parallel_chains = {}
-        for i, question_text in enumerate(question_texts):
+        # Build coroutines for all answers
+        coroutines = []
+        for question_text in question_texts:
             chain_input = {
                 "question_text": question_text,
                 "cv_summary": context.get("cv_summary", "Not provided"),
                 "skill_level": context.get("skill_level", "intermediate"),
             }
-            parallel_chains[f"a_{i}"] = self._chains["generate_ideal_answers_batch"].ainvoke(
-                chain_input
+            coroutines.append(
+                self._chains["generate_ideal_answers_batch"].ainvoke(chain_input)
             )
 
         # Execute all in parallel
-        results = await RunnableParallel(**parallel_chains).ainvoke({})
+        results = await asyncio.gather(*coroutines)
 
         # Extract answers in order
         answers = []
-        for i in range(len(question_texts)):
-            result = results[f"a_{i}"]
+        for result in results:
             answers.append(result["answer_text"])
 
         return answers
@@ -882,24 +881,23 @@ Apply attempt-based penalty:
         question_ideal_pairs: list[tuple[str, str]],
     ) -> list[str]:
         """Generate rationales in parallel."""
-        # Build parallel chain
-        parallel_chains = {}
-        for i, (question_text, ideal_answer) in enumerate(question_ideal_pairs):
+        # Build coroutines for all rationales
+        coroutines = []
+        for question_text, ideal_answer in question_ideal_pairs:
             chain_input = {
                 "question_text": question_text,
                 "ideal_answer": ideal_answer,
             }
-            parallel_chains[f"r_{i}"] = self._chains["generate_rationales_batch"].ainvoke(
-                chain_input
+            coroutines.append(
+                self._chains["generate_rationales_batch"].ainvoke(chain_input)
             )
 
         # Execute all in parallel
-        results = await RunnableParallel(**parallel_chains).ainvoke({})
+        results = await asyncio.gather(*coroutines)
 
         # Extract rationales in order
         rationales = []
-        for i in range(len(question_ideal_pairs)):
-            result = results[f"r_{i}"]
+        for result in results:
             rationales.append(result["rationale_text"])
 
         return rationales
