@@ -7,7 +7,7 @@ from uuid import UUID
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.interview import Interview, InterviewStatus
-from ...domain.models.question import DifficultyLevel, Question, QuestionType
+from ...domain.models.question import Difficulty, DifficultyLevel, Question, QuestionType
 from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from ...domain.ports.llm_port import LLMPort
@@ -153,8 +153,16 @@ class PlanInterviewUseCase:
                     pass  # Best effort cleanup
             raise
 
-        # Step 5: Update interview
-        interview.question_ids = question_ids
+        # Step 5: Add questions to interview using junction table
+        for idx, question_id in enumerate(question_ids):
+            await self.interview_repo.add_question(
+                interview_id=interview.id,
+                question_id=question_id,
+                sequence_order=idx,
+            )
+            logger.info(f"Added question {idx + 1}/{n} to interview")
+
+        # Step 6: Update interview metadata and status
         interview.plan_metadata = {
             "n": n,
             "generated_at": datetime.utcnow().isoformat(),
@@ -241,7 +249,7 @@ class PlanInterviewUseCase:
         self,
         skill: str,
         question_type: QuestionType,
-        difficulty: DifficultyLevel,
+        difficulty: Difficulty,
         cv_analysis: CVAnalysis,
     ) -> list[dict[str, Any]]:
         """Find similar questions as exemplars from vector DB.
@@ -284,7 +292,7 @@ class PlanInterviewUseCase:
 
     def _get_question_distribution(
         self, index: int, total: int
-    ) -> tuple[QuestionType, DifficultyLevel]:
+    ) -> tuple[QuestionType, Difficulty]:
         """Determine question type and difficulty based on index.
 
         Distribution:
@@ -296,7 +304,7 @@ class PlanInterviewUseCase:
             total: Total questions
 
         Returns:
-            (QuestionType, DifficultyLevel)
+            (QuestionType, Difficulty)
         """
         # Question type distribution
         technical_count = int(total * 0.6)
@@ -314,10 +322,10 @@ class PlanInterviewUseCase:
         medium_count = int(total * 0.3)
 
         if index < easy_count:
-            difficulty = DifficultyLevel.EASY
+            difficulty = Difficulty.EASY
         elif index < easy_count + medium_count:
-            difficulty = DifficultyLevel.MEDIUM
+            difficulty = Difficulty.MEDIUM
         else:
-            difficulty = DifficultyLevel.HARD
+            difficulty = Difficulty.HARD
 
         return q_type, difficulty

@@ -117,12 +117,15 @@ class GenerateSummaryUseCase:
             interview, all_answers, gap_progression, evaluations_map
         )
 
+        # Get total questions count from junction table
+        total_questions = await self.interview_repo.count_interview_questions(interview.id)
+
         return {
             "interview_id": str(interview_id),
             "overall_score": metrics["overall_score"],
             "theoretical_score_avg": metrics["theoretical_avg"],
             "speaking_score_avg": metrics["speaking_avg"],
-            "total_questions": len(interview.question_ids),
+            "total_questions": total_questions,
             "total_follow_ups": len(interview.adaptive_follow_ups),
             "question_summaries": await self._create_question_summaries(question_groups, evaluations_map),
             "gap_progression": gap_progression,
@@ -153,7 +156,11 @@ class GenerateSummaryUseCase:
         """
         groups = {}
 
-        for main_question_id in interview.question_ids:
+        # Get all interview questions from junction table
+        interview_questions = await self.interview_repo.get_interview_questions(interview.id)
+
+        for interview_question in interview_questions:
+            main_question_id = interview_question.question_id
             main_question = await self.question_repo.get_by_id(main_question_id)
 
             # Find main answer

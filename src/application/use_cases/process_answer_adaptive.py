@@ -232,12 +232,12 @@ class ProcessAnswerAdaptiveUseCase:
         saved_answer.evaluation_id = saved_evaluation.id
         saved_answer = await self.answer_repo.update(saved_answer)
 
-        # Step 14: Update interview
-        interview.add_answer(saved_answer.id)
+        # Step 14: Update interview (no longer tracking answer_ids array)
         await self.interview_repo.update(interview)
 
-        # Step 15: Check if more questions
-        has_more = interview.has_more_questions()
+        # Step 15: Check if more questions using junction table count
+        total_questions = await self.interview_repo.count_interview_questions(interview.id)
+        has_more = interview.current_question_index < (total_questions - 1)
 
         logger.info(
             f"Answer processed: score={evaluation.final_score:.1f}, "
