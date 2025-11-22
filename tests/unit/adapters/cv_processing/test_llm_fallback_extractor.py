@@ -11,7 +11,6 @@ from src.adapters.cv_processing.llm_fallback_extractor import (
     LLMFallbackExtractor,
     NoOpLLMFallbackExtractor,
 )
-from src.domain.models.cv_analysis import ExtractedSkill
 
 
 class TestNoOpLLMFallbackExtractor:
@@ -105,9 +104,10 @@ class TestLLMFallbackExtractor:
 
         skills = result["skills"]
         assert len(skills) == 2
-        assert isinstance(skills[0], ExtractedSkill)
-        assert skills[0].skill == "Python"
-        assert skills[1].skill == "Docker"
+        # LLM fallback extractor returns dicts, not ExtractedSkill objects
+        assert isinstance(skills[0], dict)
+        assert skills[0]["skill"] == "Python"
+        assert skills[1]["skill"] == "Docker"
 
     @pytest.mark.asyncio
     async def test_fill_gaps_generate_summary(

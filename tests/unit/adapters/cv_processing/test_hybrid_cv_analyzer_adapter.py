@@ -15,7 +15,7 @@ from src.adapters.cv_processing.hybrid_cv_analyzer_adapter import (
 from src.adapters.cv_processing.llm_fallback_extractor import (
     LLMFallbackExtractorProtocol,
 )
-from src.domain.models.cv_analysis import ExtractedSkill
+from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 
 
 class StubRuleExtractor:
@@ -68,7 +68,7 @@ def build_ner_response(overall: float = 0.9) -> dict[str, Any]:
         "companies": ["Example Corp"],
         "locations": ["San Francisco"],
         "dates": ["2020"],
-        "skills": [ExtractedSkill(skill="Python", category="programming")],
+        "skills": [{"skill": "Python", "category": "programming"}],  # Return dict instead of ExtractedSkill
         "experience_years": 5.0,
         "confidence": {
             "fields": {

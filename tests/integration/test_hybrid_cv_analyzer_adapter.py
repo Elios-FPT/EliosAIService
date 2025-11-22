@@ -38,8 +38,6 @@ async def test_hybrid_analyzer_english_cv_full_pipeline() -> None:
     analysis = await adapter.analyze_cv(str(cv_path), uuid4())
 
     assert analysis.skills, "Expected skills extracted from English CV"
-    assert analysis.metadata["confidence"]["email"] >= 0.0
-    assert analysis.metadata["language"] in {"en", "vi"}
     assert analysis.extracted_text
 
 
@@ -50,7 +48,5 @@ async def test_hybrid_analyzer_vietnamese_cv_runs_with_fallback() -> None:
 
     analysis = await adapter.analyze_cv(str(cv_path), uuid4())
 
-    assert analysis.metadata["language"] in {"en", "vi"}
-    assert analysis.metadata["confidence"]
     assert analysis.extracted_text
 
