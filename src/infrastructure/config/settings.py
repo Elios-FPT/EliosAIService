@@ -190,6 +190,10 @@ class Settings(BaseSettings):
     # LangGraph Planning Workflow (Phase 2)
     use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
+    langgraph_checkpointer_pool_size: int = 5  # Connection pool size for AsyncPostgresSaver
+    # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
+    # support pool configuration via API. The checkpointer creates its own internal pool (~5-10 connections).
+    # Total connections: SQLAlchemy (10-30) + AsyncPostgresSaver (~5-10) = ~35-40 connections.
 
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
     use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
