@@ -24,6 +24,7 @@ Elios AI Interview Service delivers intelligent mock interview experiences by an
 - **Real-Time Evaluation**: Multi-dimensional answer scoring with feedback
 - **Voice Support**: Azure Speech-to-Text & Text-to-Speech integration
 - **Comprehensive Reports**: Aggregate metrics, gap progression, LLM recommendations
+- **Prompt Version Control**: Database-driven prompts with version history, A/B testing, and rollback support
 
 **NEW - LangChain/LangGraph Integration** (v0.3.0):
 - **LCEL Chains**: Structured outputs with Pydantic models (12 chains)
@@ -194,6 +195,17 @@ Then visit: **http://localhost:8000/docs**
    ```
 
 4. **Configure environment variables**
+
+   **Prompt Management (Optional)**:
+
+   Enable DB-driven prompts for version control and analytics:
+
+   ```env
+   # Prompt repository (requires PostgreSQL)
+   ENABLE_PROMPT_VERSIONING=true  # Default: true
+   ```
+
+   If disabled, LangChainAdapter falls back to hardcoded PROMPT_REGISTRY.
    ```bash
    cp .env.example .env.local
    ```
