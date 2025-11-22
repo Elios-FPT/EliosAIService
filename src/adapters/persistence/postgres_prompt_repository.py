@@ -459,6 +459,43 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             "last_executed_at": summary.last_executed_at,
         }
 
+    async def list_prompts(
+        self,
+        limit: int,
+        offset: int,
+        is_active: bool | None = None,
+        include_deleted: bool = False,
+    ) -> tuple[list[PromptTemplate], int]:
+        """List prompts with pagination and filters."""
+        # Build base query
+        query = select(PromptTemplateModel)
+        count_query = select(func.count(PromptTemplateModel.id))
+
+        # Apply filters
+        if not include_deleted:
+            query = query.where(PromptTemplateModel.deleted_at.is_(None))
+            count_query = count_query.where(PromptTemplateModel.deleted_at.is_(None))
+
+        if is_active is not None:
+            query = query.where(PromptTemplateModel.is_active == is_active)
+            count_query = count_query.where(PromptTemplateModel.is_active == is_active)
+
+        # Get total count
+        count_result = await self.session.execute(count_query)
+        total_count = count_result.scalar() or 0
+
+        # Apply pagination and ordering
+        query = query.order_by(PromptTemplateModel.created_at.desc()).limit(limit).offset(offset)
+
+        # Execute query
+        result = await self.session.execute(query)
+        db_models = result.scalars().all()
+
+        # Convert to domain models
+        prompts = [PromptTemplateMapper.to_domain(model) for model in db_models]
+
+        return prompts, total_count
+
     # ========== Internal Helpers ==========
 
     def _select_ab_variant(self, prompts: list[PromptTemplateModel]) -> PromptTemplate:

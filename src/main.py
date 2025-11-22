@@ -43,6 +43,9 @@ debug_print("health_routes imported")
 from .adapters.api.rest.interview_routes import router as interview_router
 debug_print("interview_routes imported")
 
+from .adapters.api.rest.prompt_routes import router as prompt_router
+debug_print("prompt_routes imported")
+
 from .adapters.api.websocket.interview_handler import handle_interview_websocket
 debug_print("websocket handler imported")
 
@@ -169,6 +172,9 @@ def create_app() -> FastAPI:
     app.include_router(health_routes.router, tags=["Health"])
     app.include_router(
         interview_router, prefix=settings.api_prefix, tags=["Interviews"]
+    )
+    app.include_router(
+        prompt_router, prefix=settings.api_prefix, tags=["Prompt Management"]
     )
 
     # WebSocket endpoint for real-time interview
