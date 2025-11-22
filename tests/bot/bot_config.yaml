@@ -1,0 +1,47 @@
+# Test Bot Configuration
+# This file contains default configuration for the interview test bot.
+# You can override these values by creating a custom config file and passing it via --config flag.
+
+# CV Analysis Configuration
+cv_analysis:
+  default_proficiency: "intermediate"  # Default proficiency level for extracted skills
+  default_category: "technical"        # Default category for skills
+
+# Experience Years Mapping (based on job title keywords)
+experience_mapping:
+  senior_years: 5       # Years assigned to "senior" titles
+  mid_years: 3          # Years assigned to "mid" or "intermediate" titles
+  junior_years: 1       # Years assigned to "junior" titles
+  default_years: 2      # Default years if title doesn't match any keyword
+
+# Difficulty Level Mapping (based on job title keywords)
+difficulty_mapping:
+  senior_difficulty: "HARD"     # Difficulty for senior-level candidates
+  mid_difficulty: "MEDIUM"      # Difficulty for mid-level candidates
+  default_difficulty: "EASY"    # Default difficulty level
+
+# API Configuration
+api:
+  base_url: "http://localhost:8000"  # API base URL for the interview service
+  timeout_sec: 30.0                   # HTTP client timeout in seconds
+
+# Path Configuration
+paths:
+  output_dir: "reports/"                                      # Output directory for test reports
+  scenarios_dir: "scenarios"                                  # Scenarios directory (relative to tests/bot/)
+  fixtures_dir: "fixtures"                                    # Fixtures directory (relative to tests/bot/)
+  baseline_path: "fixtures/baselines/baseline_metrics.json"  # Baseline metrics file
+
+# Interview Test Configuration
+interview:
+  default_expected_questions: 3      # Default number of questions per interview
+  default_answer_quality: "good"     # Default answer quality (poor, good, excellent)
+  qa_loop_buffer: 10                 # Buffer for additional follow-up questions
+
+# Timeout Configuration (all values in seconds)
+timeouts:
+  question_timeout_sec: 10.0      # Timeout for waiting for next question
+  follow_up_timeout_sec: 20.0     # Timeout for waiting for follow-up question
+  completion_timeout_sec: 30.0    # Timeout for waiting for interview completion
+  evaluation_timeout_sec: 30.0   # Timeout for waiting for answer evaluation
+  interview_timeout_sec: 30.0    # Timeout for entire interview session

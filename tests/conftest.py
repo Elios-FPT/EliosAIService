@@ -1,6 +1,5 @@
 """Pytest configuration and fixtures."""
 
-import os
 from datetime import datetime
 from typing import Any, AsyncGenerator
 from uuid import UUID, uuid4
@@ -15,19 +14,20 @@ from src.domain.models.evaluation import Evaluation
 from src.domain.models.follow_up_question import FollowUpQuestion
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import DifficultyLevel, Question, QuestionType
+from src.infrastructure.config.settings import get_settings
 
 
 @pytest_asyncio.fixture
 async def async_session() -> AsyncGenerator[AsyncSession, None]:
     """Create async database session for integration tests."""
-    # Get database URL from environment
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
+    # Get database URL from settings (handles async driver conversion)
+    settings = get_settings()
+    if not settings.async_database_url:
         pytest.skip("DATABASE_URL not set")
 
     # Create async engine
     engine = create_async_engine(
-        database_url,
+        settings.async_database_url,
         echo=False,
         future=True,
     )

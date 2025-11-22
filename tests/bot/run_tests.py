@@ -15,12 +15,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+from .config import BotConfig, reload_config
 from .report_generator import ReportGenerator
 from .test_runner import TestRunner
 
 # Check for test environment setup
+load_dotenv()
 if os.getenv("ENVIRONMENT", "").lower() != "test":
-    print("⚠️  Warning: ENVIRONMENT is not set to 'test'")
+    print("[WARN] ENVIRONMENT is not set to 'test'")
     print("   The main application server will not load .env.test configuration")
     print("   To fix this:")
     print("   1. Copy .env.test.example to .env.test")
@@ -77,10 +81,19 @@ async def main():
         help="Disable baseline comparison",
     )
 
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to custom bot configuration YAML file",
+    )
+
     args = parser.parse_args()
 
+    # Load config (custom if provided, otherwise default)
+    config = reload_config(args.config) if args.config else BotConfig.load()
+
     # Determine scenarios file(s)
-    scenarios_dir = Path(__file__).parent / "scenarios"
+    scenarios_dir = Path(__file__).parent / config.paths.scenarios_dir
     scenarios_files = []
 
     if args.scenario:
@@ -100,8 +113,12 @@ async def main():
 
     logger.info(f"Running scenarios from {len(scenarios_files)} file(s)")
 
-    # Create runner
-    runner = TestRunner(base_url=args.base_url, output_dir=args.output)
+    # Create runner (CLI args override config values)
+    runner = TestRunner(
+        base_url=args.base_url if args.base_url != parser.get_default("base_url") else None,
+        output_dir=args.output if args.output != parser.get_default("output") else None,
+        config=config,
+    )
 
     # Run tests
     all_results = []

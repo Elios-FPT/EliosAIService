@@ -356,7 +356,8 @@ class Container:
         else:
             # TODO: Implement real analytics service
             # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
-            # return AnalyticsAdapter(database_url=self.settings.database_url)
+            # IMPORTANT: Use async_database_url, not database_url for async operations
+            # return AnalyticsAdapter(database_url=self.settings.async_database_url)
             raise NotImplementedError("Real analytics adapter not yet implemented")
 
     def _create_langchain_adapter(self) -> LangChainAdapter:

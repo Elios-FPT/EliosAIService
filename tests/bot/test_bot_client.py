@@ -317,6 +317,136 @@ class InterviewTestBot:
         self._track_error(message["code"], message["message"])
         return message
 
+    async def wait_for_next_question(
+        self,
+        timeout: float | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Wait for any question type (regular question or follow-up) or completion.
+
+        This method accepts 'question', 'follow_up_question', and 'interview_complete'
+        message types, making it suitable for QA loops that need to handle the full
+        interview flow without cascading timeouts.
+
+        Args:
+            timeout: Timeout in seconds (defaults to self.timeout)
+
+        Returns:
+            Tuple of (message_type, message_dict) where:
+            - message_type is "question", "follow_up", or "complete"
+            - message_dict is None if message_type is "complete"
+
+        Raises:
+            TimeoutError: If timeout exceeded
+            ValueError: If message is not question, follow-up, or completion
+        """
+        timeout = timeout or self.timeout
+        start = datetime.utcnow()
+
+        try:
+            # Wait for message from queue
+            message = await asyncio.wait_for(
+                self._message_queue.get(), timeout=timeout
+            )
+
+            msg_type = message.get("type")
+
+            # Accept question types
+            if msg_type == "question":
+                self.questions_received += 1
+                self.current_question_id = UUID(message["question_id"])
+                self.current_question_text = message["text"]
+
+                logger.info(
+                    f"Received question #{self.questions_received - 1}/"
+                    f"{message.get('total_questions', '?')}: {message['text'][:50]}..."
+                )
+
+                # Track latency
+                latency = (datetime.utcnow() - start).total_seconds() * 1000
+                self._track_metric("latency", "wait_question", latency)
+
+                return "question", message
+
+            elif msg_type == "follow_up_question":
+                self.follow_ups_received += 1
+                self.current_question_id = UUID(message["question_id"])
+                self.current_question_text = message["text"]
+
+                logger.info(
+                    f"Received follow-up #{self.follow_ups_received}: "
+                    f"{message['text'][:50]}..."
+                )
+
+                # Track latency
+                latency = (datetime.utcnow() - start).total_seconds() * 1000
+                self._track_metric("latency", "wait_follow_up", latency)
+
+                return "follow_up", message
+
+            elif msg_type == "interview_complete":
+                logger.info("Interview completed")
+
+                # Track latency
+                latency = (datetime.utcnow() - start).total_seconds() * 1000
+                self._track_metric("latency", "wait_completion", latency)
+
+                return "complete", message
+
+            else:
+                raise ValueError(
+                    f"Expected 'question', 'follow_up_question', or 'interview_complete', "
+                    f"got '{msg_type}'"
+                )
+
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Timeout waiting for next question (waited {timeout}s)"
+            )
+
+    async def _wait_for_message_types(
+        self,
+        msg_types: list[str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        """Wait for any of multiple message types from queue.
+
+        Args:
+            msg_types: List of acceptable message types
+            timeout: Timeout in seconds
+
+        Returns:
+            Message dict
+
+        Raises:
+            TimeoutError: If timeout exceeded
+            ValueError: If message type not in expected types
+        """
+        start = datetime.utcnow()
+
+        try:
+            # Wait for message from queue
+            message = await asyncio.wait_for(
+                self._message_queue.get(), timeout=timeout
+            )
+
+            # Verify type is one of expected
+            msg_type = message.get("type")
+            if msg_type not in msg_types:
+                raise ValueError(
+                    f"Expected message type in {msg_types}, got '{msg_type}'"
+                )
+
+            # Track latency
+            latency = (datetime.utcnow() - start).total_seconds() * 1000
+            self._track_metric("latency", f"wait_any_{msg_type}", latency)
+
+            return message
+
+        except asyncio.TimeoutError:
+            raise TimeoutError(
+                f"Timeout waiting for any of {msg_types} (waited {timeout}s)"
+            )
+
     async def _wait_for_message_type(
         self,
         msg_type: str,
