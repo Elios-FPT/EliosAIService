@@ -199,7 +199,7 @@ class Container:
         """
         return PostgreSQLFollowUpQuestionRepository(session)
 
-    def contcandidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
+    def candidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
         """Get candidate repository port implementation.
 
         Args:

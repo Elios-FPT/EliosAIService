@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 from openai import AsyncOpenAI
 
-from ...domain.models.cv_analysis import ExtractedSkill
+# ExtractedSkill no longer needed - using dict format for skills
 from ...infrastructure.config import Settings
 
 
@@ -104,7 +104,7 @@ class LLMFallbackExtractor(LLMFallbackExtractorProtocol):
             merged_results["emails"] = [llm_results["email"]]
         if not merged_results.get("skills") and llm_results.get("skills"):
             merged_results["skills"] = [
-                ExtractedSkill(skill=s, category="technical")
+                {"skill": s, "category": "technical"}
                 for s in llm_results.get("skills", [])
             ]
 

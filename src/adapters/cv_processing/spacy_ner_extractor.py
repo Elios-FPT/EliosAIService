@@ -11,7 +11,7 @@ from typing import Any
 
 import spacy
 
-from ...domain.models.cv_analysis import ExtractedSkill
+# ExtractedSkill no longer needed - using dict format for skills
 from .confidence_scorer import ConfidenceScorer
 from .skill_matcher import SkillMatcher
 
@@ -73,7 +73,7 @@ class SpacyNERExtractor:
                 "companies": list[str],
                 "locations": list[str],
                 "dates": list[str],  # Supplements Phase 1 regex
-                "skills": list[ExtractedSkill],
+                "skills": list[dict[str, str]],
                 "experience_years": float | None,
                 "confidence": dict[str, float]
             }
@@ -195,14 +195,14 @@ class SpacyNERExtractor:
             "dates": dates,
         }
 
-    def _extract_skills(self, doc: spacy.tokens.Doc) -> list[ExtractedSkill]:
+    def _extract_skills(self, doc: spacy.tokens.Doc) -> list[dict[str, str]]:
         """Extract skills using PhraseMatcher.
 
         Args:
             doc: Processed spaCy document
 
         Returns:
-            List of ExtractedSkill objects
+            List of skill dicts with "skill" and "category" keys
         """
         return self.skill_matcher.match_skills(doc, self.nlp_en)
 

@@ -11,7 +11,8 @@ import pdfplumber
 from docx import Document
 
 from ...domain.models.candidate import Candidate
-from ...domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from ...domain.models.cv_analysis import CVAnalysis
+from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
 from .confidence_scorer import ConfidenceScorer
 from .llm_fallback_extractor import (
@@ -198,19 +199,29 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         cv_file_path: str,
         candidate_id: UUID,
     ) -> CVAnalysis:
-        skills = self._ensure_skill_objects(merged_results.get("skills", []))
+        from uuid import uuid4
+
+        # Create CV analysis ID first
+        cv_analysis_id = uuid4()
+
+        # Create CVSkill entities with the analysis ID
+        experience_years = merged_results.get("experience_years", 0.0) or 0.0
+        skills = self._ensure_skill_objects(
+            merged_results.get("skills", []),
+            cv_analysis_id,
+            experience_years,
+        )
 
         return CVAnalysis(
+            id=cv_analysis_id,
             candidate_id=candidate_id,
             cv_file_path=cv_file_path,
             extracted_text=cv_text,
             skills=skills,
-            work_experience_years=merged_results.get("experience_years"),
+            work_experience_years=experience_years,
             education_level=merged_results.get("education_level"),
             suggested_topics=merged_results.get("topics", []),
-            suggested_difficulty=self._calculate_difficulty(
-                merged_results.get("experience_years"),
-            ),
+            suggested_difficulty=self._calculate_difficulty(experience_years),
             embedding=None,
             summary=merged_results.get("summary"),
             metadata={
@@ -226,20 +237,42 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
 
     def _ensure_skill_objects(
         self,
-        skills: list[ExtractedSkill] | list[Any],
-    ) -> list[ExtractedSkill]:
+        skills: list[CVSkill] | list[Any],
+        cv_analysis_id: UUID,
+        experience_years: float,
+    ) -> list[CVSkill]:
+        from uuid import uuid4
+
         if not skills:
             return []
-        if isinstance(skills[0], ExtractedSkill):
+
+        # If already CVSkill objects, return them
+        if isinstance(skills[0], CVSkill):
             return skills
+
+        # Infer proficiency level from experience years
+        def infer_proficiency(exp_years: float) -> ProficiencyLevel:
+            if exp_years >= 7:
+                return ProficiencyLevel.EXPERT
+            elif exp_years >= 4:
+                return ProficiencyLevel.ADVANCED
+            elif exp_years >= 2:
+                return ProficiencyLevel.INTERMEDIATE
+            else:
+                return ProficiencyLevel.BEGINNER
+
+        # Convert to CVSkill entities
         return [
-            ExtractedSkill(
-                skill=skill.get("skill") if isinstance(skill, dict) else str(skill),
-                category=skill.get("category", "technical")
-                if isinstance(skill, dict)
-                else "technical",
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_analysis_id,
+                skill_name=skill.get("skill") if isinstance(skill, dict) else str(skill),
+                proficiency_level=infer_proficiency(experience_years),
+                years_of_experience=experience_years,
+                is_primary=(idx < 3),  # First 3 skills are primary
+                created_at=datetime.now(),
             )
-            for skill in skills
+            for idx, skill in enumerate(skills)
         ]
 
     def _calculate_difficulty(self, experience_years: float | None) -> str:
