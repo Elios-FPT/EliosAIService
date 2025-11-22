@@ -229,7 +229,6 @@ class TestPromptTemplateResponse:
             frequency_penalty=Decimal("0.0"),
             presence_penalty=Decimal("0.0"),
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
         )
 
         response = PromptTemplateResponse.from_domain(prompt)
@@ -284,7 +283,6 @@ class TestPromptTemplateResponse:
             frequency_penalty=Decimal("0.0"),
             presence_penalty=Decimal("0.0"),
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
         )
 
         response = PromptTemplateResponse.from_domain(prompt)

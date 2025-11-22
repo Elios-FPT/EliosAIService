@@ -522,7 +522,6 @@ class PromptTemplateMapper:
             template_json_legacy=dict(db_model.template_json_legacy) if db_model.template_json_legacy else None,
             # Timestamps
             created_at=db_model.created_at,
-            updated_at=db_model.updated_at,
         )
 
     @staticmethod
@@ -561,7 +560,6 @@ class PromptTemplateMapper:
             template_json_legacy=domain_model.template_json_legacy,
             # Timestamps
             created_at=domain_model.created_at,
-            updated_at=domain_model.updated_at,
         )
 
     @staticmethod
@@ -591,7 +589,6 @@ class PromptTemplateMapper:
         db_model.frequency_penalty = float(domain_model.frequency_penalty)
         db_model.presence_penalty = float(domain_model.presence_penalty)
         db_model.deleted_at = domain_model.deleted_at
-        db_model.updated_at = domain_model.updated_at
 
 
 class PromptMetadataChangeMapper:

@@ -524,7 +524,6 @@ class PromptTemplateModel(Base):
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     # Relationships
     executions: Mapped[list["PromptExecutionModel"]] = relationship(
