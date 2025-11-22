@@ -254,22 +254,48 @@ async def plan_interview(
                 detail=f"CV analysis {request.cv_analysis_id} not found",
             )
 
-        # Execute planning use case
-        use_case = PlanInterviewUseCase(
-            llm=container.llm_port(),
-            # vector_search=container.vector_search_port(),
-            cv_analysis_repo=cv_analysis_repo,
-            interview_repo=container.interview_repository_port(session),
-            question_repo=container.question_repository_port(session),
-        )
+        # Get settings to check feature flag
+        settings = get_settings()
 
-        interview = await use_case.execute(
-            cv_analysis_id=request.cv_analysis_id,
-            candidate_id=request.candidate_id,
-        )
+        # Route handler decides between workflow and use case based on feature flag
+        if settings.use_langgraph_planning:
+            # Use LangGraph workflow (Phase 2)
+            from ....application.workflows.planning_workflow import PlanningWorkflow
+
+            # Get checkpointer (async)
+            checkpointer = await container.get_checkpointer()
+
+            # Create workflow with dependencies from container
+            workflow = PlanningWorkflow(
+                checkpointer=checkpointer,
+                llm_port=container.llm_port(),
+                cv_repo=cv_analysis_repo,
+                question_repo=container.question_repository_port(session),
+                interview_repo=container.interview_repository_port(session),
+                vector_search=container.vector_search_port(),
+            )
+
+            # Execute workflow
+            result = await workflow.execute(
+                cv_analysis_id=request.cv_analysis_id,
+                candidate_id=request.candidate_id,
+            )
+            interview = result["interview"]
+        else:
+            # Use case (manual implementation)
+            use_case = PlanInterviewUseCase(
+                llm=container.llm_port(),
+                cv_analysis_repo=cv_analysis_repo,
+                interview_repo=container.interview_repository_port(session),
+                question_repo=container.question_repository_port(session),
+            )
+
+            interview = await use_case.execute(
+                cv_analysis_id=request.cv_analysis_id,
+                candidate_id=request.candidate_id,
+            )
 
         # Construct WebSocket URL for interview session
-        settings = get_settings()
         ws_url = f"{settings.ws_base_url}/ws/interviews/{interview.id}"
 
         return PlanningStatusResponse(
