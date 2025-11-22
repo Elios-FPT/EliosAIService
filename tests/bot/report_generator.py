@@ -226,8 +226,8 @@ Scenarios:
 """
 
         for s in results.scenarios:
-            status_icon = {"passed": "✓", "failed": "✗", "skipped": "-"}.get(
-                s.status, "?"
+            status_icon = {"passed": "[PASS]", "failed": "[FAIL]", "skipped": "[SKIP]"}.get(
+                s.status, "[?]"
             )
             summary += f"{status_icon} {s.id}: {s.status} ({s.duration_sec:.1f}s)\n"
 

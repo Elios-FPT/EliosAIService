@@ -16,6 +16,7 @@ import yaml
 
 from .answer_generator import AnswerGenerator
 from .assertion_validator import AssertionValidator
+from .config import BotConfig, get_config
 from .metrics_collector import MetricsCollector
 from .test_bot_client import InterviewTestBot
 
@@ -57,21 +58,27 @@ class TestRunner:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8000",
-        output_dir: str = "reports/",
+        base_url: str | None = None,
+        output_dir: str | None = None,
+        config: BotConfig | None = None,
     ):
         """Initialize test runner.
 
         Args:
-            base_url: API base URL
-            output_dir: Report output directory
+            base_url: API base URL (overrides config if provided)
+            output_dir: Report output directory (overrides config if provided)
+            config: Bot configuration (uses global config if not provided)
         """
-        self.base_url = base_url
-        self.ws_base_url = base_url.replace("http://", "ws://").replace(
+        self.config = config or get_config()
+
+        # Use explicit params if provided, otherwise use config
+        self.base_url = base_url or self.config.api.base_url
+        self.output_dir = Path(output_dir or self.config.paths.output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.ws_base_url = self.base_url.replace("http://", "ws://").replace(
             "https://", "wss://"
         )
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.answer_generator = AnswerGenerator()
         self.metrics_collector = MetricsCollector()
@@ -100,7 +107,9 @@ class TestRunner:
         scenarios = data.get("scenarios", [])
         logger.info(f"Loaded {len(scenarios)} scenarios")
 
-        self.http_client = httpx.AsyncClient(base_url=self.base_url, timeout=30.0)
+        self.http_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.config.api.timeout_sec
+        )
 
         start_time = time.time()
         results = []
@@ -252,12 +261,12 @@ class TestRunner:
         settings = get_settings()
 
         # Create DB session
-        engine = create_async_engine(settings.database_url, echo=False)
+        engine = create_async_engine(settings.async_database_url, echo=False)
         async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         try:
             async with async_session() as session:
-                db_helper = DatabaseHelper(session)
+                db_helper = DatabaseHelper(session, self.config)
 
                 # Insert pre-defined data
                 candidate_id, interview_id, question_ids = await db_helper.insert_mock_interview_data(
@@ -322,7 +331,9 @@ class TestRunner:
             "/api/interviews/plan",
             json={
                 "candidate_id": candidate_id,
-                "question_count": config.get("expected_questions", 3),
+                "question_count": config.get(
+                    "expected_questions", self.config.interview.default_expected_questions
+                ),
             },
         )
         plan_resp.raise_for_status()
@@ -362,7 +373,7 @@ class TestRunner:
         # Create bot
         bot = InterviewTestBot(
             interview_id=interview_id,
-            timeout=config.get("timeout", 30.0),
+            timeout=config.get("timeout", self.config.timeouts.interview_timeout_sec),
             enable_metrics=True,
         )
 
@@ -371,31 +382,36 @@ class TestRunner:
             await bot.connect(ws_url)
 
             # Run QA loop
-            answer_quality = config.get("answer_quality", "good")
-            expected_questions = config.get("expected_questions", 3)
+            answer_quality = config.get(
+                "answer_quality", self.config.interview.default_answer_quality
+            )
+            expected_questions = config.get(
+                "expected_questions", self.config.interview.default_expected_questions
+            )
 
-            for i in range(expected_questions + 10):  # +10 buffer for follow-ups
+            for i in range(
+                expected_questions + self.config.interview.qa_loop_buffer
+            ):  # Buffer for follow-ups
                 try:
-                    # Wait for question or follow-up
+                    # Wait for next question (regular, follow-up, or completion)
                     message = None
                     message_type = None
 
                     try:
-                        message = await bot.wait_for_question(timeout=5.0)
-                        message_type = "question"
+                        message_type, message = await bot.wait_for_next_question(
+                            timeout=self.config.timeouts.question_timeout_sec
+                        )
+
+                        # Check if interview completed
+                        if message_type == "complete":
+                            context["summary"] = message
+                            logger.info("Interview completed")
+                            break
+
                     except TimeoutError:
-                        try:
-                            message = await bot.wait_for_follow_up(timeout=5.0)
-                            message_type = "follow_up"
-                        except TimeoutError:
-                            try:
-                                completion = await bot.wait_for_completion(timeout=5.0)
-                                context["summary"] = completion
-                                logger.info("Interview completed")
-                                break
-                            except TimeoutError:
-                                logger.warning(f"No message after {i} iterations")
-                                break
+                        # Timeout without completion message - interview may have ended
+                        logger.warning(f"Timeout after {i} iterations - interview may be incomplete")
+                        break
 
                     if not message:
                         break
@@ -403,7 +419,7 @@ class TestRunner:
                     # Store question/follow-up
                     if message_type == "question":
                         context["questions"].append(message)
-                    else:
+                    elif message_type == "follow_up":
                         context["follow_ups"].append(message)
 
                     # Generate answer
@@ -420,7 +436,9 @@ class TestRunner:
                     })
 
                     # Wait for evaluation
-                    evaluation = await bot.wait_for_evaluation(timeout=10.0)
+                    evaluation = await bot.wait_for_evaluation(
+                        timeout=self.config.timeouts.evaluation_timeout_sec
+                    )
                     context["evaluations"].append(evaluation)
 
                 except Exception as e:
@@ -469,14 +487,14 @@ class TestRunner:
 
                 if result:
                     passed += 1
-                    logger.info(f"✓ {message}")
+                    logger.info(f"[PASS] {message}")
                 else:
                     failed += 1
-                    logger.error(f"✗ {message} (expression: {expression})")
+                    logger.error(f"[FAIL] {message} (expression: {expression})")
 
             except Exception as e:
                 failed += 1
-                logger.error(f"✗ {message} (error: {e})")
+                logger.error(f"[FAIL] {message} (error: {e})")
 
         return passed, failed
 
@@ -511,9 +529,7 @@ class TestRunner:
         Returns:
             Comparison dict
         """
-        baseline_path = (
-            Path(__file__).parent / "fixtures" / "baselines" / "baseline_metrics.json"
-        )
+        baseline_path = Path(__file__).parent / self.config.paths.baseline_path
 
         if not baseline_path.exists():
             logger.warning(f"Baseline not found: {baseline_path}")
