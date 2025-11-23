@@ -100,16 +100,96 @@ class BaseWorkflow(ABC):
         Example:
             >>> state = await workflow.get_workflow_state("planning_abc123")
             >>> if state:
-            ...     print(f"Resuming from checkpoint: {state['checkpoint_id']}")
+            ...     print(f"Resuming from checkpoint: {state.get('checkpoint_thread_id')}")
         """
         try:
+            # Use config dict format (required by LangGraph checkpointer API)
+            config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+
             # Get latest checkpoint for thread
-            checkpoint = await self.checkpointer.aget(thread_id)
-            if checkpoint:
-                return checkpoint.get("state")
+            # checkpointer.aget() returns a StateSnapshot or None
+            checkpoint = await self.checkpointer.aget(config)
+
+            if checkpoint is None:
+                logger.debug(f"No checkpoint found for thread {thread_id}")
+                return None
+
+            # Handle StateSnapshot object or dict
+            # StateSnapshot from LangGraph has the state accessible via .values property
+            # Note: If checkpoint.values() returns dict_values, the checkpoint itself might be dict-like
+            # Try multiple ways to access the state
+            state = None
+
+            # Method 1: Check if checkpoint has a direct 'state' attribute
+            if hasattr(checkpoint, "state"):
+                state_attr = getattr(checkpoint, "state")
+                if isinstance(state_attr, dict):
+                    return state_attr
+
+            # Method 2: Try accessing .values as a property (not calling it)
+            if hasattr(checkpoint, "values"):
+                values_attr = getattr(checkpoint, "values")
+                # Check if it's a property (not callable) or if calling it gives us what we need
+                if not callable(values_attr):
+                    # It's a property - use it directly
+                    if isinstance(values_attr, dict):
+                        return values_attr
+                else:
+                    # It's callable - try calling it, but handle dict_values return
+                    try:
+                        if hasattr(values_attr, "__await__"):
+                            state_result = await values_attr()
+                        else:
+                            state_result = values_attr()
+
+                        # If it returns dict_values, the checkpoint itself might be the state dict
+                        if isinstance(state_result, dict):
+                            return state_result
+                        # If it's dict_values, try accessing checkpoint as dict
+                        elif type(state_result).__name__ == "dict_values":
+                            # The checkpoint might be dict-like - try to access it as dict
+                            if isinstance(checkpoint, dict):
+                                return checkpoint
+                            # Or try to get state from checkpoint attributes
+                            if hasattr(checkpoint, "state"):
+                                state_attr = getattr(checkpoint, "state")
+                                if isinstance(state_attr, dict):
+                                    return state_attr
+                    except Exception as e:
+                        logger.debug(f"Error calling checkpoint.values(): {e}")
+
+            # Method 3: If checkpoint is itself a dict, return it
+            if isinstance(checkpoint, dict):
+                # Check if it has a 'state' key
+                if "state" in checkpoint:
+                    return checkpoint["state"]
+                # Otherwise, the checkpoint itself might be the state
+                return checkpoint
+
+            # Method 4: Try to convert StateSnapshot to dict if it's dict-like
+            if hasattr(checkpoint, "__dict__"):
+                checkpoint_dict = checkpoint.__dict__
+                if "state" in checkpoint_dict and isinstance(checkpoint_dict["state"], dict):
+                    return checkpoint_dict["state"]
+                # Check if the checkpoint dict itself looks like state
+                if isinstance(checkpoint_dict, dict) and "interview_id" in checkpoint_dict:
+                    return checkpoint_dict
+
+            # If we get here, we couldn't extract the state
+            logger.warning(
+                f"Could not extract state from checkpoint. "
+                f"Type: {type(checkpoint)}, "
+                f"Has values: {hasattr(checkpoint, 'values')}, "
+                f"Has state: {hasattr(checkpoint, 'state')}, "
+                f"Is dict: {isinstance(checkpoint, dict)}"
+            )
             return None
+
         except Exception as e:
-            logger.error(f"Failed to retrieve workflow state: {self.format_error(e)}")
+            logger.error(
+                f"Failed to retrieve workflow state for thread {thread_id}: {self.format_error(e)}",
+                exc_info=True
+            )
             return None
 
     def should_retry(self, error: Exception, attempt: int, max_attempts: int = 3) -> bool:
