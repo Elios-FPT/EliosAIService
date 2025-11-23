@@ -131,6 +131,27 @@ async def lifespan(app: FastAPI):
     debug_print("init_db() completed")
     logger.info("Database connection established")
 
+    # Optionally initialize LangGraph checkpointer at startup
+    # This prevents first-request timeouts when the feature is enabled
+    if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
+        debug_print("Initializing LangGraph checkpointer at startup...")
+        logger.info("Initializing LangGraph checkpointer at startup (to prevent first-request timeout)...")
+        try:
+            from .infrastructure.dependency_injection import get_container
+            container = get_container()
+            checkpointer = await container.get_checkpointer()
+            logger.info("LangGraph checkpointer initialized successfully at startup")
+            debug_print("Checkpointer initialized at startup")
+        except Exception as e:
+            # Log warning but don't fail startup - checkpointer will be created lazily on first request
+            logger.warning(
+                f"Failed to initialize LangGraph checkpointer at startup: {e}. "
+                "Checkpointer will be created lazily on first request. "
+                "This may cause a delay on the first request that uses the checkpointer.",
+                exc_info=True
+            )
+            debug_print(f"Checkpointer initialization failed at startup: {e}")
+
     debug_print("lifespan startup complete, yielding...")
     yield
 

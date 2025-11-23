@@ -486,9 +486,10 @@ class Container:
             # Note: Pool size cannot be configured via AsyncPostgresSaver API.
             # The langgraph_checkpointer_pool_size setting is reserved for future use.
             conn_string = self.settings.async_database_url
+            timeout = self.settings.langgraph_checkpointer_setup_timeout
 
-            # Create and setup checkpointer
-            self._checkpointer = await create_checkpointer(conn_string)
+            # Create and setup checkpointer with configurable timeout
+            self._checkpointer = await create_checkpointer(conn_string, timeout=timeout)
 
         return self._checkpointer
 

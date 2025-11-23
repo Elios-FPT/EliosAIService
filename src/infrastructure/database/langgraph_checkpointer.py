@@ -112,7 +112,7 @@ def _convert_to_standard_postgres_url(sqlalchemy_url: str) -> str:
     return url
 
 
-async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
+async def create_checkpointer(conn_string: str, timeout: float = 20.0) -> AsyncPostgresSaver:
     """Create and initialize AsyncPostgresSaver for LangGraph workflows.
 
     This checkpointer stores workflow state in a PostgreSQL 'checkpoints' table,
@@ -124,11 +124,14 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
             standard PostgreSQL format (postgresql://) for AsyncPostgresSaver.
             Note: AsyncPostgresSaver creates its own connection pool internally.
             Pool size cannot be configured via connection string parameters.
+        timeout: Timeout in seconds for checkpointer setup operation (default: 20.0).
+            Increase this value if you experience timeouts due to slow network or database connectivity.
 
     Returns:
         Initialized AsyncPostgresSaver instance
 
     Raises:
+        RuntimeError: If checkpointer setup times out
         Exception: If checkpoint table creation fails
 
     Note:
@@ -145,7 +148,7 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
     Example:
         >>> from src.infrastructure.config.settings import get_settings
         >>> settings = get_settings()
-        >>> checkpointer = await create_checkpointer(settings.async_database_url)
+        >>> checkpointer = await create_checkpointer(settings.async_database_url, timeout=20.0)
         >>> # Use with LangGraph: app.compile(checkpointer=checkpointer)
     """
     # Lazy import to avoid hanging during module import
@@ -159,6 +162,7 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
     # Log connection string (mask password for security)
     masked_conn_string = re.sub(r':([^:@]+)@', ':***@', standard_conn_string)
     logger.info(f"Creating AsyncPostgresSaver checkpointer with connection: {masked_conn_string}")
+    logger.info(f"Setup timeout: {timeout} seconds")
     logger.info("Note: Using separate connection pool from SQLAlchemy (psycopg vs asyncpg)")
 
     try:
@@ -181,8 +185,8 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
         # Initialize (creates 'checkpoints' table if not exists)
         # This is idempotent - safe to call multiple times
         # Note: setup() may take time on first run if table doesn't exist
-        logger.debug("Calling checkpointer.setup()...")
-        await asyncio.wait_for(checkpointer.setup(), timeout=60.0)
+        logger.debug(f"Calling checkpointer.setup() with timeout={timeout}s...")
+        await asyncio.wait_for(checkpointer.setup(), timeout=timeout)
         logger.debug("checkpointer.setup() completed")
 
         logger.info("Checkpointer setup completed successfully")
@@ -196,19 +200,24 @@ async def create_checkpointer(conn_string: str) -> AsyncPostgresSaver:
         return wrapper
     except asyncio.TimeoutError as e:
         logger.error(
-            f"Timeout while creating checkpointer after 60 seconds. "
+            f"Timeout while creating checkpointer after {timeout} seconds. "
             f"Connection string: {masked_conn_string}. "
-            f"This may indicate database connectivity issues or slow network."
+            f"This may indicate database connectivity issues, slow network, "
+            f"or database server not responding. "
+            f"Consider increasing langgraph_checkpointer_setup_timeout setting."
         )
         raise RuntimeError(
-            "Checkpointer creation timed out after 60 seconds. "
+            f"Checkpointer creation timed out after {timeout} seconds. "
             "Possible causes: database connectivity issues, slow network, "
-            "or database server not responding. Check database connectivity and connection string."
+            "or database server not responding. "
+            "Check database connectivity and connection string. "
+            f"Consider increasing langgraph_checkpointer_setup_timeout setting (current: {timeout}s)."
         ) from e
     except Exception as e:
         logger.error(
             f"Error creating checkpointer: {e}. "
-            f"Connection string: {masked_conn_string}",
+            f"Connection string: {masked_conn_string}. "
+            f"Timeout was set to {timeout}s.",
             exc_info=True
         )
         raise
