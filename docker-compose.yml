@@ -14,6 +14,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8010
       API_PREFIX: /api
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
       DATABASE_URL: "postgresql://neondb_owner:npg_nKoh8mjGQ9gS@ep-bold-snow-a1y91g0b.ap-southeast-1.aws.neon.tech/AIService?sslmode=require&channel_binding=require"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
