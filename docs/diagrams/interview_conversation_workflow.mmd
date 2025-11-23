@@ -1,0 +1,31 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	route_entry(route_entry)
+	start_session(start_session)
+	evaluate_answer(evaluate_answer)
+	update_memory(update_memory)
+	decide_followup(decide_followup)
+	generate_followup(generate_followup)
+	next_or_complete(next_or_complete)
+	complete(complete)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> route_entry;
+	decide_followup -.-> generate_followup;
+	decide_followup -.-> next_or_complete;
+	evaluate_answer --> update_memory;
+	next_or_complete -. &nbsp;wait_for_answer&nbsp; .-> __end__;
+	next_or_complete -.-> complete;
+	route_entry -.-> evaluate_answer;
+	route_entry -.-> start_session;
+	update_memory --> decide_followup;
+	complete --> __end__;
+	generate_followup --> __end__;
+	start_session --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
