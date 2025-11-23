@@ -298,8 +298,8 @@ class AnswerModel(Base):
         index=True,
     )
 
-    # Voice metrics (will be stored in Evaluation entity in future)
-    voice_metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Note: voice_metrics is not stored in database yet (will be stored in Evaluation entity in future)
+    # It exists in the domain model but is handled by the mapper (set to None when reading from DB)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
