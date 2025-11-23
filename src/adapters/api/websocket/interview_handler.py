@@ -4,6 +4,7 @@ import asyncio
 import base64
 import logging
 from asyncio import Queue
+from typing import Any
 from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -17,8 +18,8 @@ from .session_orchestrator import InterviewSessionOrchestrator
 logger = logging.getLogger(__name__)
 
 # Per-session state for streaming audio
-audio_streams: dict[UUID, Queue[bytes]] = {}
-transcription_tasks: dict[UUID, asyncio.Task] = {}
+audio_streams: dict[UUID, Queue[bytes | None]] = {}
+transcription_tasks: dict[UUID, asyncio.Task[Any]] = {}
 session_orchestrators: dict[UUID, InterviewSessionOrchestrator] = {}
 
 # Per-session state for workflow (thread IDs)
@@ -28,7 +29,7 @@ workflow_threads: dict[UUID, str] = {}
 async def handle_interview_websocket(
     websocket: WebSocket,
     interview_id: UUID,
-):
+) -> None:
     """WebSocket handler for interview session (orchestrator-based or workflow-based).
 
     Uses feature flag to determine handler:
@@ -89,7 +90,7 @@ async def _handle_with_workflow(
     websocket: WebSocket,
     interview_id: UUID,
     container: Container,
-):
+) -> None:
     """Handle interview with LangGraph workflow (NEW).
 
     Args:
@@ -118,14 +119,26 @@ async def _handle_with_workflow(
         thread_id = result.get("thread_id")
         workflow_threads[interview_id] = thread_id
 
-        # Send first question
-        await manager.send_message(
-            interview_id,
-            {
-                "type": "question",
-                "question": result.get("question"),
+        # Generate TTS audio for first question
+        question_dict = result.get("question")
+        question_text = question_dict.get("text", "") if question_dict else ""
+        audio_data = await _generate_tts_audio(question_text, container)
+
+        # Format and send first question
+        message = _format_question_message(
+            question_dict=question_dict,
+            question_id=result.get("question_id"),
+            has_more=result.get("has_more"),
+            audio_data=audio_data,
+        )
+        await manager.send_message(interview_id, message)
+
+        logger.info(
+            f"Sent {message['type']}: {result.get('question_id')}",
+            extra={
+                "interview_id": str(interview_id),
                 "question_id": result.get("question_id"),
-                "has_more": result.get("has_more"),
+                "type": message["type"],
             },
         )
 
@@ -146,10 +159,24 @@ async def _handle_with_workflow(
                     is_voice=False,
                 )
 
-                # Send evaluation
-                # Note: Workflow doesn't return evaluation details in process_answer
-                # Evaluation is handled internally, so we skip this for now
-                # TODO: Consider returning evaluation result for client display
+                # Send evaluation if present
+                if "evaluation" in result and result["evaluation"]:
+                    await manager.send_message(
+                        interview_id,
+                        {
+                            "type": "evaluation",
+                            "answer_id": result["evaluation"]["answer_id"],
+                            "score": result["evaluation"]["score"],
+                            "feedback": result["evaluation"]["feedback"],
+                            "strengths": result["evaluation"]["strengths"],
+                            "weaknesses": result["evaluation"]["weaknesses"],
+                            "gaps": result["evaluation"]["gaps"],
+                        },
+                    )
+                    logger.info(
+                        f"Sent evaluation for answer {result['evaluation']['answer_id']}, "
+                        f"score={result['evaluation']['score']:.1f}"
+                    )
 
                 # Check if complete
                 if result.get("complete"):
@@ -167,13 +194,26 @@ async def _handle_with_workflow(
 
                 # Send next question (either follow-up or main question)
                 if result.get("question"):
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "question",
-                            "question": result.get("question"),
+                    question_dict = result.get("question")
+                    question_text = question_dict.get("text", "") if question_dict else ""
+                    audio_data = await _generate_tts_audio(question_text, container)
+
+                    # Format message based on type
+                    message = _format_question_message(
+                        question_dict=question_dict,
+                        question_id=result.get("question_id"),
+                        has_more=result.get("has_more"),
+                        audio_data=audio_data,
+                    )
+
+                    await manager.send_message(interview_id, message)
+
+                    logger.info(
+                        f"Sent {message['type']}: {result.get('question_id')}",
+                        extra={
+                            "interview_id": str(interview_id),
                             "question_id": result.get("question_id"),
-                            "has_more": result.get("has_more"),
+                            "type": message["type"],
                         },
                     )
 
@@ -191,11 +231,104 @@ async def _handle_with_workflow(
                 )
 
 
+def _detect_question_type(question_dict: dict[str, Any]) -> str:
+    """Detect if question is main or follow-up from workflow result.
+
+    Args:
+        question_dict: Question dictionary from workflow state
+
+    Returns:
+        "question" for main questions, "follow_up_question" for follow-ups
+    """
+    # Check for follow-up indicators
+    if question_dict.get("question_type") == "FOLLOW_UP":
+        return "follow_up_question"
+
+    # Check for parent_question_id presence (follow-ups only)
+    if "parent_question_id" in question_dict and question_dict["parent_question_id"]:
+        return "follow_up_question"
+
+    # Check for follow-up metadata fields
+    if "order_in_sequence" in question_dict:
+        return "follow_up_question"
+
+    # Default: main question
+    return "question"
+
+
+def _format_question_message(
+    question_dict: dict[str, Any],
+    question_id: str,
+    has_more: bool,
+    audio_data: str | None,
+) -> dict[str, Any]:
+    """Format question message based on type (main or follow-up).
+
+    Args:
+        question_dict: Question data from workflow
+        question_id: Question ID string
+        has_more: Whether more questions available
+        audio_data: Base64 TTS audio
+
+    Returns:
+        Formatted message dict matching legacy format
+    """
+    msg_type = _detect_question_type(question_dict)
+
+    if msg_type == "follow_up_question":
+        # Follow-up format (matches legacy)
+        return {
+            "type": "follow_up_question",
+            "question_id": question_id,
+            "parent_question_id": question_dict.get("parent_question_id"),
+            "text": question_dict.get("text"),
+            "generated_reason": question_dict.get("generated_reason"),
+            "order_in_sequence": question_dict.get("order_in_sequence"),
+            "audio_data": audio_data,
+        }
+    else:
+        # Main question format (matches legacy)
+        return {
+            "type": "question",
+            "question_id": question_id,
+            "text": question_dict.get("text"),
+            "question_type": question_dict.get("question_type"),
+            "difficulty": question_dict.get("difficulty"),
+            "index": question_dict.get("index", 0),
+            "total": question_dict.get("total", 0),
+            "audio_data": audio_data,
+        }
+
+
+async def _generate_tts_audio(
+    text: str,
+    container: Container,
+) -> str | None:
+    """Generate TTS audio and encode as base64.
+
+    Args:
+        text: Text to synthesize
+        container: DI container for TTS adapter
+
+    Returns:
+        Base64-encoded audio data, or None if generation fails
+    """
+    try:
+        tts = container.text_to_speech_port()
+        audio_bytes = await tts.synthesize_speech(text)
+        audio_data = base64.b64encode(audio_bytes).decode("utf-8")
+        logger.debug(f"Generated TTS audio: {len(audio_bytes)} bytes")
+        return audio_data
+    except Exception as exc:
+        logger.error(f"TTS generation failed: {exc}", exc_info=True)
+        return None  # Non-blocking failure
+
+
 async def _handle_with_orchestrator(
     websocket: WebSocket,
     interview_id: UUID,
     container: Container,
-):
+) -> None:
     """Handle interview with session orchestrator (LEGACY).
 
     Args:
@@ -249,7 +382,7 @@ async def _handle_with_orchestrator(
                 },
             )
 
-def _cleanup_audio_resources(interview_id: UUID):
+def _cleanup_audio_resources(interview_id: UUID) -> None:
     """Clean up audio streaming resources for a session.
 
     Args:
@@ -270,7 +403,7 @@ def _cleanup_audio_resources(interview_id: UUID):
     logger.debug(f"Cleaned up audio resources for interview {interview_id}")
 
 
-def _cleanup_workflow_resources(interview_id: UUID):
+def _cleanup_workflow_resources(interview_id: UUID) -> None:
     """Clean up workflow resources for a session.
 
     Args:
@@ -286,7 +419,7 @@ async def _stream_transcription(
     interview_id: UUID,
     question_id: UUID,
     container: Container,
-):
+) -> None:
     """Background task: consume audio stream and send transcriptions.
 
     Args:
@@ -378,7 +511,7 @@ async def _stream_transcription(
 # Kept for reference during migration period
 
 
-async def handle_audio_chunk(interview_id: UUID, data: dict, container: Container):
+async def handle_audio_chunk(interview_id: UUID, data: dict[str, Any], container: Container) -> None:
     """Handle audio chunk from client with real-time streaming STT.
 
     Implements real-time audio streaming:
