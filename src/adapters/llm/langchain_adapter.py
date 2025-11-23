@@ -705,7 +705,10 @@ Ideal Answer Reference:
                 previous_context += f"{i}. Q: {fu.get('question', '')}\n"
                 previous_context += f"   A: {fu.get('answer', '')[:100]}...\n"
 
-        # Prepare variables
+        # Determine priority concepts (first 2-3 most critical gaps)
+        priority_concepts = ", ".join(missing_concepts[:3]) if missing_concepts else "None"
+
+        # Prepare variables - must match DB template or hardcoded prompt
         variables = {
             "parent_question": parent_question,
             "answer_text": answer_text,
@@ -713,7 +716,8 @@ Ideal Answer Reference:
             "severity": severity,
             "order": order,
             "cumulative_context": cumulative_context,
-            "previous_followups": previous_context,
+            "previous_context": previous_context,
+            "priority_concepts": priority_concepts,
         }
 
         # Create config with metadata
@@ -729,21 +733,66 @@ Ideal Answer Reference:
             result = await chain.ainvoke(variables, config=config)
             metadata = self._extract_response_metadata(result)
 
+            # Extract question text - handle both dict (JSON) and string responses
+            if isinstance(result, dict):
+                question_text = result.get("question_text", "")
+            elif isinstance(result, str):
+                # If plain text response, use it directly
+                question_text = result.strip()
+            else:
+                raise ValueError(f"Unexpected result type: {type(result)}")
+
+            if not question_text:
+                raise ValueError("Empty question text returned from LLM")
+
             # Log execution
             if prompt_template:
                 await self._log_execution(
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
-                    output_text=result["question_text"],
+                    output_text=question_text,
                     start_time=start_time,
                     success=True,
                     model_response_metadata=metadata,
                 )
 
-            return result["question_text"]
+            return question_text
 
         except Exception as exc:
+            # Handle OutputParserException - try to extract plain text
+            from langchain_core.exceptions import OutputParserException
+
+            if isinstance(exc, OutputParserException):
+                # DB template might return plain text instead of JSON
+                # Extract the text from the error message
+                error_msg = str(exc)
+                if "Invalid json output:" in error_msg:
+                    # Extract the plain text after "Invalid json output: "
+                    plain_text = error_msg.split("Invalid json output:", 1)[1].strip()
+                    # Remove "The error happen in:" suffix if present
+                    if "\nThe error happen in:" in plain_text:
+                        plain_text = plain_text.split("\nThe error happen in:")[0].strip()
+
+                    logger.warning(
+                        f"Got plain text instead of JSON from follow-up generation, using it directly: {plain_text[:100]}..."
+                    )
+
+                    # Log as successful with plain text
+                    if prompt_template:
+                        await self._log_execution(
+                            prompt_template=prompt_template,
+                            context=context,
+                            input_variables=variables,
+                            output_text=plain_text,
+                            start_time=start_time,
+                            success=True,
+                            model_response_metadata=None,
+                        )
+
+                    return plain_text
+
+            # Log other exceptions as failures
             if prompt_template:
                 await self._log_execution(
                     prompt_template=prompt_template,

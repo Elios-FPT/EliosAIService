@@ -12,7 +12,7 @@ Uses PostgreSQL checkpointing for state persistence across reconnects.
 import logging
 from datetime import datetime
 from typing import Any, TypedDict
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -20,7 +20,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 
 from ...domain.models.answer import Answer
-from ...domain.models.evaluation import Evaluation, ConceptGap
+from ...domain.models.evaluation import Evaluation, ConceptGap, GapSeverity, FollowUpEvaluationContext
 from ...domain.models.interview import InterviewStatus
 from ...domain.models.question import Question
 from ...domain.models.follow_up_question import FollowUpQuestion
@@ -286,9 +286,11 @@ class InterviewConversationWorkflow(BaseWorkflow):
             }
 
     async def _evaluate_answer_node(self, state: ConversationState) -> dict[str, Any]:
-        """Evaluate answer with conversation context.
+        """Evaluate answer with adaptive evaluation (Phase 2).
 
-        Uses LangChain adapter with conversation_history in context.
+        Mirrors ProcessAnswerAdaptiveUseCase.execute() logic:
+        - For main questions (attempt 1): Standard evaluation, no penalty
+        - For follow-up questions (attempts 2-3): Context-aware evaluation with penalties
 
         Args:
             state: Current conversation state
@@ -297,20 +299,18 @@ class InterviewConversationWorkflow(BaseWorkflow):
             State updates: answers, evaluations
         """
         try:
-            # Reconstruct domain objects
+            # Validate input
             current_question_dict = state.get("current_question")
             if not current_question_dict:
                 logger.error("No current question in state")
                 return {"errors": state.get("errors", []) + ["No current question"]}
 
-            question = Question(**current_question_dict)
             answer_text = state.get("pending_answer_text")
-
             if not answer_text:
                 logger.warning("No pending answer text in state")
                 return {}
 
-            # Transition interview to EVALUATING status when answer is received
+            # Step 1: Validate interview
             interview_id = UUID(state["interview_id"])
             interview = await self.interview_repo.get_by_id(interview_id)
             if not interview:
@@ -323,69 +323,151 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 await self.interview_repo.update(interview)
                 logger.info(f"Interview {interview_id} transitioned to EVALUATING status")
 
-            # Build context with conversation history
+            # Step 2: Detect if this is a follow-up question
+            parent_question_id_str = state.get("parent_question_id")
+            is_followup = parent_question_id_str is not None
+            parent_question_id = UUID(parent_question_id_str) if is_followup else None
+
+            # Step 3: Get question (main or follow-up parent)
+            if is_followup:
+                question = await self.question_repo.get_by_id(parent_question_id)
+                if not question:
+                    logger.error(f"Parent question {parent_question_id} not found")
+                    return {"errors": state.get("errors", []) + [f"Parent question {parent_question_id} not found"]}
+                logger.debug(f"Loaded parent question {parent_question_id} for follow-up evaluation")
+            else:
+                # Main question - reconstruct from state
+                question = Question(**current_question_dict)
+
+            # Step 4: Build follow-up context if applicable
+            followup_context = None
+            if is_followup:
+                followup_context = self._build_followup_context_from_state(state)
+                if followup_context:
+                    logger.debug(
+                        f"Follow-up context: attempt={followup_context.attempt_number}, "
+                        f"prev_scores={followup_context.previous_scores}, "
+                        f"gaps={len(followup_context.cumulative_gaps)}"
+                    )
+
+            # Step 5: Create answer entity (simplified - no embedded evaluation)
+            # For follow-up questions, use parent_question_id to satisfy FK constraint
+            answer_question_id = parent_question_id if is_followup else UUID(state["current_question_id"])
+            answer = Answer(
+                interview_id=interview_id,
+                question_id=answer_question_id,  # Use parent question ID for follow-ups
+                text=answer_text,
+                is_voice=state.get("is_voice_answer", False),
+                voice_metrics=state.get("voice_metrics"),
+                created_at=datetime.utcnow(),
+            )
+
+            # Step 6: Evaluate answer using LLM (with follow-up context if applicable)
             conversation_history = [
                 {"role": msg["type"], "content": msg["content"]}
                 for msg in state.get("messages", [])
             ]
-
             context: dict[str, Any] = {
                 "interview_id": state["interview_id"],
                 "candidate_id": state["candidate_id"],
                 "conversation_history": conversation_history,
             }
 
-            # Call LLM adapter (UNCHANGED API)
-            evaluation_result = await self.llm.evaluate_answer(
+            llm_eval = await self.llm.evaluate_answer(
                 question=question,
                 answer_text=answer_text,
                 context=context,
+                followup_context=followup_context,
             )
 
-            # Create Answer entity
-            answer = Answer(
-                interview_id=UUID(state["interview_id"]),
-                question_id=UUID(state["current_question_id"] or ""),
-                text=answer_text,
-                is_voice=state.get("is_voice_answer", False),
-                voice_metrics=state.get("voice_metrics"),
-            )
-            await self.answer_repo.save(answer)
+            # Step 7: Extract similarity score (if ideal_answer exists)
+            similarity_score = None
+            if question.has_ideal_answer() and llm_eval.semantic_similarity is not None:
+                similarity_score = max(0.01, llm_eval.semantic_similarity)  # Avoid zero
+                logger.info(f"Similarity score: {similarity_score:.2f}")
 
-            # Create Evaluation entity with all required fields
+            # Step 8: Detect gaps
+            ideal_answer = question.ideal_answer or ""
+            gaps_dict = await self._detect_gaps_hybrid(
+                answer_text=answer_text,
+                ideal_answer=ideal_answer,
+                question_text=question.text,
+            )
+
+            # Step 9: Determine attempt number and parent evaluation
+            attempt_number = followup_context.attempt_number if followup_context else 1
+            parent_evaluation_id = (
+                followup_context.previous_evaluations[0].id
+                if followup_context and followup_context.previous_evaluations
+                else None
+            )
+
+            # Step 10: Create Evaluation entity
             evaluation = Evaluation(
-                answer_id=answer.id,
-                question_id=UUID(state["current_question_id"] or ""),
-                interview_id=UUID(state["interview_id"]),
-                raw_score=evaluation_result.score,
-                penalty=0.0,  # No penalty for now (workflow simplified)
-                final_score=evaluation_result.score,
-                similarity_score=evaluation_result.semantic_similarity,
-                completeness=evaluation_result.completeness,
-                relevance=evaluation_result.relevance,
-                sentiment=evaluation_result.sentiment,
-                reasoning=evaluation_result.reasoning,
-                strengths=evaluation_result.strengths,
-                weaknesses=evaluation_result.weaknesses,
-                improvement_suggestions=evaluation_result.improvement_suggestions,
-                attempt_number=1,  # Simplified for initial migration
-                gaps=[],  # Gap detection can be added later
+                answer_id=answer.id,  # Will link after saving answer
+                question_id=UUID(state["current_question_id"] or ""),  # Keep follow-up question ID
+                interview_id=interview_id,
+                raw_score=llm_eval.score,
+                penalty=0.0,  # Will be set by apply_penalty()
+                final_score=llm_eval.score,  # Will be recalculated by apply_penalty()
+                similarity_score=similarity_score,
+                completeness=llm_eval.completeness,
+                relevance=llm_eval.relevance,
+                sentiment=llm_eval.sentiment,
+                reasoning=llm_eval.reasoning,
+                strengths=llm_eval.strengths,
+                weaknesses=llm_eval.weaknesses,
+                improvement_suggestions=llm_eval.improvement_suggestions,
+                attempt_number=attempt_number,
+                parent_evaluation_id=parent_evaluation_id,
+                gaps=[
+                    ConceptGap(
+                        evaluation_id=answer.id,  # Temporary, will be updated
+                        concept=concept,
+                        severity=self._determine_gap_severity(concept, gaps_dict),
+                        resolved=False,
+                        created_at=datetime.utcnow(),
+                    )
+                    for concept in gaps_dict.get("concepts", [])
+                ],
                 evaluated_at=datetime.utcnow(),
             )
-            await self.evaluation_repo.save(evaluation)
+
+            # Step 11: Apply penalty based on attempt number
+            evaluation.apply_penalty(attempt_number)
+            logger.info(
+                f"Penalty applied: attempt={attempt_number}, penalty={evaluation.penalty}, "
+                f"raw_score={llm_eval.score:.1f}, final_score={evaluation.final_score:.1f}"
+            )
+
+            # Step 12: Check if gaps should be resolved
+            if evaluation.is_gap_resolved_by_criteria():
+                evaluation.resolve_gaps()
+                logger.info(
+                    f"Gaps resolved by criteria: completeness={evaluation.completeness:.2f}, "
+                    f"final_score={evaluation.final_score:.1f}, attempt={attempt_number}"
+                )
+
+            # Step 13: Save answer first (to get ID)
+            saved_answer = await self.answer_repo.save(answer)
+
+            # Step 14: Update evaluation with correct answer_id and gap evaluation_ids
+            evaluation.answer_id = saved_answer.id
+            for gap in evaluation.gaps:
+                gap.evaluation_id = evaluation.id
+
+            # Step 15: Save evaluation
+            saved_evaluation = await self.evaluation_repo.save(evaluation)
 
             logger.info(
-                f"Answer evaluated: {answer.id}, score: {evaluation.final_score}",
-                extra={
-                    "answer_id": str(answer.id),
-                    "score": evaluation.final_score,
-                    "gaps_count": len(evaluation.gaps) if evaluation.gaps else 0,
-                },
+                f"Answer processed: score={saved_evaluation.final_score:.1f}, "
+                f"similarity={f'{similarity_score:.2f}' if similarity_score is not None else 'N/A'}, "
+                f"gaps={len(saved_evaluation.gaps)}"
             )
 
             return {
-                "answers": state.get("answers", []) + [answer.model_dump(mode="json")],
-                "evaluations": state.get("evaluations", []) + [evaluation.model_dump(mode="json")],
+                "answers": state.get("answers", []) + [saved_answer.model_dump(mode="json")],
+                "evaluations": state.get("evaluations", []) + [saved_evaluation.model_dump(mode="json")],
                 "pending_answer_text": None,  # Clear pending answer
             }
 
@@ -602,12 +684,27 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 },
             )
 
+            # Extract ideal_answer from parent question (in state) for gap detection
+            parent_question_dict = state.get("current_question") or {}
+            ideal_answer = parent_question_dict.get("ideal_answer") or ""
+
+            if not ideal_answer:
+                logger.warning(
+                    f"No ideal_answer in state for parent question {parent_question_id}, "
+                    f"gap detection will be skipped for follow-up"
+                )
+            else:
+                logger.debug(f"Extracted ideal_answer from state for follow-up generation")
+
             return {
                 "current_question_id": str(followup.id),
                 "current_question": {
                     "id": str(followup.id),
                     "text": followup.text,
                     "question_type": "FOLLOW_UP",
+                    "ideal_answer": ideal_answer,  # NEW: Pass parent's ideal_answer
+                    "generated_reason": followup.generated_reason,  # WebSocket compatibility
+                    "order_in_sequence": followup.order_in_sequence,  # WebSocket compatibility
                 },
                 "parent_question_id": str(parent_question_id),
                 "followup_count": followup_count + 1,
@@ -740,6 +837,216 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "errors": state.get("errors", []) + [f"complete_interview: {str(exc)}"],
                 "complete": True,  # Mark as complete even on error
             }
+
+    # ========== HELPER METHODS FOR GAP DETECTION ==========
+
+    async def _detect_gaps_hybrid(
+        self,
+        answer_text: str,
+        ideal_answer: str,
+        question_text: str,
+    ) -> dict[str, Any]:
+        """Detect concept gaps using hybrid approach (keywords + LLM).
+
+        Step 1: Fast keyword-based detection
+        Step 2: If keywords found gaps, confirm with LLM
+
+        Args:
+            answer_text: Candidate's answer
+            ideal_answer: Reference ideal answer
+            question_text: The question asked
+
+        Returns:
+            Gaps dict with detected concepts and severity
+            Format: {"concepts": [...], "confirmed": bool, "severity": str}
+        """
+        # Step 1: Keyword-based gap detection
+        keyword_gaps = self._detect_keyword_gaps(answer_text, ideal_answer)
+
+        logger.debug(f"Gap detection: keyword_gaps={len(keyword_gaps)}")
+
+        # Step 2: If keywords detected gaps, confirm with LLM
+        if keyword_gaps:
+            llm_gaps = await self.llm.detect_concept_gaps(
+                answer_text=answer_text,
+                ideal_answer=ideal_answer,
+                question_text=question_text,
+                keyword_gaps=keyword_gaps,
+            )
+            if llm_gaps.get("confirmed"):
+                logger.info(f"Gaps confirmed by LLM: {llm_gaps['concepts']}")
+            return llm_gaps
+        else:
+            return {"concepts": [], "confirmed": False, "severity": "minor"}
+
+    def _detect_keyword_gaps(self, answer_text: str, ideal_answer: str) -> list[str]:
+        """Fast keyword-based gap detection.
+
+        Extracts words from ideal_answer that are missing in answer_text.
+        Filters:
+        - Word length > 3 chars
+        - Not in stop words list
+        - Case-insensitive
+
+        Args:
+            answer_text: Candidate's answer
+            ideal_answer: Reference ideal answer
+
+        Returns:
+            List of missing words (empty if < 4 missing words)
+        """
+        stop_words = {
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+            "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will", "would",
+            "should", "could", "may", "might", "must", "can", "this", "that",
+            "these", "those",
+        }
+
+        # Extract words from ideal answer (>3 chars, not stop words)
+        ideal_words = {
+            word.lower().strip('.,!?;:"\'-')
+            for word in ideal_answer.split()
+            if len(word.strip('.,!?;:"\'-')) > 3
+            and word.lower().strip('.,!?;:"\'-') not in stop_words
+        }
+
+        # Extract words from answer
+        answer_words = {
+            word.lower().strip('.,!?;:"\'-')
+            for word in answer_text.split()
+            if len(word.strip('.,!?;:"\'-')) > 3
+            and word.lower().strip('.,!?;:"\'-') not in stop_words
+        }
+
+        # Find missing words
+        missing = list(ideal_words - answer_words)
+
+        # Return only if significant gaps (> 3 missing words)
+        return missing if len(missing) > 3 else []
+
+    def _determine_gap_severity(
+        self,
+        concept: str,
+        gaps_dict: dict[str, Any],
+    ) -> GapSeverity:
+        """Determine gap severity from LLM response.
+
+        Maps LLM severity string to GapSeverity enum.
+        Defaults to MODERATE if invalid/missing.
+
+        Args:
+            concept: The missing concept (unused, for signature compatibility)
+            gaps_dict: Gaps dictionary from LLM
+                Format: {"severity": "minor" | "moderate" | "major", ...}
+
+        Returns:
+            GapSeverity enum value
+        """
+        severity_str = gaps_dict.get("severity", "moderate")
+        try:
+            return GapSeverity(severity_str.lower())
+        except ValueError:
+            logger.warning(f"Invalid severity '{severity_str}', defaulting to MODERATE")
+            return GapSeverity.MODERATE
+
+    def _build_followup_context_from_state(
+        self,
+        state: ConversationState,
+    ) -> FollowUpEvaluationContext | None:
+        """Build follow-up evaluation context from workflow state.
+
+        Extracts previous evaluations, gaps, and scores from state
+        (no database queries).
+
+        Args:
+            state: Current conversation state
+
+        Returns:
+            FollowUpEvaluationContext if follow-up question, None if main question
+        """
+        # Check if this is a follow-up question
+        parent_question_id = state.get("parent_question_id")
+        if not parent_question_id:
+            return None  # Main question, no context needed
+
+        # Extract IDs
+        current_q_id = state.get("current_question_id")
+        if not current_q_id:
+            logger.warning("No current_question_id in state for follow-up context")
+            return None
+
+        # Get follow-up count (attempt number)
+        followup_count = state.get("followup_count", 0)
+        attempt_number = followup_count  # 2 or 3
+
+        # Extract previous evaluations from state
+        evaluations_dicts = state.get("evaluations", [])
+        previous_evaluations: list[Evaluation] = []
+
+        for eval_dict in evaluations_dicts:
+            try:
+                # Filter evaluations for current question chain
+                eval_q_id = eval_dict.get("question_id")
+                if eval_q_id in [parent_question_id, current_q_id]:
+                    evaluation = Evaluation(**eval_dict)
+                    previous_evaluations.append(evaluation)
+            except Exception as exc:
+                logger.warning(f"Failed to parse evaluation from state: {exc}")
+                continue
+
+        # Sort by created_at
+        previous_evaluations.sort(key=lambda e: e.created_at)
+
+        # Extract cumulative gaps from state
+        gap_concepts = state.get("cumulative_gaps", [])
+        cumulative_gaps: list[ConceptGap] = []
+
+        # Create ConceptGap objects from concepts
+        for concept in gap_concepts:
+            # Use first evaluation ID as placeholder (will be updated)
+            eval_id = previous_evaluations[0].id if previous_evaluations else uuid4()
+            gap = ConceptGap(
+                evaluation_id=eval_id,
+                concept=concept,
+                severity=GapSeverity.MODERATE,  # Default severity
+                resolved=False,
+                created_at=datetime.utcnow(),
+            )
+            cumulative_gaps.append(gap)
+
+        # Extract ideal_answer from current_question in state
+        current_question = state.get("current_question", {})
+        ideal_answer = current_question.get("ideal_answer", "")
+
+        if not ideal_answer:
+            logger.warning("No ideal_answer in state for follow-up context")
+
+        # Extract previous scores
+        previous_scores = [e.final_score for e in previous_evaluations]
+
+        # Build context
+        try:
+            context = FollowUpEvaluationContext(
+                parent_question_id=UUID(parent_question_id),
+                follow_up_question_id=UUID(current_q_id),
+                attempt_number=attempt_number,
+                previous_evaluations=previous_evaluations,
+                cumulative_gaps=cumulative_gaps,
+                previous_scores=previous_scores,
+                parent_ideal_answer=ideal_answer,
+            )
+
+            logger.debug(
+                f"Follow-up context built: attempt={attempt_number}, "
+                f"prev_evals={len(previous_evaluations)}, gaps={len(cumulative_gaps)}"
+            )
+
+            return context
+
+        except Exception as exc:
+            logger.error(f"Failed to build follow-up context: {exc}", exc_info=True)
+            return None
 
     # ========== CONDITIONAL EDGE FUNCTIONS ==========
 

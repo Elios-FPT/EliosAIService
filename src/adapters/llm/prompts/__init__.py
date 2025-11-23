@@ -1,7 +1,7 @@
 """Prompt templates for LangChain adapter.
 
 All LLM prompts are centralized here as Python constants (fallback)
-and can be overridden by database-stored prompts (future Phase 1 enhancement).
+and can be overridden by database-stored prompts
 """
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -52,19 +52,23 @@ EVALUATE_ANSWER_PROMPT = ChatPromptTemplate.from_messages([
     ("human", """Evaluate this interview answer.
 
 Question: {question_text}
+Question Type: {question_type}
 Difficulty: {difficulty}
-Skill: {skill}
+Expected Skills: {skills}
 
 Candidate's Answer:
 {answer_text}
 
-{followup_context}
+{ideal_answer_section}
+
+{followup_context_section}
 
 Evaluation Criteria:
 1. Technical Accuracy (0-40 points)
 2. Depth of Understanding (0-30 points)
 3. Clarity of Communication (0-20 points)
 4. Practical Application (0-10 points)
+{semantic_similarity_section}
 
 Return evaluation in JSON format:
 {{
@@ -72,7 +76,7 @@ Return evaluation in JSON format:
     "feedback": "detailed feedback here",
     "strengths": ["point 1", "point 2"],
     "weaknesses": ["point 1", "point 2"],
-    "missing_concepts": ["concept 1", "concept 2"]
+    "missing_concepts": ["concept 1", "concept 2"]{semantic_similarity_key}
 }}""")
 ])
 
@@ -161,28 +165,26 @@ FOLLOWUP_QUESTION_PROMPT = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_INTERVIEWER),
     ("human", """Generate a targeted follow-up question.
 
-Parent Question: {parent_question}
+Original Question: {parent_question}
 
-Candidate's Previous Answer:
+Latest Answer:
 {answer_text}
 
-Missing Concepts: {missing_concepts}
+Current Missing Concepts: {missing_concepts}
 Gap Severity: {severity}
-Follow-up Number: {order}
-
 {cumulative_context}
-{previous_followups}
+{previous_context}
 
-Requirements:
-- Target the most critical gap from missing concepts
-- Be specific and focused (not too broad)
-- Difficulty: easier than parent if severity is "major", similar if "moderate"
-- Avoid repeating previous follow-ups
+Generate focused follow-up question (#{order}) addressing the most critical missing concepts.
+The question should:
+- Be specific and concise
+- Prioritize concepts: {priority_concepts}
+- Avoid repeating previous follow-up questions
+- Be progressively more targeted (this is follow-up #{order} of max 3)
 
-Return in JSON format:
+IMPORTANT: Return ONLY valid JSON in this exact format (no additional text):
 {{
-    "question_text": "follow-up question here",
-    "focus": "specific concept being targeted"
+    "question_text": "follow-up question here"
 }}""")
 ])
 
