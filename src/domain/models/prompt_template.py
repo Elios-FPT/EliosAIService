@@ -90,6 +90,29 @@ class PromptTemplate(BaseModel):
         """Check if template is soft-deleted."""
         return self.deleted_at is not None
 
+    def get_prompt_text(self, **kwargs: Any) -> str:
+        """Render user template with provided variables.
+
+        Args:
+            **kwargs: Variables to substitute into user_template
+
+        Returns:
+            Formatted prompt text with variables substituted
+
+        Raises:
+            ValueError: If required variables are missing
+        """
+        try:
+            # Format user_template with provided variables
+            formatted = self.user_template.format(**kwargs)
+            return formatted
+        except KeyError as e:
+            missing = str(e).strip("'")
+            raise ValueError(
+                f"Missing required variable '{missing}' for prompt template '{self.prompt_name}'. "
+                f"Required variables: {self.input_variables}"
+            ) from e
+
     def to_langchain_config(self) -> Dict[str, Any]:
         """
         Convert to LangChain-compatible config.

@@ -140,8 +140,8 @@ class LangChainAdapter(LLMPort):
                 )
                 return None, None, None
 
-            template_json = prompt_template.template_json
-            cache_key = f"{prompt_template.name}:v{prompt_template.version}"
+            template_json = prompt_template.template_json_legacy
+            cache_key = f"{prompt_template.prompt_name}:v{prompt_template.version}"
             return prompt_template, template_json, cache_key
 
         except Exception as exc:
@@ -195,28 +195,47 @@ class LangChainAdapter(LLMPort):
         chain = self._get_or_build_chain("evaluate_answer", template_json, cache_key)
 
         # Format followup context if present
-        followup_section = ""
+        followup_context_section = ""
         if followup_context:
-            followup_section = f"""
+            followup_context_section = f"""
 This is a follow-up question (attempt #{followup_context.attempt_number}).
 
 Previous Evaluations:
 {self._format_previous_evaluations(followup_context.previous_evaluations)}
 
-Cumulative Gaps: {', '.join(followup_context.cumulative_gaps) if followup_context.cumulative_gaps else 'None'}
+Cumulative Gaps: {', '.join([str(gap.concept) for gap in followup_context.cumulative_gaps]) if followup_context.cumulative_gaps else 'None'}
 
 Apply attempt-based penalty:
 - Attempt 2: Reduce score by 10% (gaps should be addressed)
 - Attempt 3+: Reduce score by 20% (repeated failure to address gaps)
 """
 
-        # Prepare variables
+        # Format ideal answer section (if available from followup_context)
+        ideal_answer_section = ""
+        if followup_context and followup_context.parent_ideal_answer:
+            ideal_answer_section = f"""
+Ideal Answer Reference:
+{followup_context.parent_ideal_answer}
+"""
+
+        # Format semantic similarity section (only if ideal answer exists)
+        semantic_similarity_section = ""
+        semantic_similarity_key = ""
+        if ideal_answer_section:
+            semantic_similarity_section = "\n9. Semantic similarity to ideal answer (0.0-1.0)"
+            semantic_similarity_key = ", semantic_similarity"
+
+        # Prepare variables - must match DB template or hardcoded prompt
         variables = {
             "question_text": question.text,
-            "difficulty": question.difficulty,
-            "skill": question.skills[0] if question.skills else "General",
+            "question_type": question.question_type.value if hasattr(question.question_type, "value") else str(question.question_type),
+            "difficulty": question.difficulty.value if hasattr(question.difficulty, "value") else str(question.difficulty),
+            "skills": ", ".join(question.skills) if question.skills else "General",
             "answer_text": answer_text,
-            "followup_context": followup_section,
+            "ideal_answer_section": ideal_answer_section,
+            "followup_context_section": followup_context_section,
+            "semantic_similarity_section": semantic_similarity_section,
+            "semantic_similarity_key": semantic_similarity_key,
         }
 
         # Create config with metadata
@@ -228,7 +247,7 @@ Apply attempt-based penalty:
                 if hasattr(question.difficulty, "value")
                 else str(question.difficulty)
             ),
-            skill=question.skills[0] if question.skills else "General",
+            skills=", ".join(question.skills) if question.skills else "General",
             method="evaluate_answer",
         )
 
@@ -1160,7 +1179,7 @@ Apply attempt-based penalty:
             if success:
                 logger.info(
                     "Prompt execution: %s (v%d) | Tokens: %s | Latency: %dms | Cost: $%.6f",
-                    prompt_template.name,
+                    prompt_template.prompt_name,
                     prompt_template.version,
                     total_tokens or "N/A",
                     latency_ms,
@@ -1169,7 +1188,7 @@ Apply attempt-based penalty:
             else:
                 logger.warning(
                     "Prompt execution FAILED: %s (v%d) | Error: %s | Latency: %dms",
-                    prompt_template.name,
+                    prompt_template.prompt_name,
                     prompt_template.version,
                     error_message,
                     latency_ms,
@@ -1179,7 +1198,7 @@ Apply attempt-based penalty:
             # Don't fail the main operation if logging fails
             logger.error(
                 "Failed to log prompt execution for %s: %s",
-                prompt_template.name,
+                prompt_template.prompt_name,
                 log_error,
                 exc_info=True,
             )
