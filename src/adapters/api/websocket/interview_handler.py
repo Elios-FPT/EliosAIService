@@ -246,32 +246,6 @@ async def _handle_with_orchestrator(
                 },
             )
 
-    except WebSocketDisconnect:
-        manager.disconnect(interview_id)
-        # Cleanup audio streaming resources
-        _cleanup_audio_resources(interview_id)
-        logger.info(f"Client disconnected from interview {interview_id}")
-
-    except ValueError as e:
-        # State machine validation error
-        logger.error(f"State machine error for interview {interview_id}: {e}")
-        await manager.send_message(
-            interview_id,
-            {"type": "error", "code": "INVALID_STATE", "message": str(e)},
-        )
-        _cleanup_audio_resources(interview_id)
-        manager.disconnect(interview_id)
-
-    except Exception as e:
-        logger.error(f"WebSocket error for interview {interview_id}: {e}", exc_info=True)
-        await manager.send_message(
-            interview_id,
-            {"type": "error", "code": "INTERNAL_ERROR", "message": str(e)},
-        )
-        _cleanup_audio_resources(interview_id)
-        manager.disconnect(interview_id)
-
-
 def _cleanup_audio_resources(interview_id: UUID):
     """Clean up audio streaming resources for a session.
 
