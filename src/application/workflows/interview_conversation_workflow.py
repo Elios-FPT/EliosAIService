@@ -69,6 +69,10 @@ class ConversationState(TypedDict):
     complete: bool
     followup_reason: str | None
 
+    # Completion data (from _complete_interview_node)
+    summary: dict[str, Any] | None  # DetailedInterviewFeedback.model_dump()
+    final_status: str | None  # InterviewStatus.value
+
     # Error handling
     errors: list[str]
     retry_count: int
@@ -270,6 +274,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "evaluations": [],
                 "errors": [],
                 "retry_count": 0,
+                "summary": None,
+                "final_status": None,
             }
 
         except Exception as exc:
@@ -960,6 +966,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "question": result.get("current_question"),
                 "question_id": result.get("current_question_id"),
                 "summary": result.get("summary"),
+                "final_status": result.get("final_status"),
                 "has_more": result.get("has_more_questions"),
                 "errors": result.get("errors", []),
             }
