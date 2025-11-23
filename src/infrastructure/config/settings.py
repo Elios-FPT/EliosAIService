@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -164,6 +165,29 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
+        """Parse CORS origins from environment variable.
+
+        Handles both comma-separated string and list formats.
+        Strips whitespace from each origin.
+
+        Args:
+            v: Either a comma-separated string or a list of strings
+
+        Returns:
+            List of origin strings with whitespace stripped
+        """
+        if isinstance(v, str):
+            # Split by comma and strip whitespace
+            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+            return origins
+        elif isinstance(v, list):
+            # Already a list, just strip whitespace from each item
+            return [origin.strip() if isinstance(origin, str) else str(origin).strip() for origin in v]
+        return v
 
     # WebSocket Configuration
     ws_host: str = "localhost"
