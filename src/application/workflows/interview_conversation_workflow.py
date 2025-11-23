@@ -122,15 +122,17 @@ class InterviewConversationWorkflow(BaseWorkflow):
         """Build LangGraph StateGraph with all nodes and edges.
 
         Workflow structure:
-        START → start_session → evaluate_answer → update_memory → decide_followup
-                                      ↑              |
-                                      |              ↓
-                                generate_followup ← [needs_followup?]
-                                                     ↓
-                                              next_or_complete → complete → END
-                                                     ↑
-                                                     |
-                                              [has_more? → load_question]
+        START → route_entry → [new session?] → start_session → END (wait for answer)
+                    ↓
+              [has answer?] → evaluate_answer → update_memory → decide_followup
+                                                      ↓
+                                              [needs_followup?]
+                                                      ↓
+                                              generate_followup → END (wait for answer)
+                                                      ↓
+                                              next_or_complete → [complete?] → complete → END
+                                                      ↓
+                                              [has_more?] → END (wait for answer)
 
         Returns:
             Compiled StateGraph ready for execution
@@ -139,6 +141,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         graph = StateGraph(ConversationState)
 
         # Add nodes
+        graph.add_node("route_entry", self._route_entry_node)
         graph.add_node("start_session", self._start_session_node)
         graph.add_node("evaluate_answer", self._evaluate_answer_node)
         graph.add_node("update_memory", self._update_memory_node)
@@ -148,10 +151,22 @@ class InterviewConversationWorkflow(BaseWorkflow):
         graph.add_node("complete", self._complete_interview_node)
 
         # Add edges
-        graph.set_entry_point("start_session")
+        graph.set_entry_point("route_entry")
 
-        # Linear flow: start → evaluate → memory → decide
-        graph.add_edge("start_session", "evaluate_answer")
+        # Route entry: new session or answer processing
+        graph.add_conditional_edges(
+            "route_entry",
+            self._route_entry_point,
+            {
+                "start_session": "start_session",
+                "evaluate_answer": "evaluate_answer",
+            },
+        )
+
+        # Start session, then wait for first answer
+        graph.add_edge("start_session", END)
+
+        # Linear flow: evaluate → memory → decide
         graph.add_edge("evaluate_answer", "update_memory")
         graph.add_edge("update_memory", "decide_followup")
 
@@ -185,6 +200,19 @@ class InterviewConversationWorkflow(BaseWorkflow):
         return graph.compile(checkpointer=self.checkpointer)  # type: ignore[return-value]
 
     # ========== WORKFLOW NODES ==========
+
+    async def _route_entry_node(self, state: ConversationState) -> dict[str, Any]:
+        """Entry point router (pass-through node).
+
+        No-op node that just passes state through to conditional edge.
+
+        Args:
+            state: Current conversation state
+
+        Returns:
+            Empty dict (no state updates)
+        """
+        return {}
 
     async def _start_session_node(self, state: ConversationState) -> dict[str, Any]:
         """Initialize conversation and load first question.
@@ -695,6 +723,19 @@ class InterviewConversationWorkflow(BaseWorkflow):
 
     # ========== CONDITIONAL EDGE FUNCTIONS ==========
 
+    def _route_entry_point(self, state: ConversationState) -> str:
+        """Route based on whether this is new session or answer processing.
+
+        Args:
+            state: Current conversation state
+
+        Returns:
+            "start_session" if no pending answer (new session)
+            "evaluate_answer" if pending answer exists (continuing workflow)
+        """
+        has_pending_answer = bool(state.get("pending_answer_text"))
+        return "evaluate_answer" if has_pending_answer else "start_session"
+
     def _should_generate_followup(self, state: ConversationState) -> str:
         """Route after decide_followup_node.
 
@@ -837,6 +878,37 @@ class InterviewConversationWorkflow(BaseWorkflow):
         except Exception as exc:
             logger.error(f"process_answer failed: {exc}", exc_info=True)
             raise
+
+    def visualize_graph(self, output_format: str = "mermaid") -> str | bytes:
+        """Visualize the workflow graph.
+
+        Args:
+            output_format: "mermaid" (text), "mermaid_png" (PNG bytes), or "ascii" (text)
+
+        Returns:
+            Mermaid diagram text, PNG bytes, or ASCII diagram
+
+        Example:
+            >>> workflow = InterviewConversationWorkflow(...)
+            >>> mermaid_text = workflow.visualize_graph("mermaid")
+            >>> with open("workflow.mmd", "w") as f:
+            ...     f.write(mermaid_text)
+            >>>
+            >>> # Or export PNG
+            >>> png_bytes = workflow.visualize_graph("mermaid_png")
+            >>> with open("workflow.png", "wb") as f:
+            ...     f.write(png_bytes)
+        """
+        graph = self.app.get_graph()
+
+        if output_format == "mermaid":
+            return graph.draw_mermaid()
+        elif output_format == "mermaid_png":
+            return graph.draw_mermaid_png()
+        elif output_format == "ascii":
+            return graph.draw_ascii()
+        else:
+            raise ValueError(f"Unknown format: {output_format}. Use 'mermaid', 'mermaid_png', or 'ascii'")
 
     async def execute(self, *args: Any, **kwargs: Any) -> Any:
         """Execute workflow (required by BaseWorkflow).
