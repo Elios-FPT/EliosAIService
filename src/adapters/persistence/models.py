@@ -146,12 +146,22 @@ class QuestionModel(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     question_type: Mapped[str] = mapped_column(
-        SQLEnum(QuestionType, native_enum=False, length=50),
+        SQLEnum(
+            QuestionType,
+            native_enum=False,
+            length=50,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         index=True,
     )
     difficulty: Mapped[str] = mapped_column(
-        SQLEnum(Difficulty, native_enum=False, length=50),
+        SQLEnum(
+            Difficulty,
+            native_enum=False,
+            length=50,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         index=True,
     )

@@ -62,6 +62,32 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         db_models = result.scalars().all()
         return [InterviewMapper.to_domain(db_model) for db_model in db_models]
 
+    async def get_active_by_candidate(self, candidate_id: UUID) -> Interview | None:
+        """Retrieve the most recent active interview for a candidate.
+
+        Active interviews are those that are not in terminal states (COMPLETE, CANCELLED).
+        This includes: PLANNING, IDLE, QUESTIONING, EVALUATING, FOLLOW_UP.
+
+        Args:
+            candidate_id: Candidate identifier
+
+        Returns:
+            Most recent active interview if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(InterviewModel)
+            .where(InterviewModel.candidate_id == candidate_id)
+            .where(
+                InterviewModel.status.notin_(
+                    [InterviewStatus.COMPLETE.value, InterviewStatus.CANCELLED.value]
+                )
+            )
+            .order_by(InterviewModel.created_at.desc())
+            .limit(1)
+        )
+        db_model = result.scalar_one_or_none()
+        return InterviewMapper.to_domain(db_model) if db_model else None
+
     async def get_by_status(
         self,
         status: InterviewStatus,
