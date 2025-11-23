@@ -290,7 +290,15 @@ async def plan_interview(
                 cv_analysis_id=request.cv_analysis_id,
                 candidate_id=request.candidate_id,
             )
-            interview = result["interview"]
+            interview = result.get("interview")
+
+            # Check if workflow failed (interview is None)
+            if interview is None:
+                errors = result.get("errors", ["Unknown error occurred during interview planning"])
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to plan interview: {errors}"
+                )
         else:
             # Use case (manual implementation)
             use_case = PlanInterviewUseCase(

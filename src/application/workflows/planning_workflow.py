@@ -5,6 +5,7 @@ checkpointed workflow that can resume after crashes.
 """
 
 import logging
+import uuid
 from typing import Any, TypedDict
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
+from tests.unit.application.use_cases.test_follow_up_decision import interview_id
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.interview import Interview
 from ...domain.models.question import Question, QuestionType, DifficultyLevel
@@ -113,20 +115,69 @@ class PlanningWorkflow(BaseWorkflow):
 
         # Add edges
         graph.set_entry_point("load_cv")
-        graph.add_edge("load_cv", "calculate_count")
-        graph.add_edge("calculate_count", "prepare_specs")
-        graph.add_edge("prepare_specs", "generate_batch")
-        graph.add_edge("generate_batch", "store_questions")
-        graph.add_edge("store_questions", "update_interview")
-        graph.add_edge("update_interview", END)
 
-        # Conditional edges for error handling
+        # Conditional edges for error handling - all nodes check for errors
         graph.add_conditional_edges(
             "load_cv",
             self._check_for_errors,
             {
                 "continue": "calculate_count",
                 "error": "handle_error"
+            }
+        )
+
+        graph.add_conditional_edges(
+            "calculate_count",
+            self._check_for_errors,
+            {
+                "continue": "prepare_specs",
+                "error": "handle_error"
+            }
+        )
+
+        graph.add_conditional_edges(
+            "prepare_specs",
+            self._check_for_errors,
+            {
+                "continue": "generate_batch",
+                "error": "handle_error"
+            }
+        )
+
+        graph.add_conditional_edges(
+            "generate_batch",
+            self._check_for_errors,
+            {
+                "continue": "store_questions",
+                "error": "handle_error"
+            }
+        )
+
+        graph.add_conditional_edges(
+            "store_questions",
+            self._check_for_errors,
+            {
+                "continue": "update_interview",
+                "error": "handle_error"
+            }
+        )
+
+        graph.add_conditional_edges(
+            "update_interview",
+            self._check_for_errors,
+            {
+                "continue": END,
+                "error": "handle_error"
+            }
+        )
+
+        # Error handler routes to END (after max retries) or back to workflow start
+        graph.add_conditional_edges(
+            "handle_error",
+            self._should_retry,
+            {
+                "retry": "load_cv",  # Retry from beginning
+                "end": END  # Max retries exceeded
             }
         )
 
@@ -238,7 +289,7 @@ class PlanningWorkflow(BaseWorkflow):
                 return {"errors": ["CV analysis missing in state"]}
 
             # Calculate based on skill diversity
-            unique_skills = len(cv_analysis.get_technical_skills())
+            unique_skills = len(cv_analysis.skills)
             question_count = min(5, max(2, unique_skills // 3))
 
             logger.info(f"Calculated question count: {question_count} (from {unique_skills} skills)")
@@ -267,20 +318,25 @@ class PlanningWorkflow(BaseWorkflow):
 
             # Build question specs
             specs = []
-            skills = cv_analysis.get_technical_skills()
+            skills = cv_analysis.skills
+
+            if not skills:
+                return {"errors": ["No skills found in CV analysis"]}
 
             for i in range(question_count):
                 # Rotate through skills
                 skill_obj = skills[i % len(skills)]
-                skill_name = skill_obj.skill  # ExtractedSkill uses 'skill' not 'name'
+                skill_name = skill_obj.skill_name  # CVSkill uses 'skill_name'
 
                 # Determine difficulty based on proficiency
                 difficulty_map = {
                     "beginner": "easy",
                     "intermediate": "medium",
+                    "advanced": "hard",
                     "expert": "hard",
                 }
-                difficulty = difficulty_map.get(skill_obj.proficiency or "intermediate", "medium")
+                proficiency_value = skill_obj.proficiency_level.value if skill_obj.proficiency_level else "intermediate"
+                difficulty = difficulty_map.get(proficiency_value, "medium")
 
                 # Search for exemplar questions (if vector search available)
                 exemplars = []
@@ -375,6 +431,11 @@ class PlanningWorkflow(BaseWorkflow):
         Returns:
             State updates
         """
+        # Early check for existing errors
+        if state.get("errors"):
+            logger.warning("Skipping store_questions node due to existing errors in state")
+            return {}  # Return empty update to preserve existing errors
+
         try:
             questions = state["generated_questions"]
             answers = state["generated_answers"]
@@ -382,6 +443,9 @@ class PlanningWorkflow(BaseWorkflow):
             specs = state["question_specs"]
 
             if not questions:
+                # Check if questions were supposed to be generated
+                if not state.get("generated_questions") and state.get("question_specs"):
+                    return {"errors": ["No questions generated in previous step (generate_batch). Question generation may have failed."]}
                 return {"errors": ["No questions to store"]}
 
             # Create Question objects
@@ -399,7 +463,7 @@ class PlanningWorkflow(BaseWorkflow):
                 )
 
                 # Save to repository
-                saved_question = await self.question_repo.create(question)
+                saved_question = await self.question_repo.save(question)
                 question_ids.append(saved_question.id)
 
             logger.info(f"Stored {len(question_ids)} questions")
@@ -419,26 +483,32 @@ class PlanningWorkflow(BaseWorkflow):
         Returns:
             State updates
         """
+        # Early check for existing errors
+        if state.get("errors"):
+            logger.warning("Skipping update_interview node due to existing errors in state")
+            return {}  # Return empty update to preserve existing errors
+
         try:
             candidate_id = state["candidate_id"]
             question_ids = state["stored_question_ids"]
             cv_analysis_id = state["cv_analysis_id"]
 
             if not question_ids:
+                # Provide context about why question IDs are missing
+                if not state.get("stored_question_ids") and state.get("generated_questions"):
+                    return {"errors": ["No question IDs to attach to interview. Questions were generated but failed to be stored in previous step (store_questions)."]}
+                elif not state.get("generated_questions"):
+                    return {"errors": ["No question IDs to attach to interview. No questions were generated in the workflow."]}
                 return {"errors": ["No question IDs to attach to interview"]}
 
-            # Get or create interview
-            interview = await self.interview_repo.get_active_by_candidate(candidate_id)
-
-            if not interview:
-                # Create new interview
-                from ...domain.models.interview import Interview, InterviewStatus
-                interview = Interview(
-                    candidate_id=candidate_id,
-                    status=InterviewStatus.IDLE,
-                    cv_analysis_id=cv_analysis_id,
-                )
-                interview = await self.interview_repo.create(interview)
+            from ...domain.models.interview import Interview, InterviewStatus
+            interview = Interview(
+                id=uuid.uuid4(),
+                candidate_id=candidate_id,
+                status=InterviewStatus.IDLE,
+                cv_analysis_id=cv_analysis_id,
+            )
+            interview = await self.interview_repo.save(interview)
 
             # Add questions to interview via junction table
             for idx, question_id in enumerate(question_ids):
@@ -447,12 +517,6 @@ class PlanningWorkflow(BaseWorkflow):
                     question_id=question_id,
                     sequence_order=idx,
                 )
-
-            # Start interview (transitions to QUESTIONING)
-            interview.start()
-
-            # Save updated interview
-            interview = await self.interview_repo.update(interview)
 
             logger.info(f"Updated interview {interview.id} with {len(question_ids)} questions")
             return {"interview": interview}
@@ -478,12 +542,13 @@ class PlanningWorkflow(BaseWorkflow):
 
         # Check if should retry
         if retry_count < 3:
+            logger.info(f"Retrying workflow (attempt {retry_count + 1}/3)")
             return {
                 "retry_count": retry_count + 1,
                 "errors": []  # Clear errors for retry
             }
         else:
-            # Max retries exceeded
+            # Max retries exceeded - keep errors for final state
             logger.error(f"Max retries exceeded. Final errors: {errors}")
             return {
                 "errors": errors + ["Max retry attempts exceeded"]
@@ -503,3 +568,17 @@ class PlanningWorkflow(BaseWorkflow):
         if state.get("errors"):
             return "error"
         return "continue"
+
+    def _should_retry(self, state: PlanningState) -> str:
+        """Determine if workflow should retry or end.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            "retry" if retries available, "end" if max retries exceeded
+        """
+        retry_count = state.get("retry_count", 0)
+        if retry_count < 3:
+            return "retry"
+        return "end"

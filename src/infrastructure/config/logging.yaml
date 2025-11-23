@@ -26,6 +26,11 @@ loggers:
     level: INFO
     propagate: False
 
+  src.application:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
   sqlalchemy:
     handlers: []
     level: INFO
