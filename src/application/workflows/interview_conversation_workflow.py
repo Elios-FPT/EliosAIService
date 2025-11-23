@@ -21,6 +21,7 @@ from langgraph.types import StateSnapshot
 
 from ...domain.models.answer import Answer
 from ...domain.models.evaluation import Evaluation, ConceptGap
+from ...domain.models.interview import InterviewStatus
 from ...domain.models.question import Question
 from ...domain.models.follow_up_question import FollowUpQuestion
 from ...domain.ports.llm_port import LLMPort
@@ -302,6 +303,19 @@ class InterviewConversationWorkflow(BaseWorkflow):
             if not answer_text:
                 logger.warning("No pending answer text in state")
                 return {}
+
+            # Transition interview to EVALUATING status when answer is received
+            interview_id = UUID(state["interview_id"])
+            interview = await self.interview_repo.get_by_id(interview_id)
+            if not interview:
+                logger.error(f"Interview {interview_id} not found")
+                return {"errors": state.get("errors", []) + [f"Interview {interview_id} not found"]}
+
+            # Transition from QUESTIONING to EVALUATING if needed
+            if interview.status == InterviewStatus.QUESTIONING:
+                interview.mark_evaluating()
+                await self.interview_repo.update(interview)
+                logger.info(f"Interview {interview_id} transitioned to EVALUATING status")
 
             # Build context with conversation history
             conversation_history = [
@@ -759,6 +773,81 @@ class InterviewConversationWorkflow(BaseWorkflow):
         return "complete" if state.get("complete") else "wait_for_answer"
 
     # ========== PUBLIC API ==========
+
+    async def get_workflow_state(self, thread_id: str) -> dict[str, Any] | None:
+        """Retrieve workflow state from checkpoint using compiled app.
+
+        Overrides base class method to use app.aget_state() which is the
+        recommended way to retrieve state from LangGraph checkpoints.
+
+        Args:
+            thread_id: Thread ID of the workflow execution
+
+        Returns:
+            Workflow state dict if checkpoint exists, None otherwise
+        """
+        try:
+            config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+
+            # Use compiled app's aget_state() method (recommended approach)
+            state_snapshot = await self.app.aget_state(config)  # type: ignore[attr-defined]
+
+            if state_snapshot is None:
+                logger.debug(f"No checkpoint found for thread {thread_id}")
+                return None
+
+            # StateSnapshot has .values that contains the state dict
+            # It might be a property or a method
+            if hasattr(state_snapshot, "values"):
+                values_attr = getattr(state_snapshot, "values")
+
+                # Try as property first
+                if not callable(values_attr):
+                    state = values_attr
+                else:
+                    # It's a method - call it (might be async or sync)
+                    try:
+                        if hasattr(values_attr, "__await__"):
+                            state = await values_attr()
+                        else:
+                            state = values_attr()
+                    except Exception as e:
+                        logger.warning(
+                            f"Error calling state_snapshot.values(): {e}, "
+                            f"trying as property"
+                        )
+                        # Fallback: try accessing as property
+                        state = state_snapshot.values
+
+                # Validate and return
+                if isinstance(state, dict):
+                    return state
+                else:
+                    logger.warning(
+                        f"StateSnapshot.values is not a dict: {type(state)}. "
+                        f"Trying to access state directly from snapshot."
+                    )
+                    # Last resort: check if snapshot itself is dict-like
+                    if isinstance(state_snapshot, dict):
+                        return state_snapshot
+                    return None
+            else:
+                # Try accessing state directly if snapshot is dict-like
+                if isinstance(state_snapshot, dict):
+                    return state_snapshot
+
+                logger.warning(
+                    f"StateSnapshot does not have 'values' attribute: {type(state_snapshot)}. "
+                    f"Available attributes: {[attr for attr in dir(state_snapshot) if not attr.startswith('_')][:10]}"
+                )
+                return None
+
+        except Exception as e:
+            logger.error(
+                f"Failed to retrieve workflow state for thread {thread_id}: {self.format_error(e)}",
+                exc_info=True
+            )
+            return None
 
     async def start_session(self, interview_id: UUID, candidate_id: UUID) -> dict[str, Any]:
         """Start conversation workflow and send first question.
