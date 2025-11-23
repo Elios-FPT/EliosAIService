@@ -109,8 +109,12 @@ class Container:
         self._tts_port: TextToSpeechPort | None = None
         self._checkpointer = None  # LangGraph checkpointer (lazy init)
 
-    def llm_port(self) -> LLMPort:
+    def llm_port(self, session: AsyncSession | None = None) -> LLMPort:
         """Get LLM port implementation.
+
+        Args:
+            session: Optional database session for injecting prompt repository.
+                    If provided and using LangChain adapter, prompt repository will be injected.
 
         Returns:
             Configured LLM port based on settings
@@ -118,6 +122,57 @@ class Container:
         Raises:
             ValueError: If LLM provider is not supported or not configured
         """
+        # If session is provided, create a new instance with repository (don't use cache)
+        if session is not None:
+            # Use mock adapter if configured
+            if self.settings.use_mock_llm:
+                return MockLLMAdapter()
+            # Use LangChain adapter if feature flag enabled
+            elif self.settings.use_langchain:
+                prompt_repo = self.prompt_repository_port(session)
+                return self._create_langchain_adapter(prompt_repository=prompt_repo)
+            elif self.settings.llm_provider == "openai":
+                # Check if using Azure OpenAI
+                if self.settings.use_azure_openai:
+                    if not self.settings.azure_openai_api_key:
+                        raise ValueError("Azure OpenAI API key not configured")
+                    if not self.settings.azure_openai_endpoint:
+                        raise ValueError("Azure OpenAI endpoint not configured")
+                    if not self.settings.azure_openai_deployment_name:
+                        raise ValueError("Azure OpenAI deployment name not configured")
+
+                    return AzureOpenAIAdapter(
+                        api_key=self.settings.azure_openai_api_key,
+                        azure_endpoint=self.settings.azure_openai_endpoint,
+                        api_version=self.settings.azure_openai_api_version,
+                        deployment_name=self.settings.azure_openai_deployment_name,
+                        temperature=self.settings.openai_temperature,
+                    )
+                else:
+                    # Standard OpenAI
+                    if not self.settings.openai_api_key:
+                        raise ValueError("OpenAI API key not configured")
+
+                    return OpenAIAdapter(
+                        api_key=self.settings.openai_api_key,
+                        model=self.settings.openai_model,
+                        temperature=self.settings.openai_temperature,
+                    )
+            elif self.settings.llm_provider == "claude":
+                if not self.settings.anthropic_api_key:
+                    raise ValueError("Anthropic API key not configured")
+
+                # Import Claude adapter when implemented
+                # from ...adapters.llm.claude_adapter import ClaudeAdapter
+                # return ClaudeAdapter(
+                #     api_key=self.settings.anthropic_api_key,
+                #     model=self.settings.anthropic_model,
+                # )
+                raise NotImplementedError("Claude adapter not yet implemented")
+            else:
+                raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
+
+        # No session provided - use cached singleton instance
         if self._llm_port is None:
             # Use mock adapter if configured
             if self.settings.use_mock_llm:
@@ -404,8 +459,13 @@ class Container:
             # return AnalyticsAdapter(database_url=self.settings.async_database_url)
             raise NotImplementedError("Real analytics adapter not yet implemented")
 
-    def _create_langchain_adapter(self) -> LangChainAdapter:
+    def _create_langchain_adapter(
+        self, prompt_repository: PromptRepositoryPort | None = None
+    ) -> LangChainAdapter:
         """Create LangChain adapter with configured model.
+
+        Args:
+            prompt_repository: Optional prompt repository for DB-managed prompts
 
         Returns:
             Configured LangChain adapter
@@ -476,7 +536,9 @@ class Container:
         # Create callbacks (includes PII filtering tracer if enabled)
         callbacks = create_pii_filtering_callback(self.settings)
 
-        return LangChainAdapter(model=model, callbacks=callbacks)
+        return LangChainAdapter(
+            model=model, callbacks=callbacks, prompt_repository=prompt_repository
+        )
 
     async def get_checkpointer(self):
         """Get LangGraph checkpointer for workflow state persistence.
@@ -547,7 +609,7 @@ class Container:
         interview_repo = self.interview_repository_port(session)
         question_repo = self.question_repository_port(session)
         follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port()
+        llm = self.llm_port(session)
 
         # Create and return workflow
         return AdaptiveEvalSimpleWorkflow(
@@ -584,7 +646,7 @@ class Container:
         interview_repo = self.interview_repository_port(session)
         question_repo = self.question_repository_port(session)
         follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port()
+        llm = self.llm_port(session)
 
         # Create and return workflow
         return AdaptiveEvalInterruptWorkflow(
@@ -621,7 +683,7 @@ class Container:
         answer_repo = self.answer_repository_port(session)
         evaluation_repo = self.evaluation_repository_port(session)
         followup_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port()
+        llm = self.llm_port(session)
 
         # Create and return workflow
         return InterviewConversationWorkflow(
