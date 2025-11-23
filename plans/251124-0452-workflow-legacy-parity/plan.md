@@ -313,15 +313,16 @@ Comprehensive parity testing:
 | Phase 1: Critical UX Fixes | ✅ COMPLETE (7/8 AC) | 100% | Implementation Team | 2025-11-24 DONE | Tests deferred to Phase 5 |
 | Phase 2: Message Standardization | ✅ COMPLETE (5/8 AC) | 100% | Implementation Team | 2025-11-24 DONE | Frontend verification pending |
 | Phase 3: Gap Strategy Alignment | ✅ COMPLETE (6/8 AC) | 100% | Implementation Team | 2025-11-24 DONE | Hybrid strategy implemented |
-| Phase 4: Polish & Edge Cases | ⏸️ SKIPPED | 0% | TBD | N/A | LOW priority - defer to next sprint |
+| Phase 4: Polish & Edge Cases | ✅ COMPLETE (3/3 tasks) | 100% | Implementation Team | 2025-11-24 DONE | State refresh, retry, audio doc |
 | Phase 5: Testing & Validation | ⏸️ DEFERRED | 0% | TBD | TBD | Create parity tests later |
 
-**Overall Progress:** 60% (3/5 phases PRODUCTION-READY, 1 deferred, 1 skipped)
+**Overall Progress:** 80% (4/5 phases PRODUCTION-READY, 1 deferred)
 
 **Code Review:** ✅ Completed 2025-11-24 ([Report](./reports/251124-code-reviewer-to-implementation-team-phase1-2-review.md))
 **Type Safety:** ✅ ALL TYPE ERRORS FIXED (9→0 mypy violations) - 2025-11-24 DONE
 **Gap Strategy:** ✅ Hybrid approach implemented with state-based + DB validation - 2025-11-24 DONE
-**Status:** ✅ PRODUCTION-READY (Phase 1-3 complete, type-safe, documented)
+**Polish & Edge Cases:** ✅ State refresh, retry logic, audio storage decision - 2025-11-24 DONE
+**Status:** ✅ PRODUCTION-READY (Phase 1-4 complete, type-safe, resilient, documented)
 
 ## Related Documents
 
@@ -362,8 +363,7 @@ Comprehensive parity testing:
    - Verification: `mypy` reports SUCCESS
 
 **DEFERRED (Accept Risk for Current Sprint):**
-1. **Phase 4 (Polish & Edge Cases)** - LOW priority, next sprint (3-4 hours)
-2. **Phase 5 (Parity Tests)** - Create when resources available (4-5 hours)
+1. **Phase 5 (Parity Tests)** - Create when resources available (4-5 hours)
 
 **READY FOR:**
 - ✅ Production rollout (with feature flag `use_langgraph_conversation_workflow`)
@@ -373,11 +373,11 @@ Comprehensive parity testing:
 
 **Next Steps (Priority Order):**
 1. ✅ Frontend integration testing (verify message formats)
-2. 📋 Schedule Phase 4 for next sprint (polish & edge cases)
-3. 📋 Schedule Phase 5 for test creation (parity + regression tests)
-4. 🚀 Production rollout via feature flag (gradual 5%→100%)
-5. 🔄 Frontend team to verify follow-up message styling
-6. 📊 Monitor gap validation metrics in production
+2. 📋 Schedule Phase 5 for test creation (parity + regression tests)
+3. 🚀 Production rollout via feature flag (gradual 5%→100%)
+4. 🔄 Frontend team to verify follow-up message styling
+5. 📊 Monitor gap validation metrics in production
+6. 📊 Monitor retry success rate and backoff patterns
 
 **Performance Notes:**
 - TTS latency: 200-500ms per question (acceptable, non-blocking)
