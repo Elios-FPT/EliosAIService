@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+def debug_print(msg: str):
+    """Helper function to print debug messages with timestamps."""
+    print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
+
+debug_print("llm_fallback_extractor.py: Starting imports...")
+
 import json
 import re
 from typing import Any, Protocol
@@ -10,6 +18,8 @@ from openai import AsyncOpenAI
 
 # ExtractedSkill no longer needed - using dict format for skills
 from ...infrastructure.config import Settings
+
+debug_print("llm_fallback_extractor.py: Imports completed")
 
 
 class LLMFallbackExtractorProtocol(Protocol):

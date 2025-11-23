@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+
+def debug_print(msg: str):
+    """Helper function to print debug messages with timestamps."""
+    print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
+
+debug_print("hybrid_cv_analyzer_adapter.py: Starting imports...")
+
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -14,14 +21,21 @@ from ...domain.models.candidate import Candidate
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
+
+debug_print("hybrid_cv_analyzer_adapter.py: About to import sub-modules...")
 from .confidence_scorer import ConfidenceScorer
+debug_print("hybrid_cv_analyzer_adapter.py: confidence_scorer imported")
 from .llm_fallback_extractor import (
     LLMFallbackExtractor,
     LLMFallbackExtractorProtocol,
     NoOpLLMFallbackExtractor,
 )
+debug_print("hybrid_cv_analyzer_adapter.py: llm_fallback_extractor imported")
 from .rule_based_extractor import RuleBasedExtractor
+debug_print("hybrid_cv_analyzer_adapter.py: rule_based_extractor imported")
 from .spacy_ner_extractor import SpacyNERExtractor
+debug_print("hybrid_cv_analyzer_adapter.py: spacy_ner_extractor imported")
+debug_print("hybrid_cv_analyzer_adapter.py: All imports completed")
 
 
 class HybridCVAnalyzerAdapter(CVAnalyzerPort):

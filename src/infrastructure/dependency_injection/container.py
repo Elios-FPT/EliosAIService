@@ -4,16 +4,29 @@ This module wires up all dependencies and provides them to the application.
 It's the only place that knows about concrete implementations.
 """
 
+from datetime import datetime
+
+def debug_print(msg: str):
+    """Helper function to print debug messages with timestamps."""
+    print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
+
+debug_print("container.py: Starting imports...")
+
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import adapters
+debug_print("container.py: About to import LLM adapters...")
 from ...adapters.llm.azure_openai_adapter import AzureOpenAIAdapter
+debug_print("container.py: AzureOpenAIAdapter imported")
 from ...adapters.llm.openai_adapter import OpenAIAdapter
+debug_print("container.py: OpenAIAdapter imported")
 from ...adapters.llm.langchain_adapter import LangChainAdapter
+debug_print("container.py: LangChainAdapter imported")
 
 # Import mock adapters
+debug_print("container.py: About to import mock adapters...")
 from ...adapters.mock import (
     MockAnalyticsAdapter,
     MockCVAnalyzerAdapter,
@@ -22,8 +35,10 @@ from ...adapters.mock import (
     MockTTSAdapter,
     MockVectorSearchAdapter,
 )
+debug_print("container.py: Mock adapters imported")
 
 # Import persistence adapters
+debug_print("container.py: About to import persistence adapters...")
 from ...adapters.persistence import (
     PostgreSQLAnswerRepository,
     PostgreSQLCandidateRepository,
@@ -34,10 +49,20 @@ from ...adapters.persistence import (
     PostgreSQLPromptRepository,
     PostgreSQLQuestionRepository,
 )
+debug_print("container.py: Persistence adapters imported")
+
+debug_print("container.py: About to import vector_db adapters...")
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
+debug_print("container.py: PineconeAdapter imported")
 from ...adapters.vector_db.chroma_adapter import ChromaAdapter
+debug_print("container.py: ChromaAdapter imported")
+
+debug_print("container.py: About to import CV processing adapters...")
 from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
+debug_print("container.py: CVProcessingAdapter imported")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
+debug_print("container.py: HybridCVAnalyzerAdapter imported")
+debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
     AnalyticsPort,
     AnswerRepositoryPort,
@@ -54,7 +79,13 @@ from ...domain.ports import (
     TextToSpeechPort,
     VectorSearchPort,
 )
+debug_print("container.py: Domain ports imported")
+
+debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
+debug_print("container.py: Settings imported")
+
+debug_print("container.py: All imports completed, defining Container class...")
 
 
 class Container:
