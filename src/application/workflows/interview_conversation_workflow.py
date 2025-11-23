@@ -129,15 +129,19 @@ class InterviewConversationWorkflow(BaseWorkflow):
         Workflow structure:
         START → route_entry → [new session?] → start_session → END (wait for answer)
                     ↓
-              [has answer?] → evaluate_answer → update_memory → decide_followup
-                                                      ↓
-                                              [needs_followup?]
-                                                      ↓
-                                              generate_followup → END (wait for answer)
-                                                      ↓
-                                              next_or_complete → [complete?] → complete → END
-                                                      ↓
-                                              [has_more?] → END (wait for answer)
+              [has answer?] → evaluate_answer → [follow-up?] → validate_gaps → update_memory
+                                                      ↓                    ↓
+                                              [main question] ─────────────┘
+                                                                           ↓
+                                                                  decide_followup
+                                                                           ↓
+                                                                   [needs_followup?]
+                                                                           ↓
+                                                                   generate_followup → END
+                                                                           ↓
+                                                                   next_or_complete → [complete?] → complete → END
+                                                                           ↓
+                                                                   [has_more?] → END
 
         Returns:
             Compiled StateGraph ready for execution
@@ -149,6 +153,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         graph.add_node("route_entry", self._route_entry_node)
         graph.add_node("start_session", self._start_session_node)
         graph.add_node("evaluate_answer", self._evaluate_answer_node)
+        graph.add_node("validate_gaps", self._validate_gaps_node)  # Phase 3: Gap validation
         graph.add_node("update_memory", self._update_memory_node)
         graph.add_node("decide_followup", self._decide_followup_node)
         graph.add_node("generate_followup", self._generate_followup_node)
@@ -171,8 +176,20 @@ class InterviewConversationWorkflow(BaseWorkflow):
         # Start session, then wait for first answer
         graph.add_edge("start_session", END)
 
-        # Linear flow: evaluate → memory → decide
-        graph.add_edge("evaluate_answer", "update_memory")
+        # Phase 3: Conditional gap validation (only for follow-ups)
+        graph.add_conditional_edges(
+            "evaluate_answer",
+            lambda state: "validate_gaps" if state.get("parent_question_id") else "update_memory",
+            {
+                "validate_gaps": "validate_gaps",
+                "update_memory": "update_memory",
+            },
+        )
+
+        # Validation → Memory update
+        graph.add_edge("validate_gaps", "update_memory")
+
+        # Memory → Decide
         graph.add_edge("update_memory", "decide_followup")
 
         # Conditional: decide_followup → generate_followup OR next_or_complete
@@ -491,6 +508,75 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "errors": state.get("errors", []) + [f"evaluate_answer: {str(exc)}"],
                 "retry_count": state.get("retry_count", 0) + 1,
             }
+
+    async def _validate_gaps_node(self, state: ConversationState) -> dict[str, Any]:
+        """Validate cumulative gaps against DB (resume safety check).
+
+        Only runs when resuming from checkpoint during follow-up context.
+        Ensures no gaps missed if state was corrupted or reset.
+
+        Args:
+            state: Current conversation state
+
+        Returns:
+            State updates: cumulative_gaps (validated/merged from DB)
+        """
+        try:
+            # Skip if no parent question (new main question)
+            parent_question_id_str = state.get("parent_question_id")
+            if not parent_question_id_str:
+                return {}  # No validation needed
+
+            parent_question_id = UUID(parent_question_id_str)
+            interview_id = UUID(state["interview_id"])
+
+            # Get all answers for this interview from state (already loaded)
+            answers_list = state.get("answers", [])
+            if not answers_list:
+                return {}  # No previous answers
+
+            # Get all evaluations from state (already loaded)
+            evaluations_dicts = state.get("evaluations", [])
+            if not evaluations_dicts:
+                return {}  # No previous evaluations
+
+            # Extract all unresolved gaps from evaluations related to parent question
+            db_gaps: set[str] = set()
+            for eval_dict in evaluations_dicts:
+                # Filter evaluations for parent question
+                if str(eval_dict.get("question_id")) == str(parent_question_id):
+                    for gap_dict in eval_dict.get("gaps", []):
+                        if not gap_dict.get("resolved", False):
+                            db_gaps.add(gap_dict.get("concept", ""))
+
+            # Compare with state gaps
+            state_gaps = set(state.get("cumulative_gaps", []))
+            missing_gaps = db_gaps - state_gaps
+
+            if missing_gaps:
+                logger.warning(
+                    f"Gap mismatch detected: {len(missing_gaps)} gaps missing from state",
+                    extra={
+                        "interview_id": state["interview_id"],
+                        "parent_question_id": parent_question_id_str,
+                        "state_gaps": list(state_gaps),
+                        "db_gaps": list(db_gaps),
+                        "missing_gaps": list(missing_gaps),
+                        "mismatch_count": len(missing_gaps),
+                    },
+                )
+
+                # Merge missing gaps into state
+                merged_gaps = list(state_gaps.union(db_gaps))
+                return {"cumulative_gaps": merged_gaps}
+
+            logger.debug("Gap validation passed: state matches DB")
+            return {}
+
+        except Exception as exc:
+            logger.error(f"Gap validation failed: {exc}", exc_info=True)
+            # Non-blocking: continue with state gaps if validation fails
+            return {}
 
     async def _update_memory_node(self, state: ConversationState) -> dict[str, Any]:
         """Append Q&A to conversation memory with truncation.
