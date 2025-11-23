@@ -194,6 +194,8 @@ class Settings(BaseSettings):
     # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
     # support pool configuration via API. The checkpointer creates its own internal pool (~5-10 connections).
     # Total connections: SQLAlchemy (10-30) + AsyncPostgresSaver (~5-10) = ~35-40 connections.
+    langgraph_checkpointer_init_on_startup: bool = True  # Initialize checkpointer at startup (prevents first-request timeout)
+    langgraph_checkpointer_setup_timeout: float = 20.0  # Timeout in seconds for checkpointer setup (default: 120s)
 
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
     use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
