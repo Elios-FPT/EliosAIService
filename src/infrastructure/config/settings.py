@@ -203,6 +203,9 @@ class Settings(BaseSettings):
     # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
     use_langgraph_adaptive_interrupt: bool = False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
 
+    # LangGraph Interview Conversation Workflow (replaces session_orchestrator)
+    use_langgraph_conversation: bool = True  # Feature flag for conversation workflow with memory and checkpointing
+
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True

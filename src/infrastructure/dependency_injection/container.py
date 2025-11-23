@@ -597,6 +597,43 @@ class Container:
             llm=llm,
         )
 
+    async def create_interview_conversation_workflow(self, session: AsyncSession):
+        """Create InterviewConversationWorkflow with all dependencies.
+
+        Args:
+            session: Async database session
+
+        Returns:
+            Configured InterviewConversationWorkflow instance
+
+        Note:
+            This is async due to checkpointer initialization.
+            Replaces session_orchestrator with stateful workflow.
+        """
+        from ...application.workflows.interview_conversation_workflow import InterviewConversationWorkflow
+
+        # Get checkpointer
+        checkpointer = await self.get_checkpointer()
+
+        # Get all required ports
+        interview_repo = self.interview_repository_port(session)
+        question_repo = self.question_repository_port(session)
+        answer_repo = self.answer_repository_port(session)
+        evaluation_repo = self.evaluation_repository_port(session)
+        followup_repo = self.follow_up_question_repository(session)
+        llm = self.llm_port()
+
+        # Create and return workflow
+        return InterviewConversationWorkflow(
+            checkpointer=checkpointer,
+            interview_repo=interview_repo,
+            question_repo=question_repo,
+            answer_repo=answer_repo,
+            evaluation_repo=evaluation_repo,
+            followup_repo=followup_repo,
+            llm=llm,
+        )
+
 
 @lru_cache
 def get_container() -> Container:
