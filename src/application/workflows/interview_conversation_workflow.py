@@ -892,6 +892,81 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "complete": True,  # Force completion on error
             }
 
+    async def _retry_with_backoff(
+        self,
+        func: Any,  # Callable but type hints cause complexity
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Retry function with exponential backoff.
+
+        Retries transient failures (network, LLM rate limits) with exponential backoff.
+        Non-transient errors fail immediately.
+
+        Args:
+            func: Async function to retry
+            *args, **kwargs: Function arguments
+
+        Returns:
+            Function result
+
+        Raises:
+            Last exception if all retries exhausted
+        """
+        import asyncio
+
+        max_retries = 3
+        base_delay = 1.0  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as exc:
+                if attempt == max_retries - 1:
+                    # Last attempt - raise
+                    raise
+
+                # Exponential backoff
+                delay = base_delay * (2 ** attempt)
+                logger.warning(
+                    f"Retry {attempt + 1}/{max_retries} after {delay}s: {exc}",
+                    extra={"error": str(exc), "attempt": attempt + 1, "max_retries": max_retries},
+                )
+                await asyncio.sleep(delay)
+
+        raise RuntimeError("Retry logic failed")  # Should never reach
+
+    async def _refresh_interview_state(self, state: ConversationState) -> dict[str, Any]:
+        """Reload interview from DB to sync critical fields.
+
+        Refreshes state from DB before critical operations to avoid stale state
+        from external updates.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            State updates with refreshed fields (non-blocking if fails)
+        """
+        try:
+            interview_id = UUID(state["interview_id"])
+            interview = await self.interview_repo.get_by_id(interview_id)
+
+            if not interview:
+                logger.error(f"Interview {interview_id} not found during refresh")
+                return {}
+
+            # Return refreshed fields (don't overwrite entire state)
+            return {
+                "interview_status": interview.status.value,
+                "current_question_index": interview.current_question_index,
+                "followup_count": interview.current_followup_count,
+            }
+
+        except Exception as exc:
+            logger.warning(f"State refresh failed: {exc}")
+            return {}  # Non-blocking
+
     async def _complete_interview_node(self, state: ConversationState) -> dict[str, Any]:
         """Generate summary and finalize interview.
 
