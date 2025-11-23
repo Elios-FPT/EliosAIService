@@ -265,7 +265,11 @@ class InterviewConversationWorkflow(BaseWorkflow):
 
             return {
                 "current_question_id": str(question.id),
-                "current_question": question.model_dump(mode="json"),
+                "current_question": {
+                    **question.model_dump(mode="json"),
+                    "index": interview.current_question_index,  # WebSocket compatibility (Phase 2)
+                    "total": total_questions,  # WebSocket compatibility (Phase 2)
+                },
                 "messages": [],  # Empty conversation
                 "has_more_questions": has_more,
                 "followup_count": 0,
@@ -330,6 +334,9 @@ class InterviewConversationWorkflow(BaseWorkflow):
 
             # Step 3: Get question (main or follow-up parent)
             if is_followup:
+                if parent_question_id is None:
+                    logger.error("parent_question_id is None for follow-up")
+                    return {"errors": state.get("errors", []) + ["parent_question_id is None"]}
                 question = await self.question_repo.get_by_id(parent_question_id)
                 if not question:
                     logger.error(f"Parent question {parent_question_id} not found")
@@ -352,7 +359,14 @@ class InterviewConversationWorkflow(BaseWorkflow):
 
             # Step 5: Create answer entity (simplified - no embedded evaluation)
             # For follow-up questions, use parent_question_id to satisfy FK constraint
-            answer_question_id = parent_question_id if is_followup else UUID(state["current_question_id"])
+            if is_followup:
+                if parent_question_id is None:
+                    logger.error("parent_question_id is None when creating answer")
+                    return {"errors": state.get("errors", []) + ["parent_question_id is None"]}
+                answer_question_id = parent_question_id
+            else:
+                answer_question_id = UUID(state["current_question_id"])
+
             answer = Answer(
                 interview_id=interview_id,
                 question_id=answer_question_id,  # Use parent question ID for follow-ups
@@ -539,10 +553,11 @@ class InterviewConversationWorkflow(BaseWorkflow):
     async def _decide_followup_node(self, state: ConversationState) -> dict[str, Any]:
         """Decide if follow-up question needed.
 
-        Break conditions (exit if ANY met):
+        Break conditions (aligned with FollowUpDecisionUseCase):
         1. followup_count >= 3 (max reached)
-        2. final_score >= 80.0 (quality sufficient)
-        3. no unresolved gaps
+        2. evaluation.is_adaptive_complete() (similarity >= 0.8 OR no gaps)
+
+        Uses domain method for consistency with legacy path.
 
         Args:
             state: Current conversation state
@@ -552,32 +567,36 @@ class InterviewConversationWorkflow(BaseWorkflow):
         """
         try:
             followup_count = state.get("followup_count", 0)
-            latest_eval = state["evaluations"][-1]
+            latest_eval_dict = state["evaluations"][-1]
 
             # Break condition 1: Max follow-ups
             if followup_count >= 3:
                 logger.info(f"Max follow-ups reached ({followup_count})")
                 return {"needs_followup": False, "followup_reason": "Max follow-ups reached"}
 
-            # Break condition 2: High score
-            if latest_eval["final_score"] >= 80.0:
-                logger.info(f"Score sufficient: {latest_eval['final_score']}")
-                return {"needs_followup": False, "followup_reason": "Score sufficient"}
+            # Reconstruct Evaluation entity to call domain method
+            evaluation = Evaluation(**latest_eval_dict)
 
-            # Break condition 3: No gaps
+            # Break condition 2: Adaptive completion criteria (domain method)
+            if evaluation.is_adaptive_complete():
+                reason = (
+                    f"Answer meets completion criteria: "
+                    f"similarity={evaluation.similarity_score:.2f}"
+                    if evaluation.similarity_score is not None and evaluation.similarity_score >= 0.8
+                    else "No unresolved gaps"
+                )
+                logger.info(reason)
+                return {"needs_followup": False, "followup_reason": reason}
+
+            # Accumulate gaps from unresolved
             unresolved_gaps = [
-                gap for gap in latest_eval.get("gaps", []) if not gap.get("resolved", False)
+                gap for gap in evaluation.gaps if not gap.resolved
             ]
-            if not unresolved_gaps:
-                logger.info("No gaps detected")
-                return {"needs_followup": False, "followup_reason": "No gaps detected"}
 
-            # Accumulate gaps from all evaluations in this cycle
             cumulative = state.get("cumulative_gaps", [])
             for gap in unresolved_gaps:
-                concept = gap.get("concept")
-                if concept and concept not in cumulative:
-                    cumulative.append(concept)
+                if gap.concept and gap.concept not in cumulative:
+                    cumulative.append(gap.concept)
 
             logger.info(
                 f"Follow-up needed: {len(unresolved_gaps)} gaps detected",
@@ -703,6 +722,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                     "text": followup.text,
                     "question_type": "FOLLOW_UP",
                     "ideal_answer": ideal_answer,  # NEW: Pass parent's ideal_answer
+                    "parent_question_id": str(parent_question_id),  # WebSocket compatibility (Phase 2)
                     "generated_reason": followup.generated_reason,  # WebSocket compatibility
                     "order_in_sequence": followup.order_in_sequence,  # WebSocket compatibility
                 },
@@ -768,7 +788,11 @@ class InterviewConversationWorkflow(BaseWorkflow):
 
             return {
                 "current_question_id": str(question.id),
-                "current_question": question.model_dump(mode="json"),
+                "current_question": {
+                    **question.model_dump(mode="json"),  # All question fields
+                    "index": interview.current_question_index,  # WebSocket compatibility (Phase 2)
+                    "total": total,  # WebSocket compatibility (Phase 2)
+                },
                 "parent_question_id": None,  # Reset (new main question)
                 "followup_count": 0,  # Reset counter
                 "cumulative_gaps": [],  # Reset gaps
@@ -1016,8 +1040,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
             cumulative_gaps.append(gap)
 
         # Extract ideal_answer from current_question in state
-        current_question = state.get("current_question", {})
-        ideal_answer = current_question.get("ideal_answer", "")
+        current_question = state.get("current_question")
+        ideal_answer = current_question.get("ideal_answer", "") if current_question else ""
 
         if not ideal_answer:
             logger.warning("No ideal_answer in state for follow-up context")
@@ -1103,7 +1127,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
             config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
 
             # Use compiled app's aget_state() method (recommended approach)
-            state_snapshot = await self.app.aget_state(config)  # type: ignore[attr-defined]
+            state_snapshot = await self.app.aget_state(config)  # type: ignore[arg-type]
 
             if state_snapshot is None:
                 logger.debug(f"No checkpoint found for thread {thread_id}")
@@ -1195,6 +1219,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "needs_followup": False,
                 "complete": False,
                 "followup_reason": None,
+                "summary": None,
+                "final_status": None,
                 "errors": [],
                 "retry_count": 0,
                 "checkpoint_thread_id": thread_id,
@@ -1276,11 +1302,38 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "final_status": result.get("final_status"),
                 "has_more": result.get("has_more_questions"),
                 "errors": result.get("errors", []),
+                # NEW: Add evaluation data for client display
+                "evaluation": self._extract_latest_evaluation(result),
             }
 
         except Exception as exc:
             logger.error(f"process_answer failed: {exc}", exc_info=True)
             raise
+
+    def _extract_latest_evaluation(self, result: dict[str, Any]) -> dict[str, Any] | None:
+        """Extract latest evaluation from workflow state.
+
+        Args:
+            result: Workflow execution result containing state
+
+        Returns:
+            Evaluation dict with score, feedback, strengths, weaknesses, gaps
+            None if no evaluations in state
+        """
+        evaluations = result.get("evaluations", [])
+        if not evaluations:
+            return None
+
+        latest_eval = evaluations[-1]  # Last evaluation in list
+
+        return {
+            "answer_id": latest_eval.get("answer_id"),
+            "score": latest_eval.get("final_score"),
+            "feedback": latest_eval.get("reasoning"),
+            "strengths": latest_eval.get("strengths", []),
+            "weaknesses": latest_eval.get("weaknesses", []),
+            "gaps": latest_eval.get("gaps", []),
+        }
 
     def visualize_graph(self, output_format: str = "mermaid") -> str | bytes:
         """Visualize the workflow graph.

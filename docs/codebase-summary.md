@@ -89,10 +89,15 @@ EliosAIService/
 │   │   │   ├── generate_summary.py # Interview summary generation
 │   │   │   ├── follow_up_decision.py # Follow-up decision logic
 │   │   │   └── combine_evaluation.py # Combine evaluations
-│   │   └── workflows/           # LangGraph workflow orchestration (NEW - 5 files)
+│   │   └── workflows/           # LangGraph workflow orchestration (NEW - 6 files)
 │   │       ├── __init__.py
 │   │       ├── base_workflow.py # Base workflow with LangGraph checkpointing
 │   │       ├── planning_workflow.py # Interview planning workflow
+│   │       ├── interview_conversation_workflow.py # Conversation/QA workflow (NEW v0.3.0)
+│   │       │   # Replaces session_orchestrator for answer evaluation + follow-ups
+│   │       │   # - process_answer() returns evaluation dict (Phase 1)
+│   │       │   # - _extract_latest_evaluation() helper (Phase 1)
+│   │       │   # - Uses is_adaptive_complete() for follow-up decisions
 │   │       ├── adaptive_eval_simple_workflow.py # Simple adaptive evaluation
 │   │       └── adaptive_eval_interrupt_workflow.py # Interrupt-based evaluation
 │   ├── adapters/                # External service implementations
@@ -136,8 +141,13 @@ EliosAIService/
 │   │       │   └── prompt_routes.py     # Prompt management endpoints (NEW v0.4.0)
 │   │       └── websocket/       # WebSocket handlers (3 files)
 │   │           ├── connection_manager.py # WebSocket connection pool
-│   │           ├── session_orchestrator.py # Session orchestrator (delegated to domain)
-│   │           └── interview_handler.py  # Simplified WebSocket I/O handler
+│   │           ├── session_orchestrator.py # Session orchestrator (legacy path)
+│   │           └── interview_handler.py  # WebSocket handler (workflow + legacy paths)
+│   │               # NEW helpers (Phase 1-2):
+│   │               # - _generate_tts_audio(): TTS synthesis + base64 encoding
+│   │               # - _extract_latest_evaluation(): Extract eval from workflow state
+│   │               # - _detect_question_type(): Identify main vs follow-up
+│   │               # - _format_question_message(): Format WebSocket message by type
 │   └── infrastructure/          # Cross-cutting concerns
 │       ├── config/              # Configuration management
 │       │   └── settings.py      # Pydantic settings
@@ -347,6 +357,17 @@ EliosAIService/
 - State: cv_analysis, question_count, questions, embeddings
 - Nodes: analyze_cv, generate_questions, store_embeddings
 - Edges: conditional routing based on question count
+
+**InterviewConversationWorkflow** (`interview_conversation_workflow.py`) (NEW v0.3.0):
+- Conversation/QA phase workflow (replaces session_orchestrator)
+- State: interview_id, messages, current_question, evaluations, followup_count, cumulative_gaps
+- Nodes: evaluate_answer, update_memory, decide_followup, generate_followup, get_next_question, complete_interview
+- Phase 1-2 features:
+  - Returns evaluation dict in process_answer() response
+  - _extract_latest_evaluation() helper extracts from state
+  - Uses is_adaptive_complete() domain method for follow-up decisions
+  - Supports main + follow-up question metadata (index, total, parent_question_id, etc.)
+- Edges: conditional routing based on follow-up needs + question availability
 
 **AdaptiveEvalSimpleWorkflow** (`adaptive_eval_simple_workflow.py`):
 - Simple adaptive evaluation without interrupts

@@ -1755,26 +1755,44 @@ LangChainAdapter (LLMPort)
   "type": "get_next_question"
 }
 
-// Server → Client: Send question with audio
+// Server → Client: Main question (with TTS audio, index/total)
 {
   "type": "question",
   "question_id": "uuid",
   "text": "What is...?",
   "question_type": "technical",
   "difficulty": "medium",
-  "index": 0,
-  "total": 5,
+  "index": 0,              // NEW: Question index in sequence
+  "total": 5,              // NEW: Total questions planned
+  "audio_data": "base64_encoded_tts_audio"  // NEW: TTS audio (Phase 1)
+}
+
+// Server → Client: Follow-up question (adaptive)
+{
+  "type": "follow_up_question",  // NEW: Distinct type (Phase 2)
+  "question_id": "uuid",
+  "parent_question_id": "uuid",  // NEW: Links to main question
+  "text": "Can you elaborate on...?",
+  "generated_reason": "Candidate missed key concept: X",  // NEW: Why generated
+  "order_in_sequence": 1,        // NEW: 1st, 2nd, 3rd follow-up
   "audio_data": "base64_encoded_tts_audio"
 }
 
-// Server → Client: Answer evaluation
+// Server → Client: Answer evaluation (Phase 1)
 {
   "type": "evaluation",
   "answer_id": "uuid",
-  "score": 85.5,
+  "score": 85.5,           // Final score (after penalty)
   "feedback": "Good answer...",
   "strengths": ["Clear explanation", "Good examples"],
-  "weaknesses": ["Missing edge cases"]
+  "weaknesses": ["Missing edge cases"],
+  "gaps": [                // NEW: Concept gaps for follow-ups
+    {
+      "concept": "Error handling",
+      "severity": "MODERATE",
+      "resolved": false
+    }
+  ]
 }
 
 // Server → Client: Interview complete
@@ -1803,12 +1821,22 @@ LangChainAdapter (LLMPort)
 
 **Features**:
 - Real-time bi-directional communication
-- Automatic question delivery with TTS audio
-- Answer evaluation and immediate feedback
+- Automatic question delivery with TTS audio (Phase 1)
+- Answer evaluation with immediate feedback (Phase 1)
 - Progress tracking (current/total questions)
+- Adaptive follow-up questions with metadata (Phase 2)
+- Message type differentiation (main vs follow-up)
 - Error handling with descriptive codes
 - Support for both text and voice answers
 - Connection management via ConnectionManager
+
+**Workflow Path Changes** (v0.3.0 - Legacy Parity):
+- Evaluation feedback sent after answer processing (Phase 1)
+- TTS audio generated for all questions (main + follow-up, Phase 1)
+- Follow-up decisions use domain method `is_adaptive_complete()` (Phase 1)
+- Message formats standardized (Phase 2):
+  - Main questions: `type: "question"` with `index`, `total`, `audio_data`
+  - Follow-ups: `type: "follow_up_question"` with `parent_question_id`, `generated_reason`, `order_in_sequence`
 
 ## Security Architecture
 
@@ -2383,6 +2411,143 @@ def planning_workflow(self, session: AsyncSession) -> PlanningWorkflow:
 - Checkpoint only critical nodes (not every node)
 - Use connection pooling for checkpointer
 - Clean up old checkpoints (retention policy)
+
+### InterviewConversationWorkflow: Evaluation Flow
+
+**Workflow**: `interview_conversation_workflow.py` (conversation phase, Q&A loop)
+
+**Purpose**: Replace legacy `session_orchestrator` with stateful workflow for answer evaluation + follow-up generation.
+
+**Evaluation Return Pattern** (Phase 1 - Legacy Parity):
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  WebSocket Handler (_handle_with_workflow)              │
+│  - Receives answer_text from client                      │
+│  - Calls workflow.process_answer()                       │
+└─────────────────────────┬────────────────────────────────┘
+                          │
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│  InterviewConversationWorkflow.process_answer()          │
+│  - Resume from checkpoint (thread_id)                    │
+│  - Inject pending_answer_text into state                 │
+│  - Execute workflow nodes (evaluate → decide → next)     │
+│  - Return dict with evaluation + next question           │
+└─────────────────────────┬────────────────────────────────┘
+                          │
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│  _evaluate_answer_node                                   │
+│  - Create Answer entity, save to DB                      │
+│  - Call LLM for evaluation (via LangChainAdapter)        │
+│  - Create Evaluation entity, save to DB                  │
+│  - Store in state["evaluations"] list                    │
+└─────────────────────────┬────────────────────────────────┘
+                          │
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│  _extract_latest_evaluation (helper)                     │
+│  - Extract last evaluation from state["evaluations"]     │
+│  - Format as dict: {answer_id, score, feedback,          │
+│    strengths, weaknesses, gaps}                          │
+│  - Return to process_answer() result                     │
+└─────────────────────────┬────────────────────────────────┘
+                          │
+                          ↓
+┌──────────────────────────────────────────────────────────┐
+│  WebSocket Handler (continued)                           │
+│  - Extract result["evaluation"]                          │
+│  - Send evaluation message to client (type: "evaluation")│
+│  - Generate TTS audio for next question                  │
+│  - Format message (_format_question_message helper)      │
+│  - Send question message (type: "question" or            │
+│    "follow_up_question")                                 │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Key Decisions**:
+- **AD-1**: Evaluation returned in `process_answer()` response (not in state)
+  - **Rationale**: Avoids state bloat, aligns with existing return pattern
+  - **Alternative Rejected**: Storing full evaluation dict in state
+- **AD-4**: Follow-up decision uses `evaluation.is_adaptive_complete()` domain method
+  - **Rationale**: Single source of truth, domain-driven logic
+  - **Implementation**: Extract evaluation from state, reconstruct entity, call method
+
+**TTS Integration** (Phase 1):
+
+```python
+# interview_handler.py
+async def _generate_tts_audio(text: str, container: Container) -> str | None:
+    """Generate TTS audio and encode as base64."""
+    tts = container.text_to_speech_port()
+    audio_bytes = await tts.synthesize_speech(text)
+    return base64.b64encode(audio_bytes).decode("utf-8")
+
+# Called AFTER workflow execution, before sending question message
+audio_data = await _generate_tts_audio(question_text, container)
+```
+
+**Location**: `interview_handler.py` (presentation layer)
+**Rationale**: TTS is presentation concern, keep workflow domain-focused
+
+**Message Formatting** (Phase 2):
+
+```python
+def _detect_question_type(question_dict: dict) -> str:
+    """Detect main vs follow-up from question dict."""
+    if question_dict.get("question_type") == "FOLLOW_UP":
+        return "follow_up_question"
+    if "parent_question_id" in question_dict:
+        return "follow_up_question"
+    if "order_in_sequence" in question_dict:
+        return "follow_up_question"
+    return "question"  # Default: main question
+
+def _format_question_message(
+    question_dict: dict,
+    question_id: str,
+    has_more: bool,
+    audio_data: str | None,
+) -> dict:
+    """Format message based on type (main or follow-up)."""
+    msg_type = _detect_question_type(question_dict)
+
+    if msg_type == "follow_up_question":
+        return {
+            "type": "follow_up_question",
+            "question_id": question_id,
+            "parent_question_id": question_dict.get("parent_question_id"),
+            "text": question_dict.get("text"),
+            "generated_reason": question_dict.get("generated_reason"),
+            "order_in_sequence": question_dict.get("order_in_sequence"),
+            "audio_data": audio_data,
+        }
+    else:
+        return {
+            "type": "question",
+            "question_id": question_id,
+            "text": question_dict.get("text"),
+            "question_type": question_dict.get("question_type"),
+            "difficulty": question_dict.get("difficulty"),
+            "index": question_dict.get("index", 0),
+            "total": question_dict.get("total", 0),
+            "audio_data": audio_data,
+        }
+```
+
+**Helper Functions** (NEW - Phase 2):
+- `_detect_question_type()`: Identify main vs follow-up from question dict
+- `_format_question_message()`: Format WebSocket message based on type
+- `_generate_tts_audio()`: Generate TTS audio, return base64 string (Phase 1)
+- `_extract_latest_evaluation()`: Extract evaluation from workflow state (Phase 1)
+
+**Parity Status** (v0.3.0):
+- ✅ Phase 1 Complete: Evaluation feedback, TTS audio, follow-up decision logic
+- ✅ Phase 2 Complete: Message standardization, metadata fields
+- ⚠️ Phase 3 Pending: Gap accumulation strategy alignment
+- ⚠️ Phase 4 Pending: State sync, retry logic, audio file path storage
+- ⚠️ Phase 5 Pending: Parity tests, production rollout
 
 ## Observability Layer Architecture
 
