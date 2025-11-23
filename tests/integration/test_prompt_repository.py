@@ -22,7 +22,7 @@ async def test_create_initial_prompt(async_session):
         notes="Initial version",
     )
 
-    assert prompt.name == "test_prompt"
+    assert prompt.prompt_name == "test_prompt"
     assert prompt.version == 1
     assert prompt.is_draft is True
     assert prompt.is_active is False

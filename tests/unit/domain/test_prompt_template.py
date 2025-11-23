@@ -9,16 +9,14 @@ from src.domain.models.prompt_template import PromptTemplate
 def test_prompt_template_creation():
     """Test creating a valid prompt template."""
     prompt = PromptTemplate(
-        name="test_prompt",
+        prompt_name="test_prompt",
         version=1,
-        template_json={
-            "system": "You are an assistant.",
-            "user_template": "Generate question for {skill}",
-            "variables": ["skill"],
-        },
+        system_prompt="You are an assistant.",
+        user_template="Generate question for {skill}",
+        input_variables=["skill"],
     )
 
-    assert prompt.name == "test_prompt"
+    assert prompt.prompt_name == "test_prompt"
     assert prompt.version == 1
     assert prompt.is_draft is True
     assert prompt.is_active is False
@@ -29,7 +27,7 @@ def test_template_json_validation():
     """Test template_json validation."""
     # Valid template
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=1,
         template_json={
             "system": "You are an assistant.",
@@ -42,7 +40,7 @@ def test_template_json_validation():
     # Missing 'system' key
     with pytest.raises(ValueError, match="must contain"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "user_template": "Missing system",
@@ -53,7 +51,7 @@ def test_template_json_validation():
     # Missing 'user_template' key
     with pytest.raises(ValueError, match="must contain"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "Missing user_template",
@@ -64,7 +62,7 @@ def test_template_json_validation():
     # Missing 'variables' key
     with pytest.raises(ValueError, match="must contain"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "Missing variables",
@@ -75,7 +73,7 @@ def test_template_json_validation():
     # Invalid 'system' type (not string)
     with pytest.raises(ValueError, match="must be a string"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": 123,  # Should be string
@@ -87,7 +85,7 @@ def test_template_json_validation():
     # Invalid 'variables' type (not list)
     with pytest.raises(ValueError, match="must be a list"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "test",
@@ -101,7 +99,7 @@ def test_active_draft_validation():
     """Test that active versions cannot be drafts."""
     # Draft non-active (valid)
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=1,
         template_json={
             "system": "test",
@@ -115,7 +113,7 @@ def test_active_draft_validation():
 
     # Active non-draft (valid)
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=1,
         template_json={
             "system": "test",
@@ -130,7 +128,7 @@ def test_active_draft_validation():
     # Active draft (invalid)
     with pytest.raises(ValueError, match="cannot be drafts"):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "test",
@@ -145,7 +143,7 @@ def test_active_draft_validation():
 def test_get_prompt_text():
     """Test prompt rendering with variables."""
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=1,
         template_json={
             "system": "You are an assistant.",
@@ -178,7 +176,7 @@ def test_traffic_percentage_validation():
     # Valid percentages
     for pct in [0, 50, 100]:
         prompt = PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "test",
@@ -192,7 +190,7 @@ def test_traffic_percentage_validation():
     # Invalid percentage (< 0)
     with pytest.raises(ValueError):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "test",
@@ -205,7 +203,7 @@ def test_traffic_percentage_validation():
     # Invalid percentage (> 100)
     with pytest.raises(ValueError):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=1,
             template_json={
                 "system": "test",
@@ -220,7 +218,7 @@ def test_version_validation():
     """Test version field validation."""
     # Valid version (>= 1)
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=1,
         template_json={
             "system": "test",
@@ -233,7 +231,7 @@ def test_version_validation():
     # Invalid version (< 1)
     with pytest.raises(ValueError):
         PromptTemplate(
-            name="test",
+            prompt_name="test",
             version=0,
             template_json={
                 "system": "test",
@@ -248,7 +246,7 @@ def test_parent_version_id():
     parent_id = uuid4()
 
     prompt = PromptTemplate(
-        name="test",
+        prompt_name="test",
         version=2,
         parent_version_id=parent_id,
         template_json={
