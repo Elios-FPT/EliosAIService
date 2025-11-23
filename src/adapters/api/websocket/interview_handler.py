@@ -157,7 +157,10 @@ async def _handle_with_workflow(
                         interview_id,
                         {
                             "type": "interview_complete",
-                            "summary": result.get("summary"),
+                            "interview_id": str(interview_id),
+                            "status": result.get("final_status"),
+                            "detailed_feedback": result.get("summary"),
+                            "feedback_url": f"/api/interviews/{interview_id}/summary",
                         },
                     )
                     break
