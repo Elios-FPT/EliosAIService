@@ -77,59 +77,49 @@ class LangChainAdapter(LLMPort):
     def _get_or_build_chain(
         self,
         method_name: str,
-        db_template_json: dict[str, Any] | None = None,
+        prompt_template: PromptTemplate | None = None,
         cache_key: str | None = None,
     ) -> Runnable:
         """Return cached chain or build a dynamic one from DB template."""
-        if not db_template_json:
-            return self._chains[method_name]
-
-        required_keys = {"system", "user_template"}
-        missing = required_keys - set(db_template_json.keys())
-        if missing:
-            logger.warning(
-                "Invalid template for %s missing keys %s. Falling back to hardcoded chain.",
-                method_name,
-                ", ".join(sorted(missing)),
-            )
+        if not prompt_template:
             return self._chains[method_name]
 
         cache_identifier = (
-            f"{method_name}:{cache_key or json.dumps(db_template_json, sort_keys=True)}"
+            f"{method_name}:{cache_key or f'{prompt_template.prompt_name}:v{prompt_template.version}'}"
         )
         if cache_identifier in self._db_chain_cache:
             return self._db_chain_cache[cache_identifier]
 
-        prompt_template = ChatPromptTemplate.from_messages(
+        prompt_template_obj = ChatPromptTemplate.from_messages(
             [
-                ("system", db_template_json["system"]),
-                ("human", db_template_json["user_template"]),
+                ("system", prompt_template.system_prompt),
+                ("human", prompt_template.user_template),
             ]
         )
         json_parser = JsonOutputParser()
-        chain = prompt_template | self.model | json_parser
+        chain = prompt_template_obj | self.model | json_parser
         self._db_chain_cache[cache_identifier] = chain
         return chain
 
     async def _load_prompt_from_db(
         self,
         prompt_name: str,
-    ) -> tuple[PromptTemplate | None, dict | None, str | None]:
+    ) -> tuple[PromptTemplate | None, str | None]:
         """Load prompt from DB with fallback.
 
         Args:
             prompt_name: DB prompt identifier (e.g., "ideal_answer_generation")
 
         Returns:
-            Tuple of (prompt_template, template_json, cache_key)
-            Returns (None, None, None) if DB unavailable or prompt not found
+            Tuple of (prompt_template, cache_key)
+            Returns (None, None) if DB unavailable or prompt not found
 
         Example:
-            prompt_template, template_json, cache_key = await self._load_prompt_from_db("answer_evaluation")
-            chain = self._get_or_build_chain("evaluate_answer", template_json, cache_key)
+            prompt_template, cache_key = await self._load_prompt_from_db("answer_evaluation")
+            chain = self._get_or_build_chain("evaluate_answer", prompt_template, cache_key)
         """
         if not self.prompt_repo:
-            return None, None, None
+            return None, None
 
         try:
             prompt_template = await self.prompt_repo.get_active_prompt(prompt_name)
@@ -138,11 +128,10 @@ class LangChainAdapter(LLMPort):
                     "No active DB prompt for '%s', falling back to PROMPT_REGISTRY",
                     prompt_name,
                 )
-                return None, None, None
+                return None, None
 
-            template_json = prompt_template.template_json_legacy
             cache_key = f"{prompt_template.prompt_name}:v{prompt_template.version}"
-            return prompt_template, template_json, cache_key
+            return prompt_template, cache_key
 
         except Exception as exc:
             logger.warning(
@@ -151,7 +140,7 @@ class LangChainAdapter(LLMPort):
                 exc,
                 exc_info=True,  # Include stack trace for debugging
             )
-            return None, None, None
+            return None, None
 
     def _create_config(
         self, context: dict[str, Any] | None = None, **metadata_kwargs: Any
@@ -187,12 +176,12 @@ class LangChainAdapter(LLMPort):
         start_time = time.time()
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "answer_evaluation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("evaluate_answer", template_json, cache_key)
+        chain = self._get_or_build_chain("evaluate_answer", prompt_template, cache_key)
 
         # Format followup context if present
         followup_context_section = ""
@@ -312,12 +301,12 @@ Ideal Answer Reference:
         context = {"interview_id": str(interview_id)}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "feedback_report"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_feedback_report", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_feedback_report", prompt_template, cache_key)
 
         # Format questions and answers
         qa_formatted = self._format_questions_answers(questions, answers)
@@ -374,10 +363,10 @@ Ideal Answer Reference:
         context = context or {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db("cv_summary")
+        prompt_template, cache_key = await self._load_prompt_from_db("cv_summary")
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("summarize_cv", template_json, cache_key)
+        chain = self._get_or_build_chain("summarize_cv", prompt_template, cache_key)
 
         # Prepare variables
         variables = {"cv_text": cv_text}
@@ -425,12 +414,12 @@ Ideal Answer Reference:
         context = context or {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "skill_extraction"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("extract_skills_from_text", template_json, cache_key)
+        chain = self._get_or_build_chain("extract_skills_from_text", prompt_template, cache_key)
 
         # Prepare variables
         variables = {"text": text}
@@ -490,12 +479,12 @@ Ideal Answer Reference:
         start_time = time.time()
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "ideal_answer_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_ideal_answer", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_ideal_answer", prompt_template, cache_key)
 
         variables = {
             "question_text": question_text,
@@ -559,12 +548,12 @@ Ideal Answer Reference:
         context = context or {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "rationale_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_rationale", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_rationale", prompt_template, cache_key)
 
         # Prepare variables
         variables = {
@@ -617,10 +606,10 @@ Ideal Answer Reference:
         context = context or {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db("gap_detection")
+        prompt_template, cache_key = await self._load_prompt_from_db("gap_detection")
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("detect_concept_gaps", template_json, cache_key)
+        chain = self._get_or_build_chain("detect_concept_gaps", prompt_template, cache_key)
 
         # Prepare variables
         variables = {
@@ -685,12 +674,12 @@ Ideal Answer Reference:
         context = context or {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "follow_up_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_followup_question", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_followup_question", prompt_template, cache_key)
 
         # Format cumulative context
         cumulative_context = ""
@@ -813,13 +802,13 @@ Ideal Answer Reference:
         start_time = time.time()
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "interview_recommendations"
         )
 
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain(
-            "generate_interview_recommendations", template_json, cache_key
+            "generate_interview_recommendations", prompt_template, cache_key
         )
 
         # Prepare variables
@@ -878,12 +867,12 @@ Ideal Answer Reference:
         start_time = time.time()
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "question_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_questions_batch", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_questions_batch", prompt_template, cache_key)
 
         # Build coroutines for all questions
         coroutines = []
@@ -945,12 +934,12 @@ Ideal Answer Reference:
         start_time = time.time()
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "ideal_answer_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_ideal_answers_batch", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_ideal_answers_batch", prompt_template, cache_key)
 
         # Build coroutines for all answers
         coroutines = []
@@ -993,12 +982,12 @@ Ideal Answer Reference:
         context = {}
 
         # Load DB prompt
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "rationale_generation"
         )
 
         # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_rationales_batch", template_json, cache_key)
+        chain = self._get_or_build_chain("generate_rationales_batch", prompt_template, cache_key)
 
         # Build coroutines for all rationales
         coroutines = []
@@ -1044,13 +1033,13 @@ Ideal Answer Reference:
         start_time = time.time()
 
         # Load DB prompt (uses same prompt as question generation)
-        prompt_template, template_json, cache_key = await self._load_prompt_from_db(
+        prompt_template, cache_key = await self._load_prompt_from_db(
             "question_generation"
         )
 
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain(
-            "generate_questions_with_answers_and_rationales_batch", template_json, cache_key
+            "generate_questions_with_answers_and_rationales_batch", prompt_template, cache_key
         )
 
         # Build coroutines for all question sets

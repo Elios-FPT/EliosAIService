@@ -1,6 +1,8 @@
 """Prompt repository port for version control."""
 
 from abc import ABC, abstractmethod
+from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from src.domain.models.prompt_execution import PromptExecution
@@ -20,14 +22,34 @@ class PromptRepositoryPort(ABC):
     async def create_initial_prompt(
         self,
         name: str,
-        template_json: dict,
+        system_prompt: str,
+        user_template: str,
+        input_variables: list[str],
+        partial_variables: dict[str, Any],
+        output_parser_type: str,
+        output_schema: dict[str, Any],
+        temperature: Decimal,
+        max_tokens: int,
+        top_p: Decimal,
+        frequency_penalty: Decimal,
+        presence_penalty: Decimal,
         created_by: str,
     ) -> PromptTemplate:
         """Create initial prompt version (v1).
 
         Args:
             name: Unique prompt identifier
-            template_json: Full prompt content (system, user_template, variables)
+            system_prompt: System message (role/context)
+            user_template: User message template with {variables}
+            input_variables: Variables to interpolate
+            partial_variables: Pre-filled variables
+            output_parser_type: Parser type
+            output_schema: Expected output schema
+            temperature: Sampling temperature (0-2)
+            max_tokens: Maximum tokens to generate
+            top_p: Nucleus sampling parameter
+            frequency_penalty: Frequency penalty
+            presence_penalty: Presence penalty
             created_by: User creating the prompt
 
         Returns:
@@ -43,7 +65,17 @@ class PromptRepositoryPort(ABC):
         self,
         name: str,
         parent_version: int,
-        template_json: dict,
+        system_prompt: str,
+        user_template: str,
+        input_variables: list[str],
+        partial_variables: dict[str, Any],
+        output_parser_type: str,
+        output_schema: dict[str, Any],
+        temperature: Decimal,
+        max_tokens: int,
+        top_p: Decimal,
+        frequency_penalty: Decimal,
+        presence_penalty: Decimal,
         change_summary: str,
         created_by: str,
     ) -> PromptTemplate:
@@ -52,7 +84,17 @@ class PromptRepositoryPort(ABC):
         Args:
             name: Prompt identifier
             parent_version: Version number to fork from
-            template_json: New prompt content
+            system_prompt: System message (role/context)
+            user_template: User message template with {variables}
+            input_variables: Variables to interpolate
+            partial_variables: Pre-filled variables
+            output_parser_type: Parser type
+            output_schema: Expected output schema
+            temperature: Sampling temperature (0-2)
+            max_tokens: Maximum tokens to generate
+            top_p: Nucleus sampling parameter
+            frequency_penalty: Frequency penalty
+            presence_penalty: Presence penalty
             change_summary: Human-readable change description
             created_by: User creating the version
 
