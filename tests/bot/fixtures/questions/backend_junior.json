@@ -1,0 +1,67 @@
+{
+  "name": "backend_junior",
+  "interview": {
+    "id": "5639b887-54d5-4a65-bbe3-f9d93e986473",
+    "status": "IDLE",
+    "cv_analysis_id": "7df20b39-4bb3-4d6f-9fe9-4c7a67d4e5a1",
+    "current_question_index": 0,
+    "started_at": null,
+    "completed_at": null,
+    "created_at": "2025-11-24 12:36:38.840612",
+    "updated_at": "2025-11-24 12:36:38.840612",
+    "plan_metadata": {},
+    "adaptive_follow_ups": [],
+    "current_parent_question_id": null,
+    "current_followup_count": 0
+  },
+  "interview_questions": [
+    {
+      "id": "af071848-41a3-4b63-8c1b-b472ac448ad3",
+      "interview_id": "5639b887-54d5-4a65-bbe3-f9d93e986473",
+      "question_id": "c4684c1b-e8d5-4b01-8673-e902ee432e37",
+      "sequence_order": 1,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 12:36:40.711032"
+    },
+    {
+      "id": "e2bf7724-bed0-4fad-985c-f59f0a623635",
+      "interview_id": "5639b887-54d5-4a65-bbe3-f9d93e986473",
+      "question_id": "f49a1d17-41ad-437d-8537-985bba3e5153",
+      "sequence_order": 0,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 12:36:39.947381"
+    }
+  ],
+  "questions": [
+    {
+      "id": "c4684c1b-e8d5-4b01-8673-e902ee432e37",
+      "text": "What are the main features of Spring Boot, and how do they simplify the development of Java applications?",
+      "skills": [
+        "Spring Boot"
+      ],
+      "version": 1,
+      "created_at": "2025-11-24 12:36:37.795789",
+      "ideal_answer": "Spring Boot is an extension of the Spring framework that simplifies the process of building production-ready applications with minimal configuration. One of its main features is the 'Convention over Configuration' principle, which allows developers to focus on writing application logic rather than boilerplate code. It includes embedded servers like Tomcat and Jetty, enabling developers to run applications directly without needing to deploy them to an external server. Another significant feature is the auto-configuration capability, where Spring Boot automatically configures beans based on the libraries present on the classpath, reducing the need for explicit configuration. Spring Boot also supports externalized configuration, which allows developers to manage application settings via properties files or environment variables, enhancing flexibility and maintainability. Additionally, the Spring Boot Actuator provides built-in endpoints for monitoring and managing applications, which is crucial for production environments. For example, when developing a REST API, these features enable rapid development and easier deployment processes, allowing teams to deliver features faster while maintaining a robust architecture. This makes Spring Boot particularly appealing for startups and agile teams looking to iterate quickly.",
+      "rationale": "This question assesses the candidate's familiarity with Spring Boot, an essential framework for modern Java development. Understanding its features is critical for building efficient applications, and this question evaluates the candidate's ability to articulate how these features streamline development, which is vital in a fast-paced development environment.",
+      "question_type": "technical",
+      "difficulty": "medium"
+    },
+    {
+      "id": "f49a1d17-41ad-437d-8537-985bba3e5153",
+      "text": "Can you explain the concept of Java memory management and how garbage collection works in Java applications?",
+      "skills": [
+        "Java"
+      ],
+      "version": 1,
+      "created_at": "2025-11-24 12:36:36.23193",
+      "ideal_answer": "Java memory management is a crucial aspect that involves the allocation and deallocation of memory for Java applications. The Java Virtual Machine (JVM) manages memory through a combination of stack and heap memory. Stack memory is used for static memory allocation and stores method calls and local variables, while heap memory is used for dynamic memory allocation and is where objects are stored. Garbage collection (GC) is an automated process that helps manage heap memory. It identifies and discards objects that are no longer in use, freeing up resources and preventing memory leaks. The GC operates in cycles and employs different algorithms, like Mark and Sweep, and Generational Garbage Collection. In Mark and Sweep, the GC first marks all reachable objects and then sweeps away unmarked objects. In Generational Garbage Collection, objects are categorized based on their lifespan, optimizing the process by collecting short-lived objects more frequently. Understanding memory management is essential for performance tuning and ensuring that applications run efficiently, particularly in a backend environment where resource management can be critical. For instance, in a Spring Boot application, poor memory management can lead to increased latency and frequent OutOfMemoryErrors, directly impacting user experience.",
+      "rationale": "This question tests the candidate's understanding of Java's memory management, a fundamental concept essential for optimizing application performance. It evaluates their knowledge of garbage collection mechanisms, which is vital for backend developers to ensure efficient resource utilization and application stability.",
+      "question_type": "technical",
+      "difficulty": "medium"
+    }
+  ]
+}
