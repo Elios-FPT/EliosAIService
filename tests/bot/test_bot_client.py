@@ -147,7 +147,7 @@ class InterviewTestBot:
 
         self.answers_sent += 1
         self._track_metric("latency", "send_answer", latency)
-        logger.info(f"Sent answer (question={question_id}, len={len(answer_text)})")
+        logger.info(f"Sent answer: {answer_text})")
 
     async def send_audio_chunk(
         self,
@@ -213,7 +213,7 @@ class InterviewTestBot:
         self._track_state("QUESTIONING")
 
         logger.info(
-            f"Received question #{message['index']}/{message['total']}: "
+            f"Received question #{message['question_id']}: "
             f"{message['text'][:80]}..."
         )
 
@@ -357,8 +357,8 @@ class InterviewTestBot:
                 self.current_question_text = message["text"]
 
                 logger.info(
-                    f"Received question #{self.questions_received - 1}/"
-                    f"{message.get('total_questions', '?')}: {message['text'][:50]}..."
+                    f"Received question #{message['question_id']}: "
+                    f"{message['text'][:80]}..."
                 )
 
                 # Track latency
