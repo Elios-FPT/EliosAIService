@@ -7,27 +7,41 @@ import re
 from uuid import UUID
 from langchain_openai import ChatOpenAI
 
+from datetime import datetime
+
+def debug_print(msg: str):
+    """Helper function to print debug messages with timestamps."""
+    print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
+
+debug_print("cv_processing_adapter.py: Starting imports...")
+
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from typing import Dict, Any
-from datetime import datetime, timezone
+from datetime import timezone
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
 from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
 
 from ...domain.models.cv_analysis import CVAnalysis
-from ...domain.models.cv_analysis import ExtractedSkill
+from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.models.candidate import Candidate
 
 from ...infrastructure.config import Settings
 _nlp_models = {}
 
+debug_print("cv_processing_adapter.py: About to create splitter...")
 splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+debug_print("cv_processing_adapter.py: Splitter created")
 
+debug_print("cv_processing_adapter.py: About to create Settings()...")
 setting = Settings()
+debug_print("cv_processing_adapter.py: Settings() created")
 
+debug_print("cv_processing_adapter.py: About to create AsyncOpenAI client...")
 openai_client = AsyncOpenAI(base_url=setting.azure_openai_endpoint, api_key=setting.azure_openai_api_key)
+debug_print("cv_processing_adapter.py: AsyncOpenAI client created")
 
 # embeddings_client = OpenAIEmbeddings(model=setting.openai_embedding_api_key, api_key=setting.openai_embedding_api_key)
 
@@ -85,7 +99,7 @@ class CVEmbeddingPreprocessor:
         return metadata
 
 class CVProcessingAdapter(CVAnalyzerPort):
-    
+
     def __init__(
             self,
             embedding_model:str="text-embedding-3-small",
@@ -108,7 +122,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
         else:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read().strip()
-            
+
     async def generate_cv_info_from_text(self, cv_text: str) -> str:
         date=datetime.now(timezone.utc)
         prompt = f"""
@@ -134,10 +148,10 @@ class CVProcessingAdapter(CVAnalyzerPort):
             "education_level": "string"
             }}
 
-            IMPORTANT: 
+            IMPORTANT:
             Return a valid JSON object without any markdown formatting (no ```json or ``` markers).
             The response must be a single, parseable JSON object.
-            Keep under 200 words. Be concise and professional. 
+            Keep under 200 words. Be concise and professional.
         """
 
         try:
@@ -150,7 +164,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
             return response.choices[0].message.content.strip()
         except Exception as e:
             return f"[Summary generation failed: {e}]"
-        
+
     async def generate_interview_topics(self, skills: list[str], job_rank: str, experience_years: int) -> list[str]:
         topics = set()
         system_prompt = f"""
@@ -178,7 +192,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
                 ]
             }}
             """
-        
+
         try:
             response = await openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -215,7 +229,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
         Args:
         extracted_info: CV information
         cv_file_path: Path to the candidate's CV file
-        
+
         Returns:
             Candidate: Populated Candidate object
         """
@@ -224,20 +238,20 @@ class CVProcessingAdapter(CVAnalyzerPort):
             prompt = f"""
             Extract candidate information (candidate name, email) from the following CV info:
             {extracted_info}
-            
+
             Return a JSON object with the following structure:
             {{
                 "name": "Full Name",
                 "email": "email@example.com"
                 // Only include these two fields
             }}
-        
+
             Rules:
             - If name is not found, use "Unknown Candidate"
             - If email is not found, use "no-email@example.com"
             - Only include the JSON object in your response
             """
-        
+
             # Call GPT-4o-mini
             response = await openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -257,7 +271,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
                 email=candidate_data.get("email", "no-email@example.com"),
                 cv_file_path=cv_file_path
             )
-        
+
         except Exception as e:
             print(f"Error generating candidate from summary: {e}")
             # Return a default candidate with the CV file path
@@ -268,7 +282,7 @@ class CVProcessingAdapter(CVAnalyzerPort):
             email="no-email@example.com",
             cv_file_path=cv_file_path
         )
-    
+
     async def analyze_cv(self, cv_file_path: str, candidate_id: UUID) -> CVAnalysis:
         cv_text = self.read_cv(cv_file_path)
         try:
@@ -276,30 +290,55 @@ class CVProcessingAdapter(CVAnalyzerPort):
             # print(summary_info)
         except Exception as e:
             print("Error generating summary: ", e)
-        
+
         job_rank = json.loads(summary_info).get("job_level", "N/A")
         # print(job_rank)
         skills_name = json.loads(summary_info).get("skills", [])
         print("Extracted skills:", skills_name)
-        skills = [
-            ExtractedSkill(skill=skill, category="technical")
-            for skill in skills_name
-        ]
-        # print(skills)
+
         experience_years = json.loads(summary_info).get("experience")
         # print(experience_years)
         education_level = json.loads(summary_info).get("education_level", "N/A")
         # print(education_level)
 
+        # Create CV analysis ID first
+        cv_analysis_id = uuid4()
+
+        # Infer proficiency level from experience years
+        def infer_proficiency(exp_years: float) -> ProficiencyLevel:
+            if exp_years >= 7:
+                return ProficiencyLevel.EXPERT
+            elif exp_years >= 4:
+                return ProficiencyLevel.ADVANCED
+            elif exp_years >= 2:
+                return ProficiencyLevel.INTERMEDIATE
+            else:
+                return ProficiencyLevel.BEGINNER
+
+        # Create CVSkill entities
+        skills = [
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_analysis_id,
+                skill_name=skill,
+                proficiency_level=infer_proficiency(experience_years),
+                years_of_experience=experience_years,
+                is_primary=(idx < 3),  # First 3 skills are primary
+                created_at=datetime.now(),
+            )
+            for idx, skill in enumerate(skills_name)
+        ]
+        # print(skills)
+
         try:
             suggested_topics = await self.generate_interview_topics(
-                skills_name, 
-                job_rank, 
+                skills_name,
+                job_rank,
                 experience_years)
             # print("suggested_topics: ", suggested_topics)
         except Exception as e:
             print("Error generating topics: ", e)
-        
+
         try:
             suggested_difficulty = self.generate_interview_difficulty(experience_years)
             # print(suggested_difficulty)
@@ -308,13 +347,14 @@ class CVProcessingAdapter(CVAnalyzerPort):
 
         try:
             metadata = self.preprocessing.create_metadata_from_summary(
-                summary=summary_info, 
+                summary=summary_info,
                 difficulty=suggested_difficulty)
             # print(metadata)
         except Exception as e:
             print("Error creating metadata: ", e)
-        
+
         return CVAnalysis(
+            id=cv_analysis_id,
             candidate_id=candidate_id,
             cv_file_path=cv_file_path,
             extracted_text=cv_text,
@@ -326,6 +366,5 @@ class CVProcessingAdapter(CVAnalyzerPort):
             embedding=None,
             summary=json.loads(summary_info).get("summary", ""),
             metadata=metadata,
-            created_at=datetime.now().isoformat()   
+            created_at=datetime.now().isoformat()
         )
-    

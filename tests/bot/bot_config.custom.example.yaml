@@ -1,0 +1,48 @@
+# Example Custom Test Bot Configuration
+# This file shows how to override the default configuration.
+# Copy this file and modify values as needed, then use with --config flag:
+#   python -m tests.bot.run_tests --config tests/bot/my_config.yaml
+
+# You only need to specify values you want to override.
+# Any value not specified will use the default from bot_config.yaml
+
+# Example: Running tests against a staging environment
+api:
+  base_url: "https://staging.example.com"  # Override API URL
+  timeout_sec: 60.0                         # Longer timeout for slower environments
+
+# Example: Using different output directory
+paths:
+  output_dir: "test_results/staging/"
+
+# Example: More aggressive timeouts for CI/CD pipelines
+timeouts:
+  question_timeout_sec: 3.0      # Faster timeouts
+  follow_up_timeout_sec: 3.0
+  completion_timeout_sec: 3.0
+  evaluation_timeout_sec: 5.0
+  interview_timeout_sec: 20.0
+
+# Example: Custom experience mapping for different hiring standards
+experience_mapping:
+  senior_years: 7       # Require more experience for senior
+  mid_years: 4
+  junior_years: 2
+  default_years: 3
+
+# Example: Adjust difficulty mapping
+difficulty_mapping:
+  senior_difficulty: "VERY_HARD"  # Custom difficulty level
+  mid_difficulty: "MEDIUM"
+  default_difficulty: "MEDIUM"    # Raise baseline difficulty
+
+# Example: Increase default question count for thorough interviews
+interview:
+  default_expected_questions: 5
+  default_answer_quality: "excellent"  # Expect better answers
+  qa_loop_buffer: 15                    # Allow more follow-ups
+
+# Example: Different CV analysis defaults
+cv_analysis:
+  default_proficiency: "expert"  # Assume expert-level candidates
+  default_category: "specialized"

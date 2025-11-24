@@ -47,8 +47,6 @@ class Interview(BaseModel):
     candidate_id: UUID
     status: InterviewStatus = InterviewStatus.IDLE
     cv_analysis_id: UUID | None = None
-    question_ids: list[UUID] = Field(default_factory=list)
-    answer_ids: list[UUID] = Field(default_factory=list)
     current_question_index: int = 0
 
     # NEW: Pre-planning metadata for adaptive interviews
@@ -127,51 +125,6 @@ class Interview(BaseModel):
         self.transition_to(InterviewStatus.CANCELLED)
         self.updated_at = datetime.utcnow()
 
-    def add_question(self, question_id: UUID) -> None:
-        """Add a question to the interview.
-
-        Args:
-            question_id: ID of the question to add
-        """
-        self.question_ids.append(question_id)
-        self.updated_at = datetime.utcnow()
-
-    def add_answer(self, answer_id: UUID) -> None:
-        """Add an answer to the interview.
-
-        Args:
-            answer_id: ID of the answer to add
-        """
-        self.answer_ids.append(answer_id)
-        self.updated_at = datetime.utcnow()
-
-    def has_more_questions(self) -> bool:
-        """Check if there are more questions to ask.
-
-        Returns:
-            True if more questions remain, False otherwise
-        """
-        return self.current_question_index < len(self.question_ids)
-
-    def get_current_question_id(self) -> UUID | None:
-        """Get the current question ID.
-
-        Returns:
-            Current question ID or None if no questions remain
-        """
-        if self.has_more_questions():
-            return self.question_ids[self.current_question_index]
-        return None
-
-    def get_progress_percentage(self) -> float:
-        """Calculate interview progress percentage.
-
-        Returns:
-            Progress as a percentage (0-100)
-        """
-        if not self.question_ids:
-            return 0.0
-        return (self.current_question_index / len(self.question_ids)) * 100
 
     def is_active(self) -> bool:
         """Check if interview is currently active.
@@ -272,32 +225,30 @@ class Interview(BaseModel):
         self.current_followup_count = 0
         now = datetime.utcnow()
 
-        if self.has_more_questions():
-            self.transition_to(InterviewStatus.QUESTIONING)
-            self.updated_at = now
-        # TODO: fix state transition
-        # else:
+        # NOTE: Question count check moved to service layer (needs InterviewQuestion repository)
+        self.transition_to(InterviewStatus.QUESTIONING)
+        self.updated_at = now
+        # TODO: Check if interview complete via repository in service layer
+        # if no_more_questions:
         #     self.transition_to(InterviewStatus.COMPLETE)
         #     self.completed_at = now
-        #     self.updated_at = now
 
     def proceed_after_evaluation(self) -> None:
         """Advance interview after evaluation is complete.
 
         DEPRECATED: Use proceed_to_next_question() instead for proper counter reset.
+        NOTE: Question count check moved to service layer.
         """
         if self.status != InterviewStatus.EVALUATING:
             raise ValueError(f"Cannot proceed from status: {self.status}")
 
-        if self.has_more_questions():
-            self.transition_to(InterviewStatus.QUESTIONING)
-            return
-
-        # TODO: fix state transition
-        # self.transition_to(InterviewStatus.COMPLETE)
-        # now = datetime.utcnow()
-        # self.completed_at = now
-        # self.updated_at = now
+        # NOTE: Question count check moved to service layer (needs InterviewQuestion repository)
+        self.transition_to(InterviewStatus.QUESTIONING)
+        # TODO: Check if interview complete via repository in service layer
+        # if no_more_questions:
+        #     self.transition_to(InterviewStatus.COMPLETE)
+        #     self.completed_at = datetime.utcnow()
+        #     self.updated_at = datetime.utcnow()
 
     def is_planned(self) -> bool:
         """Check if interview has planning metadata.

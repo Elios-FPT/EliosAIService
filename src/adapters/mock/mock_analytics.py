@@ -66,7 +66,7 @@ class MockAnalyticsAdapter(AnalyticsPort):
 
         # Calculate average score
         scores = [
-            a.evaluation.score
+            a.evaluation.final_score
             for a in answers
             if a.evaluation is not None
         ]
@@ -141,7 +141,7 @@ class MockAnalyticsAdapter(AnalyticsPort):
 
         # Calculate average score
         scores = [
-            a.evaluation.score
+            a.evaluation.final_score
             for a in answers
             if a.evaluation is not None
         ]
@@ -156,7 +156,7 @@ class MockAnalyticsAdapter(AnalyticsPort):
                 all_weaknesses.extend(answer.evaluation.weaknesses)
 
                 # Track skills with low scores (<70)
-                if answer.evaluation.score < 70.0:
+                if answer.evaluation.final_score < 70.0:
                     weak_skills.extend(question.skills)
 
         # Deduplicate and count weaknesses
@@ -235,7 +235,7 @@ class MockAnalyticsAdapter(AnalyticsPort):
             if answer.evaluation is None:
                 continue
 
-            score = answer.evaluation.score
+            score = answer.evaluation.final_score
 
             # Associate this score with all skills in the question
             for skill in question.skills:

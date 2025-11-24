@@ -1,32 +1,40 @@
-"""WebSocket handler for interview sessions (orchestrator-based)."""
+"""WebSocket handler for interview sessions (orchestrator-based or workflow-based)."""
 
 import asyncio
 import base64
 import logging
 from asyncio import Queue
+from typing import Any
 from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ....infrastructure.dependency_injection.container import Container, get_container
+from ....infrastructure.database.session import get_async_session
+from ....infrastructure.config.settings import get_settings
 from .connection_manager import manager
 from .session_orchestrator import InterviewSessionOrchestrator
 
 logger = logging.getLogger(__name__)
 
 # Per-session state for streaming audio
-audio_streams: dict[UUID, Queue[bytes]] = {}
-transcription_tasks: dict[UUID, asyncio.Task] = {}
+audio_streams: dict[UUID, Queue[bytes | None]] = {}
+transcription_tasks: dict[UUID, asyncio.Task[Any]] = {}
 session_orchestrators: dict[UUID, InterviewSessionOrchestrator] = {}
+
+# Per-session state for workflow (thread IDs)
+workflow_threads: dict[UUID, str] = {}
 
 
 async def handle_interview_websocket(
     websocket: WebSocket,
     interview_id: UUID,
-):
-    """WebSocket handler for interview session (orchestrator-based).
+) -> None:
+    """WebSocket handler for interview session (orchestrator-based or workflow-based).
 
-    Uses InterviewSessionOrchestrator to manage state machine lifecycle.
+    Uses feature flag to determine handler:
+    - use_langgraph_conversation=True: InterviewConversationWorkflow (NEW)
+    - use_langgraph_conversation=False: InterviewSessionOrchestrator (LEGACY)
 
     Protocol:
         Client → Server: { type: "text_answer", question_id: UUID, answer_text: str }
@@ -43,42 +51,174 @@ async def handle_interview_websocket(
 
     try:
         container = get_container()
+        settings = get_settings()
 
-        # Create session orchestrator
-        orchestrator = InterviewSessionOrchestrator(
-            interview_id=interview_id,
-            websocket=websocket,
-            container=container,
+        # Check feature flag
+        if settings.use_langgraph_conversation:
+            await _handle_with_workflow(websocket, interview_id, container)
+        else:
+            await _handle_with_orchestrator(websocket, interview_id, container)
+
+    except WebSocketDisconnect:
+        manager.disconnect(interview_id)
+        _cleanup_audio_resources(interview_id)
+        _cleanup_workflow_resources(interview_id)
+        logger.info(f"Client disconnected from interview {interview_id}")
+
+    except ValueError as e:
+        logger.error(f"State machine error for interview {interview_id}: {e}")
+        await manager.send_message(
+            interview_id,
+            {"type": "error", "code": "INVALID_STATE", "message": str(e)},
+        )
+        _cleanup_audio_resources(interview_id)
+        _cleanup_workflow_resources(interview_id)
+        manager.disconnect(interview_id)
+
+    except Exception as e:
+        logger.error(f"WebSocket error for interview {interview_id}: {e}", exc_info=True)
+        await manager.send_message(
+            interview_id,
+            {"type": "error", "code": "INTERNAL_ERROR", "message": str(e)},
+        )
+        _cleanup_audio_resources(interview_id)
+        _cleanup_workflow_resources(interview_id)
+        manager.disconnect(interview_id)
+
+
+async def _handle_with_workflow(
+    websocket: WebSocket,
+    interview_id: UUID,
+    container: Container,
+) -> None:
+    """Handle interview with LangGraph workflow (NEW).
+
+    Args:
+        websocket: WebSocket connection
+        interview_id: Interview UUID
+        container: DI container
+    """
+    async for session in get_async_session():
+        # Get candidate_id from interview
+        interview_repo = container.interview_repository_port(session)
+        interview = await interview_repo.get_by_id(interview_id)
+        if not interview:
+            await manager.send_message(
+                interview_id,
+                {"type": "error", "code": "INTERVIEW_NOT_FOUND", "message": "Interview not found"},
+            )
+            return
+
+        # Create workflow
+        workflow = await container.create_interview_conversation_workflow(session)
+
+        # Start session
+        result = await workflow.start_session(interview_id, interview.candidate_id)
+
+        # Store thread ID
+        thread_id = result.get("thread_id")
+        workflow_threads[interview_id] = thread_id
+
+        # Generate TTS audio for first question
+        question_dict = result.get("question")
+        question_text = question_dict.get("text", "") if question_dict else ""
+        audio_data = await _generate_tts_audio(question_text, container)
+
+        # Format and send first question
+        message = _format_question_message(
+            question_dict=question_dict,
+            question_id=result.get("question_id"),
+            has_more=result.get("has_more"),
+            audio_data=audio_data,
+        )
+        await manager.send_message(interview_id, message)
+
+        logger.info(
+            f"Sent {message['type']}: {result.get('question_id')}",
+            extra={
+                "interview_id": str(interview_id),
+                "question_id": result.get("question_id"),
+                "type": message["type"],
+            },
         )
 
-        # Store orchestrator for audio chunk handler access
-        session_orchestrators[interview_id] = orchestrator
+        logger.info(f"Workflow session started for interview {interview_id}, thread: {thread_id}")
 
-        # Start session (send first question)
-        await orchestrator.start_session()
-
-        # Listen for messages
+        # Listen for answers
         while True:
             data = await websocket.receive_json()
             message_type = data.get("type")
 
             if message_type == "text_answer":
                 answer_text = data.get("answer_text", "")
-                await orchestrator.handle_answer(answer_text)
+
+                # Process answer through workflow
+                result = await workflow.process_answer(
+                    thread_id=thread_id,
+                    answer_text=answer_text,
+                    is_voice=False,
+                )
+
+                # Send evaluation if present
+                if "evaluation" in result and result["evaluation"]:
+                    await manager.send_message(
+                        interview_id,
+                        {
+                            "type": "evaluation",
+                            "answer_id": result["evaluation"]["answer_id"],
+                            "score": result["evaluation"]["score"],
+                            "feedback": result["evaluation"]["feedback"],
+                            "strengths": result["evaluation"]["strengths"],
+                            "weaknesses": result["evaluation"]["weaknesses"],
+                            "gaps": result["evaluation"]["gaps"],
+                        },
+                    )
+                    logger.info(
+                        f"Sent evaluation for answer {result['evaluation']['answer_id']}, "
+                        f"score={result['evaluation']['score']:.1f}"
+                    )
+
+                # Check if complete
+                if result.get("complete"):
+                    await manager.send_message(
+                        interview_id,
+                        {
+                            "type": "interview_complete",
+                            "interview_id": str(interview_id),
+                            "status": result.get("final_status"),
+                            "detailed_feedback": result.get("summary"),
+                            "feedback_url": f"/api/interviews/{interview_id}/summary",
+                        },
+                    )
+                    break
+
+                # Send next question (either follow-up or main question)
+                if result.get("question"):
+                    question_dict = result.get("question")
+                    question_text = question_dict.get("text", "") if question_dict else ""
+                    audio_data = await _generate_tts_audio(question_text, container)
+
+                    # Format message based on type
+                    message = _format_question_message(
+                        question_dict=question_dict,
+                        question_id=result.get("question_id"),
+                        has_more=result.get("has_more"),
+                        audio_data=audio_data,
+                    )
+
+                    await manager.send_message(interview_id, message)
+
+                    logger.info(
+                        f"Sent {message['type']}: {result.get('question_id')}",
+                        extra={
+                            "interview_id": str(interview_id),
+                            "question_id": result.get("question_id"),
+                            "type": message["type"],
+                        },
+                    )
 
             elif message_type == "audio_chunk":
                 await handle_audio_chunk(interview_id, data, container)
-
-            elif message_type == "get_next_question":
-                logger.warning("get_next_question deprecated - use orchestrator state machine")
-                await manager.send_message(
-                    interview_id,
-                    {
-                        "type": "error",
-                        "code": "DEPRECATED_MESSAGE_TYPE",
-                        "message": "get_next_question deprecated - orchestrator manages flow",
-                    },
-                )
 
             else:
                 await manager.send_message(
@@ -90,33 +230,159 @@ async def handle_interview_websocket(
                     },
                 )
 
-    except WebSocketDisconnect:
-        manager.disconnect(interview_id)
-        # Cleanup audio streaming resources
-        _cleanup_audio_resources(interview_id)
-        logger.info(f"Client disconnected from interview {interview_id}")
 
-    except ValueError as e:
-        # State machine validation error
-        logger.error(f"State machine error for interview {interview_id}: {e}")
-        await manager.send_message(
-            interview_id,
-            {"type": "error", "code": "INVALID_STATE", "message": str(e)},
-        )
-        _cleanup_audio_resources(interview_id)
-        manager.disconnect(interview_id)
+def _detect_question_type(question_dict: dict[str, Any]) -> str:
+    """Detect if question is main or follow-up from workflow result.
 
-    except Exception as e:
-        logger.error(f"WebSocket error for interview {interview_id}: {e}", exc_info=True)
-        await manager.send_message(
-            interview_id,
-            {"type": "error", "code": "INTERNAL_ERROR", "message": str(e)},
-        )
-        _cleanup_audio_resources(interview_id)
-        manager.disconnect(interview_id)
+    Args:
+        question_dict: Question dictionary from workflow state
+
+    Returns:
+        "question" for main questions, "follow_up_question" for follow-ups
+    """
+    # Check for follow-up indicators
+    if question_dict.get("question_type") == "FOLLOW_UP":
+        return "follow_up_question"
+
+    # Check for parent_question_id presence (follow-ups only)
+    if "parent_question_id" in question_dict and question_dict["parent_question_id"]:
+        return "follow_up_question"
+
+    # Check for follow-up metadata fields
+    if "order_in_sequence" in question_dict:
+        return "follow_up_question"
+
+    # Default: main question
+    return "question"
 
 
-def _cleanup_audio_resources(interview_id: UUID):
+def _format_question_message(
+    question_dict: dict[str, Any],
+    question_id: str,
+    has_more: bool,
+    audio_data: str | None,
+) -> dict[str, Any]:
+    """Format question message based on type (main or follow-up).
+
+    Args:
+        question_dict: Question data from workflow
+        question_id: Question ID string
+        has_more: Whether more questions available
+        audio_data: Base64 TTS audio
+
+    Returns:
+        Formatted message dict matching legacy format
+    """
+    msg_type = _detect_question_type(question_dict)
+
+    if msg_type == "follow_up_question":
+        # Follow-up format (matches legacy)
+        return {
+            "type": "follow_up_question",
+            "question_id": question_id,
+            "parent_question_id": question_dict.get("parent_question_id"),
+            "text": question_dict.get("text"),
+            "generated_reason": question_dict.get("generated_reason"),
+            "order_in_sequence": question_dict.get("order_in_sequence"),
+            "audio_data": audio_data,
+        }
+    else:
+        # Main question format (matches legacy)
+        return {
+            "type": "question",
+            "question_id": question_id,
+            "text": question_dict.get("text"),
+            "question_type": question_dict.get("question_type"),
+            "difficulty": question_dict.get("difficulty"),
+            "index": question_dict.get("index", 0),
+            "total": question_dict.get("total", 0),
+            "audio_data": audio_data,
+        }
+
+
+async def _generate_tts_audio(
+    text: str,
+    container: Container,
+) -> str | None:
+    """Generate TTS audio and encode as base64.
+
+    Args:
+        text: Text to synthesize
+        container: DI container for TTS adapter
+
+    Returns:
+        Base64-encoded audio data, or None if generation fails
+    """
+    try:
+        tts = container.text_to_speech_port()
+        audio_bytes = await tts.synthesize_speech(text)
+        audio_data = base64.b64encode(audio_bytes).decode("utf-8")
+        logger.debug(f"Generated TTS audio: {len(audio_bytes)} bytes")
+        return audio_data
+    except Exception as exc:
+        logger.error(f"TTS generation failed: {exc}", exc_info=True)
+        return None  # Non-blocking failure
+
+
+async def _handle_with_orchestrator(
+    websocket: WebSocket,
+    interview_id: UUID,
+    container: Container,
+) -> None:
+    """Handle interview with session orchestrator (LEGACY).
+
+    Args:
+        websocket: WebSocket connection
+        interview_id: Interview UUID
+        container: DI container
+    """
+    # Create session orchestrator
+    orchestrator = InterviewSessionOrchestrator(
+        interview_id=interview_id,
+        websocket=websocket,
+        container=container,
+    )
+
+    # Store orchestrator for audio chunk handler access
+    session_orchestrators[interview_id] = orchestrator
+
+    # Start session (send first question)
+    await orchestrator.start_session()
+
+    # Listen for messages
+    while True:
+        data = await websocket.receive_json()
+        message_type = data.get("type")
+
+        if message_type == "text_answer":
+            answer_text = data.get("answer_text", "")
+            await orchestrator.handle_answer(answer_text)
+
+        elif message_type == "audio_chunk":
+            await handle_audio_chunk(interview_id, data, container)
+
+        elif message_type == "get_next_question":
+            logger.warning("get_next_question deprecated - use orchestrator state machine")
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "DEPRECATED_MESSAGE_TYPE",
+                    "message": "get_next_question deprecated - orchestrator manages flow",
+                },
+            )
+
+        else:
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "UNKNOWN_MESSAGE_TYPE",
+                    "message": f"Unknown message type: {message_type}",
+                },
+            )
+
+def _cleanup_audio_resources(interview_id: UUID) -> None:
     """Clean up audio streaming resources for a session.
 
     Args:
@@ -137,11 +403,23 @@ def _cleanup_audio_resources(interview_id: UUID):
     logger.debug(f"Cleaned up audio resources for interview {interview_id}")
 
 
+def _cleanup_workflow_resources(interview_id: UUID) -> None:
+    """Clean up workflow resources for a session.
+
+    Args:
+        interview_id: Interview UUID
+    """
+    # Remove workflow thread ID
+    workflow_threads.pop(interview_id, None)
+
+    logger.debug(f"Cleaned up workflow resources for interview {interview_id}")
+
+
 async def _stream_transcription(
     interview_id: UUID,
     question_id: UUID,
     container: Container,
-):
+) -> None:
     """Background task: consume audio stream and send transcriptions.
 
     Args:
@@ -233,7 +511,7 @@ async def _stream_transcription(
 # Kept for reference during migration period
 
 
-async def handle_audio_chunk(interview_id: UUID, data: dict, container: Container):
+async def handle_audio_chunk(interview_id: UUID, data: dict[str, Any], container: Container) -> None:
     """Handle audio chunk from client with real-time streaming STT.
 
     Implements real-time audio streaming:

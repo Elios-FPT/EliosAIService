@@ -13,4 +13,3 @@ mypy>=1.7.0
 
 # Development Tools
 ipython>=8.18.0
-python-dotenv>=1.0.0

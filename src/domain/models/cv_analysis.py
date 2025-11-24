@@ -1,29 +1,12 @@
 """CV Analysis domain model."""
 
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-
-class ExtractedSkill(BaseModel):
-    """Represents a skill extracted from CV.
-
-    This is a value object within CV analysis.
-    """
-
-    skill: str = Field(alias="skill")
-    proficiency: str | None = Field(default=None, alias="proficiency")  # e.g., "beginner", "intermediate", "expert"
-    years: float | None = Field(default=None, alias="years")
-
-    def is_technical(self) -> bool:
-        """Check if skill is technical.
-
-        Returns:
-            True if technical skill, False otherwise
-        """
-        return self.category.lower() == "technical"
+from .cv_skill import CVSkill, ProficiencyLevel
 
 
 class CVAnalysis(BaseModel):
@@ -34,16 +17,14 @@ class CVAnalysis(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     candidate_id: UUID
-    cv_file_path: str
     extracted_text: str
-    skills: list[ExtractedSkill] = Field(default_factory=list)
+    skills: List[CVSkill] = Field(default_factory=list)
     work_experience_years: float | None = None
     education_level: str | None = None  # e.g., "Bachelor's", "Master's"
     suggested_topics: list[str] = Field(default_factory=list)  # Topics to cover
     suggested_difficulty: str = "medium"  # Overall difficulty level
     embedding: Optional[List[float]] = None  # Vector embedding of CV
     summary: Optional[str] = None  # AI-generated summary
-    metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -51,13 +32,42 @@ class CVAnalysis(BaseModel):
         """Pydantic configuration."""
         frozen = False
 
-    def get_technical_skills(self) -> list[ExtractedSkill]:
-        """Get only technical skills.
+    def add_skill(
+        self,
+        skill_name: str,
+        proficiency_level: Optional[ProficiencyLevel] = None,
+        years_of_experience: Optional[float] = None,
+        is_primary: bool = False
+    ) -> CVSkill:
+        """
+        Add a skill to this CV analysis.
+
+        Args:
+            skill_name: Name of the skill (e.g., "Python", "Leadership")
+            proficiency_level: Skill proficiency (default: INTERMEDIATE)
+            years_of_experience: Years of experience with skill
+            is_primary: Whether this is a primary/core skill
 
         Returns:
-            List of technical skills
+            The created CVSkill instance
         """
-        return [skill for skill in self.skills if skill.is_technical()]
+        skill = CVSkill(
+            cv_analysis_id=self.id,
+            skill_name=skill_name,
+            proficiency_level=proficiency_level or ProficiencyLevel.INTERMEDIATE,
+            years_of_experience=years_of_experience,
+            is_primary=is_primary
+        )
+        self.skills.append(skill)
+        return skill
+
+    def get_primary_skills(self) -> List[CVSkill]:
+        """Get all primary skills."""
+        return [skill for skill in self.skills if skill.is_primary]
+
+    def get_skills_by_proficiency(self, level: ProficiencyLevel) -> List[CVSkill]:
+        """Get skills filtered by proficiency level."""
+        return [skill for skill in self.skills if skill.proficiency_level == level]
 
     def has_skill(self, skill_name: str) -> bool:
         """Check if a specific skill was found in CV.
@@ -69,26 +79,26 @@ class CVAnalysis(BaseModel):
             True if skill exists, False otherwise
         """
         return any(
-            skill.name.lower() == skill_name.lower()
+            skill.skill_name.lower() == skill_name.lower()
             for skill in self.skills
         )
 
-    def get_skill_by_name(self, skill_name: str) -> ExtractedSkill | None:
+    def get_skill_by_name(self, skill_name: str) -> CVSkill | None:
         """Get a skill by name.
 
         Args:
             skill_name: Name of skill to find
 
         Returns:
-            ExtractedSkill if found, None otherwise
+            CVSkill if found, None otherwise
         """
         for skill in self.skills:
-            if skill.skill.lower() == skill_name.lower():
+            if skill.skill_name.lower() == skill_name.lower():
                 return skill
         return None
 
-    def get_top_skills(self, limit: int = 5) -> list[ExtractedSkill]:
-        """Get top skills by mention count.
+    def get_top_skills(self, limit: int = 5) -> List[CVSkill]:
+        """Get top skills (primary first, then by name).
 
         Args:
             limit: Maximum number of skills to return
@@ -98,8 +108,7 @@ class CVAnalysis(BaseModel):
         """
         sorted_skills = sorted(
             self.skills,
-            key=lambda s: s.skill,
-            reverse=True
+            key=lambda s: (not s.is_primary, s.skill_name)
         )
         return sorted_skills[:limit]
 

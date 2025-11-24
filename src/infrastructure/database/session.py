@@ -1,4 +1,23 @@
-"""Database session management with async support."""
+"""Database session management with async support.
+
+Connection Pool Management:
+    This module manages SQLAlchemy's connection pool for the application.
+    However, note that AsyncPostgresSaver (used by LangGraph workflows)
+    creates its own separate connection pool.
+
+    Total Database Connections:
+    - SQLAlchemy pool (this module):
+      * Production: 10 base + 20 overflow = up to 30 connections
+      * Development/Testing: NullPool (no pooling)
+    - AsyncPostgresSaver pool (langgraph_checkpointer.py):
+      * ~5-10 connections (internal, not configurable via API)
+    - Total (production): ~35-40 connections
+
+    Recommendations:
+    - Configure PostgreSQL max_connections to at least 100
+    - Monitor active connections to avoid exceeding limits
+    - Consider reducing SQLAlchemy pool_size if connection limits are an issue
+"""
 
 from collections.abc import AsyncGenerator
 
@@ -35,9 +54,11 @@ def create_engine() -> AsyncEngine:
     poolclass = QueuePool if is_prod else NullPool
 
     # Base engine configuration
+    # Set echo=False to prevent SQLAlchemy from adding its own handler
+    # SQL logging will be handled by the logging configuration instead
     engine_config = {
         "url": settings.async_database_url,
-        "echo": settings.debug,  # Log SQL in debug mode
+        "echo": False,  # Disable echo to prevent duplicate handlers
         "poolclass": poolclass,
     }
 

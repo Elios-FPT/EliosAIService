@@ -71,10 +71,16 @@ class PostgreSQLAnswerRepository(AnswerRepositoryPort):
         return [AnswerMapper.to_domain(db_model) for db_model in db_models]
 
     async def get_by_candidate_id(self, candidate_id: UUID) -> list[Answer]:
-        """Retrieve all answers by a candidate."""
+        """Retrieve all answers by a candidate via interview relationship.
+
+        Note: candidate_id removed from answers table. Query via interviews JOIN.
+        """
+        from .models import InterviewModel
+
         result = await self.session.execute(
             select(AnswerModel)
-            .where(AnswerModel.candidate_id == candidate_id)
+            .join(InterviewModel, AnswerModel.interview_id == InterviewModel.id)
+            .where(InterviewModel.candidate_id == candidate_id)
             .order_by(AnswerModel.created_at.desc())
         )
         db_models = result.scalars().all()

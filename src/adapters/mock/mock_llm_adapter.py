@@ -17,33 +17,6 @@ class MockLLMAdapter(LLMPort):
     without requiring actual API calls to external services.
     """
 
-    async def generate_question(
-        self,
-        context: dict[str, Any],
-        skill: str,
-        difficulty: str,
-        exemplars: list[dict[str, Any]] | None = None,
-    ) -> str:
-        """Generate mock question.
-
-        Args:
-            context: Interview context
-            skill: Target skill to test
-            difficulty: Question difficulty level
-            exemplars: Optional list of similar questions (for testing)
-
-        Returns:
-            Mock question text (verbal/discussion-based, no code writing or diagrams)
-        """
-        # Mock generates verbal/discussion-based questions (aligns with constraints)
-        base_question = f"Explain the trade-offs when using {skill} at {difficulty} level"
-
-        # Indicate exemplars were provided (for testing purposes)
-        if exemplars:
-            base_question += f" [Generated with {len(exemplars)} exemplar(s)]"
-
-        return base_question
-
     async def evaluate_answer(
         self,
         question: Question,
@@ -175,6 +148,90 @@ including fundamental principles, real-world use cases, and potential edge cases
         return """This answer demonstrates mastery by covering fundamental concepts,
 providing practical examples, and explaining the reasoning behind technical choices.
 A weaker answer would miss these comprehensive details."""
+
+    async def generate_questions_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[str]:
+        """Generate mock questions in batch, mirroring single-question behavior."""
+        questions = []
+        for spec in question_specs:
+            skill = spec.get("skill", "general knowledge")
+            difficulty = spec.get("difficulty", "medium")
+            question = f"Explain the trade-offs when using {skill} at {difficulty} level"
+
+            exemplars = spec.get("exemplars") or []
+            if exemplars:
+                question += f" [Generated with {len(exemplars)} exemplar(s)]"
+
+            questions.append(question)
+
+        return questions
+
+    async def generate_ideal_answers_batch(
+        self,
+        question_texts: list[str],
+        context: dict[str, Any],
+    ) -> list[str]:
+        """Generate mock ideal answers for multiple questions."""
+        return [
+            f"Mock ideal answer for '{question[:50]}...':\n"
+            "Covers fundamental principles, practical considerations, and trade-offs."
+            for question in question_texts
+        ]
+
+    async def generate_rationales_batch(
+        self,
+        question_ideal_pairs: list[tuple[str, str]],
+    ) -> list[str]:
+        """Generate mock rationales for multiple question/answer pairs."""
+        rationales = []
+        for question, _ideal in question_ideal_pairs:
+            rationales.append(
+                "This question evaluates conceptual understanding of "
+                f"{question[:40]}... and expects structured reasoning."
+            )
+        return rationales
+
+    async def generate_questions_with_answers_and_rationales_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        """Generate mock questions with ideal answers and rationales in a single call per spec.
+
+        For each question_spec, generates question, ideal_answer, and rationale together
+        in one call to ensure consistency.
+        """
+        question_sets = []
+        for spec in question_specs:
+            skill = spec.get("skill", "general knowledge")
+            difficulty = spec.get("difficulty", "medium")
+            exemplars = spec.get("exemplars") or []
+
+            # Generate question
+            question = f"Explain the trade-offs when using {skill} at {difficulty} level"
+            if exemplars:
+                question += f" [Generated with {len(exemplars)} exemplar(s)]"
+
+            # Generate ideal answer (consistent with question)
+            ideal_answer = f"""Mock ideal answer for '{question[:50]}...':
+This demonstrates comprehensive understanding of {skill} at {difficulty} level with clear explanation,
+relevant examples, and practical application. The answer covers all key aspects
+including fundamental principles, real-world use cases, and potential edge cases.
+It shows how {skill} can be effectively applied in various scenarios while considering
+trade-offs and best practices."""
+
+            # Generate rationale (consistent with question and answer)
+            rationale = f"""This answer demonstrates mastery by covering fundamental concepts of {skill},
+providing practical examples, and explaining the reasoning behind technical choices.
+A weaker answer would miss these comprehensive details and fail to address the {difficulty}
+level complexity required for this question."""
+
+            question_sets.append((question, ideal_answer, rationale))
+
+        return question_sets
 
     async def detect_concept_gaps(
         self,

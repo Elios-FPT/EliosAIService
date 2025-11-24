@@ -1,0 +1,16 @@
+{
+  "name": "Maria Garcia",
+  "title": "Full Stack Developer",
+  "email": "maria.garcia@example.com",
+  "summary": "Full-stack developer with 3 years experience in React and Node.js.",
+  "skills": ["React", "Node.js", "MongoDB", "Express", "TypeScript", "GraphQL"],
+  "experience": [
+    {
+      "role": "Full Stack Developer",
+      "company": "WebAgency Co.",
+      "years": "2021-Present",
+      "description": "Built SPAs with React, REST APIs with Node.js/Express."
+    }
+  ],
+  "education": "B.S. Information Technology, Tech Institute (2021)"
+}

@@ -17,30 +17,6 @@ class LLMPort(ABC):
     """
 
     @abstractmethod
-    async def generate_question(
-        self,
-        context: dict[str, Any],
-        skill: str,
-        difficulty: str,
-        exemplars: list[dict[str, Any]] | None = None,
-    ) -> str:
-        """Generate an interview question.
-
-        Args:
-            context: Interview context (CV analysis, previous answers, etc.)
-            skill: Target skill to test
-            difficulty: Question difficulty level
-            exemplars: Optional list of similar questions for inspiration.
-                      Each dict should contain: 'text', 'skills', 'difficulty', 'similarity_score'.
-                      Helps LLM understand desired question style and depth.
-                      Default: None (generate without exemplars)
-
-        Returns:
-            Generated question text
-        """
-        pass
-
-    @abstractmethod
     async def evaluate_answer(
         self,
         question: Question,
@@ -264,5 +240,30 @@ class LLMPort(ABC):
 
         Returns:
             List of rationale texts (50-100 words each) in the same order as question_ideal_pairs
+        """
+        pass
+
+    @abstractmethod
+    async def generate_questions_with_answers_and_rationales_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[tuple[str, str, str]]:
+        """Generate questions with ideal answers and rationales in a single LLM call per spec.
+
+        For each question_spec, generates question, ideal_answer, and rationale together
+        in one LLM call to ensure consistency.
+
+        Args:
+            question_specs: List of question specifications. Each dict should contain:
+                - skill: str - Target skill to test
+                - difficulty: str - Question difficulty level
+                - exemplars: list[dict[str, Any]] | None - Optional exemplar questions
+            context: Interview context (CV analysis, etc.)
+
+        Returns:
+            List of tuples (question_text, ideal_answer, rationale) in the same order
+            as question_specs. Each tuple represents one complete question set generated
+            in a single LLM call.
         """
         pass

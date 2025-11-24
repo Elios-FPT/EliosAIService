@@ -165,6 +165,7 @@ class ProcessAnswerAdaptiveUseCase:
             answer_text=answer_text,
             ideal_answer=question.ideal_answer or "",
             question_text=question.text,
+            interview_id=interview_id,
         )
 
         # Step 9: Determine attempt number and parent evaluation
@@ -232,12 +233,12 @@ class ProcessAnswerAdaptiveUseCase:
         saved_answer.evaluation_id = saved_evaluation.id
         saved_answer = await self.answer_repo.update(saved_answer)
 
-        # Step 14: Update interview
-        interview.add_answer(saved_answer.id)
+        # Step 14: Update interview (no longer tracking answer_ids array)
         await self.interview_repo.update(interview)
 
-        # Step 15: Check if more questions
-        has_more = interview.has_more_questions()
+        # Step 15: Check if more questions using junction table count
+        total_questions = await self.interview_repo.count_interview_questions(interview.id)
+        has_more = interview.current_question_index < (total_questions - 1)
 
         logger.info(
             f"Answer processed: score={evaluation.final_score:.1f}, "
@@ -292,7 +293,7 @@ class ProcessAnswerAdaptiveUseCase:
         return parent
 
     async def _detect_gaps_hybrid(
-        self, answer_text: str, ideal_answer: str, question_text: str
+        self, answer_text: str, ideal_answer: str, question_text: str, interview_id: UUID
     ) -> dict[str, Any]:
         """Detect concept gaps using hybrid approach (keywords + LLM).
 
@@ -300,6 +301,7 @@ class ProcessAnswerAdaptiveUseCase:
             answer_text: Candidate's answer
             ideal_answer: Reference ideal answer
             question_text: The question asked
+            interview_id: Interview UUID for logging context
 
         Returns:
             Gaps dict with detected concepts
@@ -314,6 +316,7 @@ class ProcessAnswerAdaptiveUseCase:
                 ideal_answer=ideal_answer,
                 question_text=question_text,
                 keyword_gaps=keyword_gaps,
+                interview_id=interview_id,
             )
             return llm_gaps
         else:
@@ -352,6 +355,7 @@ class ProcessAnswerAdaptiveUseCase:
         ideal_answer: str,
         question_text: str,
         keyword_gaps: list[str],
+        interview_id: UUID,
     ) -> dict[str, Any]:
         """Use LLM to confirm and refine gap detection."""
         return await self.llm.detect_concept_gaps(
@@ -359,6 +363,7 @@ class ProcessAnswerAdaptiveUseCase:
             ideal_answer=ideal_answer,
             question_text=question_text,
             keyword_gaps=keyword_gaps,
+            context={"interview_id": str(interview_id)},
         )
 
     def _determine_gap_severity(

@@ -60,7 +60,7 @@ async def upload_cv(
         cv_analysis_use_case = AnalyzeCVUseCase(
             cv_analyzer=cv_analyzer,
             vector_search=container.vector_search_port(),
-            candidate_repository_port=container.contcandidate_repository_port(session),
+            candidate_repository_port=container.candidate_repository_port(session),
             cv_analysis_repository_port=container.cv_analysis_repository_port(session),
         )
         cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
@@ -110,8 +110,11 @@ async def get_interview(
             detail=f"Interview {interview_id} not found",
         )
 
+    # Get total questions from junction table
+    question_count = await interview_repo.count_interview_questions(interview_id)
+
     base_url = settings.ws_base_url
-    return InterviewResponse.from_domain(interview, base_url)
+    return InterviewResponse.from_domain(interview, base_url, question_count)
 
 
 @router.put(
@@ -151,8 +154,11 @@ async def start_interview(
         interview.start()
         updated = await interview_repo.update(interview)
 
+        # Get total questions from junction table
+        question_count = await interview_repo.count_interview_questions(interview_id)
+
         base_url = settings.ws_base_url
-        return InterviewResponse.from_domain(updated, base_url)
+        return InterviewResponse.from_domain(updated, base_url, question_count)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -194,7 +200,8 @@ async def get_current_question(
             )
 
         # Get interview for context
-        interview = await container.interview_repository_port(session).get_by_id(interview_id)
+        interview_repo = container.interview_repository_port(session)
+        interview = await interview_repo.get_by_id(interview_id)
 
         if not interview:
             raise HTTPException(
@@ -202,13 +209,16 @@ async def get_current_question(
                 detail=f"Interview {interview_id} not found",
             )
 
+        # Get total questions from junction table
+        total_questions = await interview_repo.count_interview_questions(interview_id)
+
         return QuestionResponse(
             id=question.id,
             text=question.text,
             question_type=question.question_type.value,
             difficulty=question.difficulty.value,
             index=interview.current_question_index,
-            total=len(interview.question_ids),
+            total=total_questions,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -254,22 +264,56 @@ async def plan_interview(
                 detail=f"CV analysis {request.cv_analysis_id} not found",
             )
 
-        # Execute planning use case
-        use_case = PlanInterviewUseCase(
-            llm=container.llm_port(),
-            # vector_search=container.vector_search_port(),
-            cv_analysis_repo=cv_analysis_repo,
-            interview_repo=container.interview_repository_port(session),
-            question_repo=container.question_repository_port(session),
-        )
+        # Get settings to check feature flag
+        settings = get_settings()
 
-        interview = await use_case.execute(
-            cv_analysis_id=request.cv_analysis_id,
-            candidate_id=request.candidate_id,
-        )
+        # Route handler decides between workflow and use case based on feature flag
+        if settings.use_langgraph_planning:
+            # Use LangGraph workflow (Phase 2)
+            from ....application.workflows.planning_workflow import PlanningWorkflow
+
+            # Get checkpointer (async)
+            checkpointer = await container.get_checkpointer()
+
+            # Create workflow with dependencies from container
+            workflow = PlanningWorkflow(
+                checkpointer=checkpointer,
+                llm_port=container.llm_port(),
+                cv_repo=cv_analysis_repo,
+                question_repo=container.question_repository_port(session),
+                interview_repo=container.interview_repository_port(session),
+                vector_search=container.vector_search_port(),
+            )
+
+            # Execute workflow
+            result = await workflow.execute(
+                cv_analysis_id=request.cv_analysis_id,
+                candidate_id=request.candidate_id,
+            )
+            interview = result.get("interview")
+
+            # Check if workflow failed (interview is None)
+            if interview is None:
+                errors = result.get("errors", ["Unknown error occurred during interview planning"])
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to plan interview: {errors}"
+                )
+        else:
+            # Use case (manual implementation)
+            use_case = PlanInterviewUseCase(
+                llm=container.llm_port(),
+                cv_analysis_repo=cv_analysis_repo,
+                interview_repo=container.interview_repository_port(session),
+                question_repo=container.question_repository_port(session),
+            )
+
+            interview = await use_case.execute(
+                cv_analysis_id=request.cv_analysis_id,
+                candidate_id=request.candidate_id,
+            )
 
         # Construct WebSocket URL for interview session
-        settings = get_settings()
         ws_url = f"{settings.ws_base_url}/ws/interviews/{interview.id}"
 
         return PlanningStatusResponse(

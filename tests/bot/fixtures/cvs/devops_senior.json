@@ -1,0 +1,22 @@
+{
+  "name": "Lisa Nguyen",
+  "title": "Senior DevOps Engineer",
+  "email": "lisa.nguyen@example.com",
+  "summary": "DevOps specialist with 7 years experience in Kubernetes and cloud infrastructure.",
+  "skills": ["Kubernetes", "Terraform", "AWS", "Docker", "Jenkins", "Prometheus", "GitOps"],
+  "experience": [
+    {
+      "role": "Senior DevOps Engineer",
+      "company": "CloudTech Corp.",
+      "years": "2018-Present",
+      "description": "Architected Kubernetes infrastructure, implemented GitOps with ArgoCD."
+    },
+    {
+      "role": "DevOps Engineer",
+      "company": "InfraCo Ltd.",
+      "years": "2016-2018",
+      "description": "Automated CI/CD pipelines with Jenkins, managed AWS infrastructure with Terraform."
+    }
+  ],
+  "education": "B.S. Computer Engineering, Tech University (2016)"
+}

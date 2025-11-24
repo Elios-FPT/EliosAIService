@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 
 from src.adapters.api.websocket.session_orchestrator import (
     InterviewSessionOrchestrator,
-    SessionState,
 )
 from src.domain.models.answer import Answer, AnswerEvaluation
 from src.domain.models.follow_up_question import FollowUpQuestion

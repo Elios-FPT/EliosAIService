@@ -4,7 +4,8 @@ import random
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from ...domain.models.cv_analysis import CVAnalysis, ExtractedSkill
+from ...domain.models.cv_analysis import CVAnalysis
+from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
 
 
@@ -21,33 +22,28 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
     """
 
     # Skill database organized by experience level
+    # These are templates that will be converted to CVSkill entities
     JUNIOR_SKILLS = [
-        ExtractedSkill(skill="Python", category="technical", proficiency="intermediate", years=1.5),
-        ExtractedSkill(skill="Git", category="technical", proficiency="beginner", years=1.0),
-        ExtractedSkill(skill="SQL", category="technical", proficiency="beginner", years=0.5),
-        ExtractedSkill(skill="Communication", category="soft", proficiency="intermediate"),
-        ExtractedSkill(skill="Team Collaboration", category="soft", proficiency="beginner"),
+        {"name": "Python", "category": "technical", "proficiency": ProficiencyLevel.INTERMEDIATE, "years": 1.5, "is_primary": True},
+        {"name": "Git", "category": "technical", "proficiency": ProficiencyLevel.BEGINNER, "years": 1.0, "is_primary": False},
+        {"name": "SQL", "category": "technical", "proficiency": ProficiencyLevel.BEGINNER, "years": 0.5, "is_primary": False},
     ]
 
     MID_SKILLS = [
-        ExtractedSkill(skill="Python", category="technical", proficiency="advanced", years=3.5),
-        ExtractedSkill(skill="FastAPI", category="technical", proficiency="intermediate", years=2.0),
-        ExtractedSkill(skill="PostgreSQL", category="technical", proficiency="intermediate", years=2.5),
-        ExtractedSkill(skill="Docker", category="technical", proficiency="intermediate", years=1.5),
-        ExtractedSkill(skill="REST APIs", category="technical", proficiency="advanced", years=3.0),
-        ExtractedSkill(skill="Problem Solving", category="soft", proficiency="advanced"),
-        ExtractedSkill(skill="Leadership", category="soft", proficiency="intermediate"),
+        {"name": "Python", "category": "technical", "proficiency": ProficiencyLevel.ADVANCED, "years": 3.5, "is_primary": True},
+        {"name": "FastAPI", "category": "technical", "proficiency": ProficiencyLevel.INTERMEDIATE, "years": 2.0, "is_primary": False},
+        {"name": "PostgreSQL", "category": "technical", "proficiency": ProficiencyLevel.INTERMEDIATE, "years": 2.5, "is_primary": False},
+        {"name": "Docker", "category": "technical", "proficiency": ProficiencyLevel.INTERMEDIATE, "years": 1.5, "is_primary": False},
+        {"name": "REST APIs", "category": "technical", "proficiency": ProficiencyLevel.ADVANCED, "years": 3.0, "is_primary": False},
     ]
 
     SENIOR_SKILLS = [
-        ExtractedSkill(skill="Python", category="technical", proficiency="expert", years=7.0),
-        ExtractedSkill(skill="System Design", category="technical", proficiency="expert", years=5.0),
-        ExtractedSkill(skill="Microservices", category="technical", proficiency="advanced", years=4.0),
-        ExtractedSkill(skill="PostgreSQL", category="technical", proficiency="expert", years=6.0),
-        ExtractedSkill(skill="AWS", category="technical", proficiency="advanced", years=4.5),
-        ExtractedSkill(skill="Architecture", category="technical", proficiency="expert", years=5.5),
-        ExtractedSkill(skill="Leadership", category="soft", proficiency="expert"),
-        ExtractedSkill(skill="Mentoring", category="soft", proficiency="advanced"),
+        {"name": "Python", "category": "technical", "proficiency": ProficiencyLevel.EXPERT, "years": 7.0, "is_primary": True},
+        {"name": "System Design", "category": "technical", "proficiency": ProficiencyLevel.EXPERT, "years": 5.0, "is_primary": True},
+        {"name": "Microservices", "category": "technical", "proficiency": ProficiencyLevel.ADVANCED, "years": 4.0, "is_primary": False},
+        {"name": "PostgreSQL", "category": "technical", "proficiency": ProficiencyLevel.EXPERT, "years": 6.0, "is_primary": False},
+        {"name": "AWS", "category": "technical", "proficiency": ProficiencyLevel.ADVANCED, "years": 4.5, "is_primary": False},
+        {"name": "Architecture", "category": "technical", "proficiency": ProficiencyLevel.EXPERT, "years": 5.5, "is_primary": True},
     ]
 
     SUPPORTED_EXTENSIONS = {".pdf", ".doc", ".docx"}
@@ -133,38 +129,57 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
         filename = Path(cv_file_path).stem.lower()
         if "junior" in filename:
             experience_level = "junior"
-            skills = self.JUNIOR_SKILLS[:3]  # 2-3 skills
+            skill_templates = self.JUNIOR_SKILLS[:3]  # 2-3 skills
             years = random.uniform(1.0, 2.0)
             difficulty = "easy"
             education = "Bachelor's"
         elif "senior" in filename:
             experience_level = "senior"
-            skills = self.SENIOR_SKILLS[:6]  # 5-6 skills
+            skill_templates = self.SENIOR_SKILLS[:6]  # 5-6 skills
             years = random.uniform(6.0, 10.0)
             difficulty = "hard"
             education = "Master's"
         else:
             experience_level = "mid"
-            skills = self.MID_SKILLS[:5]  # 4-5 skills
+            skill_templates = self.MID_SKILLS[:5]  # 4-5 skills
             years = random.uniform(3.0, 5.0)
             difficulty = "medium"
             education = "Bachelor's"
 
-        # Generate suggested topics from skills
-        technical_skills = [s for s in skills if s.category == "technical"]
-        suggested_topics = [skill.name for skill in technical_skills]
+        # Create CV analysis first to get ID
+        cv_analysis_id = uuid4()
+
+        # Create CVSkill entities from templates
+        from datetime import datetime
+        skills = [
+            CVSkill(
+                id=uuid4(),
+                cv_analysis_id=cv_analysis_id,
+                skill_name=template["name"],
+                proficiency_level=template["proficiency"],
+                years_of_experience=template.get("years"),
+                is_primary=template.get("is_primary", False),
+                created_at=datetime.utcnow(),
+            )
+            for template in skill_templates
+        ]
+
+        # Generate suggested topics from technical skills
+        technical_skills = [s for s in skill_templates if s["category"] == "technical"]
+        suggested_topics = [skill["name"] for skill in technical_skills]
 
         # Add some topic variations
-        if any(s.name in ["Python", "FastAPI"] for s in skills):
+        skill_names = [s["name"] for s in skill_templates]
+        if any(name in ["Python", "FastAPI"] for name in skill_names):
             suggested_topics.append("Backend Development")
-        if any(s.name in ["PostgreSQL", "SQL"] for s in skills):
+        if any(name in ["PostgreSQL", "SQL"] for name in skill_names):
             suggested_topics.append("Database Design")
-        if any(s.name in ["System Design", "Architecture"] for s in skills):
+        if any(name in ["System Design", "Architecture"] for name in skill_names):
             suggested_topics.append("System Architecture")
 
         # Create CV analysis
         return CVAnalysis(
-            id=uuid4(),
+            id=cv_analysis_id,
             candidate_id=UUID(candidate_id),
             cv_file_path=cv_file_path,
             extracted_text=extracted_text,

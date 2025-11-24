@@ -1,35 +1,106 @@
 # Elios AI Interview Service
 
-**An AI-powered mock interview platform that helps candidates prepare for technical interviews through personalized CV analysis, adaptive question generation, and real-time answer evaluation.**
+**AI-Powered Mock Interview Platform** with CV analysis, semantic question generation, and real-time feedback.
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![LangChain](https://img.shields.io/badge/LangChain-0.2+-orange.svg)](https://python.langchain.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 📖 Overview
+## Overview
 
-Elios AI Interview Service leverages **Large Language Models (LLMs)** and **vector databases** to deliver intelligent, personalized mock interview experiences. The platform analyzes candidate CVs, generates relevant questions, evaluates answers in real-time, and provides comprehensive feedback to help candidates improve their interview performance.
+Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions via vector search and LLMs, conducting real-time interviews through WebSocket, and providing comprehensive feedback with adaptive follow-up questions.
+
+**Branch**: `migration/db-redesign` (v0.4.0)
 
 ### Key Features
 
-- **🎯 CV Analysis**: Extract skills, experience, and education from resumes
-- **🤖 Adaptive Questions**: Generate personalized interview questions using vector-based exemplar retrieval
-- **📊 Real-Time Evaluation**: Multi-dimensional answer assessment with instant feedback
-- **💬 Voice & Text Support**: Conduct interviews via text chat or voice (planned)
-- **📈 Comprehensive Reports**: Detailed performance analysis with actionable recommendations
-- **🔄 Swappable AI Providers**: Easy integration of OpenAI, Claude, or Llama
+**Core Capabilities**:
+- **CV Analysis**: Extract skills, experience, education from PDFs/DOCX
+- **Semantic Question Generation**: Vector search with LLM exemplar-based generation
+- **Adaptive Interviews**: Follow-up questions based on gap detection
+- **Real-Time Evaluation**: Multi-dimensional answer scoring with feedback
+- **Voice Support**: Azure Speech-to-Text & Text-to-Speech integration
+- **Comprehensive Reports**: Aggregate metrics, gap progression, LLM recommendations
+- **Prompt Version Control**: Database-driven prompts with version history, A/B testing, and rollback support
+
+**NEW - LangChain/LangGraph Integration** (v0.3.0):
+- **LCEL Chains**: Structured outputs with Pydantic models (12 chains)
+- **Workflow Orchestration**: Planning, adaptive evaluation (simple & interrupt patterns)
+- **PostgreSQL Checkpointing**: Stateful workflows with recovery
+- **LangSmith Observability**: PII-filtered tracing, cost tracking, token usage analysis
 
 ### Technology Stack
 
 - **Backend**: Python 3.11+, FastAPI, Pydantic
+- **AI/ML**: LangChain/LangGraph, OpenAI GPT-4, Pinecone Vector DB
 - **Database**: PostgreSQL (Neon), SQLAlchemy 2.0 (async)
-- **AI/ML**: OpenAI GPT-4, Pinecone Vector Database
+- **Observability**: LangSmith tracing, cost tracking
 - **Architecture**: Clean Architecture (Hexagonal/Ports & Adapters)
-- **Testing**: pytest, pytest-asyncio
-- **Code Quality**: ruff, black, mypy
+- **Testing**: pytest, pytest-asyncio (200+ tests, 85%+ coverage)
+
+## Prompt Management API
+
+Manage LLM prompt templates with version control, A/B testing, rollback, and analytics.
+
+### Endpoints
+
+**Version Management:**
+- `POST /api/prompts` - Create initial prompt (v1)
+- `POST /api/prompts/{name}/versions` - Create new version from parent
+- `POST /api/prompts/{name}/rollback` - Rollback to target version
+- `GET /api/prompts/{name}/versions` - Get version history with diffs
+- `GET /api/prompts/{name}/versions/{version}` - Get specific version
+- `GET /api/prompts/{prompt_id}` - Get prompt by UUID
+
+**Activation & A/B Testing:**
+- `PATCH /api/prompts/{prompt_id}/activate` - Activate version (204 No Content)
+- `PATCH /api/prompts/{prompt_id}/traffic` - Adjust A/B test traffic (204 No Content)
+- `GET /api/prompts/{name}/active` - Get active prompt (with A/B weighted selection)
+
+**Analytics & Audit:**
+- `GET /api/prompts/{name}/analytics` - View analytics summary
+- `GET /api/prompts/{name}/audit-trail` - View change history
+- `GET /api/prompts` - List all prompts (paginated, filterable)
+- `DELETE /api/prompts/{prompt_id}` - Soft delete prompt (204 No Content)
+
+### Usage Example
+
+```python
+import httpx
+
+# Create initial prompt
+response = await client.post("/api/prompts", json={
+    "prompt_name": "answer_evaluation",
+    "system_prompt": "You are an expert interviewer...",
+    "user_template": "Evaluate this answer: {answer}",
+    "input_variables": ["answer"],
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "top_p": 0.9,
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "created_by": "admin",
+})
+prompt = response.json()
+
+# Activate for production
+await client.patch(f"/api/prompts/{prompt['id']}/activate", json={
+    "changed_by": "admin",
+    "reason": "Deploy v1 to production",
+    "traffic_percentage": 100
+})
+```
+
+### A/B Testing Workflow
+
+1. Create v2 with improved prompt
+2. Activate v2 with traffic=20% (gradual rollout)
+3. Monitor analytics for success rate, cost
+4. Increase traffic to 50%, 75%, 100% based on results
+5. Rollback if v2 underperforms
 
 ### Main flows
 
@@ -150,6 +221,104 @@ Then visit: **http://localhost:8000/docs**
 
 ---
 
+## 🐳 Docker Setup
+
+### Quick Start with Docker
+
+**Prerequisites:**
+- Docker and Docker Compose installed
+- External PostgreSQL database (connection string required)
+
+**Steps:**
+
+1. **Create environment file**
+   ```bash
+   cp .env.docker.example .env
+   ```
+
+2. **Edit `.env` file** - Set at minimum:
+   ```env
+   DATABASE_URL=postgresql://user:password@host:5432/elios_interviews
+   # Add API keys if not using mocks
+   OPENAI_API_KEY=sk-your-key-here
+   PINECONE_API_KEY=your-key-here
+   ```
+
+3. **Build and start services**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Run database migrations**
+   ```bash
+   docker-compose run migrate
+   ```
+
+5. **Access the application**
+   - API: http://localhost:8000
+   - API Docs: http://localhost:8000/docs
+
+### Docker Environment Variables
+
+The Docker image includes **default environment variables** baked into the Dockerfile, so you only need to override what's necessary:
+
+**Required:**
+- `DATABASE_URL` - External PostgreSQL connection string
+
+**Optional (only if not using mocks):**
+- `OPENAI_API_KEY` - OpenAI API key
+- `PINECONE_API_KEY` - Pinecone API key
+- `AZURE_SPEECH_KEY` - Azure Speech Services key
+- Other API keys as needed
+
+**Environment Variable Precedence:**
+1. `docker-compose.yml` `environment:` section (highest priority)
+2. `.env` file
+3. Dockerfile `ENV` statements (defaults)
+
+**Example minimal `.env` file:**
+```env
+# Required
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+
+# Optional - only if not using mocks
+OPENAI_API_KEY=sk-...
+PINECONE_API_KEY=...
+ENVIRONMENT=production
+DEBUG=false
+```
+
+All other configuration (ports, timeouts, feature flags, etc.) uses sensible defaults from the Dockerfile.
+
+### Docker Commands
+
+```bash
+# Build the image
+docker-compose build
+
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Run migrations
+docker-compose run migrate
+
+# Stop services
+docker-compose down
+
+# Rebuild after code changes
+docker-compose up -d --build
+```
+
+### Development vs Production
+
+- **Development**: Use mock adapters (default), set `ENVIRONMENT=development`, `DEBUG=true`
+- **Production**: Use real services, set `ENVIRONMENT=production`, `DEBUG=false`, provide all API keys
+
+---
+
 ### 📋 Detailed Setup Instructions
 
 #### Prerequisites
@@ -185,6 +354,17 @@ Then visit: **http://localhost:8000/docs**
    ```
 
 4. **Configure environment variables**
+
+   **Prompt Management (Optional)**:
+
+   Enable DB-driven prompts for version control and analytics:
+
+   ```env
+   # Prompt repository (requires PostgreSQL)
+   ENABLE_PROMPT_VERSIONING=true  # Default: true
+   ```
+
+   If disabled, LangChainAdapter falls back to hardcoded PROMPT_REGISTRY.
    ```bash
    cp .env.example .env.local
    ```
@@ -288,6 +468,70 @@ pytest tests/e2e/          # End-to-end tests only
 USE_MOCK_ADAPTERS=false pytest
 ```
 
+### Interview Test Bot
+
+Automated testing framework for interview WebSocket protocol with two execution modes:
+
+**Test Modes**:
+- **Mock Tests** (8 scenarios, $0 cost): Insert pre-defined data via SQL → Test WebSocket QA phase only
+- **Real Tests** (5 scenarios, ~$0.45 cost): Full API flow (CV upload → plan interview → WebSocket QA → save feedback)
+
+**Setup Test Environment**:
+```bash
+# 1. Copy test configuration template
+cp .env.test.example .env.test
+
+# 2. Edit .env.test with test database and settings
+# IMPORTANT: Ensure ENVIRONMENT=test is set (required for main app to load .env.test)
+
+# 3. Create test database
+createdb elios_test
+
+# 4. Run migrations on test database
+ENVIRONMENT=test alembic upgrade head
+
+# 5. Start server with test configuration
+python -m src.main
+# Server will automatically load .env.test because ENVIRONMENT=test
+```
+
+**Run Tests**:
+```bash
+# Run all tests (server must be running with ENVIRONMENT=test)
+python -m tests.bot.run_tests --scenarios all
+
+# Run only mock tests (no API costs, SQL data insertion)
+python -m tests.bot.run_tests --scenarios mock
+
+# Run only real tests (with OpenAI API, full flow)
+python -m tests.bot.run_tests --scenarios real
+
+# Run single scenario
+python -m tests.bot.run_tests --scenario mock_001_basic_flow
+```
+
+**Configuration Details**:
+- `.env.test` - Test environment configuration (separate DB, mock settings, API keys)
+- `ENVIRONMENT=test` - Critical variable that tells main app to load `.env.test`
+- Test isolation: Separate test database prevents contaminating dev/prod data
+- Mock adapter control: `USE_MOCK_ADAPTERS=true/false` in `.env.test`
+
+**Features**:
+- WebSocket client simulating candidate interactions
+- Mock tests: DB helper for direct SQL insertion (skip API calls)
+- Real tests: Full API integration testing
+- Performance metrics tracking (latency, tokens, cost)
+- JSON/HTML reports with baseline comparison
+- Answer generation with quality levels (good/average/weak)
+
+**Structure**:
+- `tests/bot/test_bot_client.py` - WebSocket test client
+- `tests/bot/test_runner.py` - Test orchestration (mock vs real execution)
+- `tests/bot/db_helper.py` - SQL insertion helper for mock tests
+- `tests/bot/scenarios/` - Test scenario definitions (YAML)
+- `tests/bot/fixtures/` - CV fixtures and baselines
+- `tests/bot/run_tests.py` - CLI entry point
+
 ### Code Quality
 
 ```bash
@@ -371,17 +615,25 @@ async with httpx.AsyncClient() as client:
         }
     )
     interview = response.json()
-    print(f"Interview ready with {len(interview['question_ids'])} questions")
+    # Note: v0.4.0+ uses junction table instead of question_ids array
+    # See docs/migrations/0015-schema-redesign.md for details
+    print(f"Interview ready with {interview['question_count']} questions")
 ```
 
 ### 4. Submit Answer
 
 ```python
 async with httpx.AsyncClient() as client:
+    # Get current question from interview
+    question_response = await client.get(
+        f"http://localhost:8000/api/interviews/{interview['id']}/current-question"
+    )
+    current_question = question_response.json()
+
     response = await client.post(
         f"http://localhost:8000/api/interviews/{interview['id']}/answers",
         json={
-            "question_id": interview['question_ids'][0],
+            "question_id": current_question['id'],
             "answer_text": "My answer here..."
         }
     )
@@ -397,7 +649,7 @@ async with httpx.AsyncClient() as client:
 ```
 EliosAIService/
 ├── src/
-│   ├── domain/              # Core business logic (8 models, 13 ports)
+│   ├── domain/              # Core business logic (11 models, 11 ports)
 │   ├── application/         # Use cases (8 total)
 │   ├── adapters/            # External service implementations (20+)
 │   └── infrastructure/      # Config, DI, database
@@ -499,12 +751,12 @@ See [Project Overview & PDR](docs/project-overview-pdr.md) for detailed roadmap.
 
 ## 📊 Current Status
 
-**Version**: 0.2.1 (Foundation + Adaptive Interviews + Session Orchestration)
+**Version**: 0.4.0 (Foundation + Adaptive Interviews + Session Orchestration + Database Schema Redesign)
 
 **Implemented**:
 - ✅ Clean Architecture structure
-- ✅ Domain models (8 entities including Evaluation, ErrorCodes)
-- ✅ Repository ports (13 interfaces including EvaluationRepositoryPort)
+- ✅ Domain models (11 entities: Candidate, CVAnalysis, CVSkill, Interview, Question, Answer, Evaluation, InterviewFeedback, PromptTemplate, PromptExecution, ErrorCodes)
+- ✅ Repository ports (11 interfaces including EvaluationRepositoryPort)
 - ✅ PostgreSQL persistence (7 repositories)
 - ✅ OpenAI & Azure OpenAI LLM adapters
 - ✅ Pinecone & ChromaDB vector adapters
