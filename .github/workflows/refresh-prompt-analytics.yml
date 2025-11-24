@@ -1,0 +1,43 @@
+name: Refresh Prompt Analytics
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: "*/5 * * * *"
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Refresh prompt_analytics_summary materialized view
+        env:
+          DATABASE_URL: ${{ vars.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Error: DATABASE_URL variable is not set"
+            echo "Please add DATABASE_URL to your GitHub repository variables:"
+            echo "Settings > Variables > Actions > New repository variable"
+            exit 1
+          fi
+
+          echo "Refreshing materialized view prompt_analytics_summary..."
+          # Keep Neon session short: connect → refresh → exit immediately
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+            REFRESH MATERIALIZED VIEW CONCURRENTLY prompt_analytics_summary;
+SQL
+
+          if [ $? -eq 0 ]; then
+            echo "Successfully refreshed prompt_analytics_summary"
+          else
+            echo "Failed to refresh materialized view"
+            exit 1
+          fi
+
