@@ -278,7 +278,7 @@ async def plan_interview(
             # Create workflow with dependencies from container
             workflow = PlanningWorkflow(
                 checkpointer=checkpointer,
-                llm_port=container.llm_port(),
+                llm_port=container.llm_port(session),
                 cv_repo=cv_analysis_repo,
                 question_repo=container.question_repository_port(session),
                 interview_repo=container.interview_repository_port(session),
@@ -302,7 +302,7 @@ async def plan_interview(
         else:
             # Use case (manual implementation)
             use_case = PlanInterviewUseCase(
-                llm=container.llm_port(),
+                llm=container.llm_port(session),
                 cv_analysis_repo=cv_analysis_repo,
                 interview_repo=container.interview_repository_port(session),
                 question_repo=container.question_repository_port(session),

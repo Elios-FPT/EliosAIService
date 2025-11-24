@@ -1008,7 +1008,7 @@ Ideal Answer Reference:
         question_specs: list[dict[str, Any]],
         context: dict[str, Any],
     ) -> list[str]:
-        """Generate multiple questions in parallel using asyncio.gather()."""
+        """Generate multiple questions using aggregated batch prompt expected by DB template."""
         start_time = time.time()
 
         # Load DB prompt
@@ -1019,43 +1019,41 @@ Ideal Answer Reference:
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain("generate_questions_batch", prompt_template, cache_key)
 
-        # Build coroutines for all questions with metadata capture
-        coroutines = []
-        for spec in question_specs:
-            # Format exemplars for this spec
-            exemplar_section = ""
-            exemplars = spec.get("exemplars")
+        # Build aggregated questions section (mirrors OpenAI adapter format)
+        questions_section = ""
+        for idx, spec in enumerate(question_specs, 1):
+            skill = spec.get("skill", "general knowledge")
+            difficulty = spec.get("difficulty", "medium")
+            exemplars = spec.get("exemplars") or []
+
+            questions_section += f"\n\nQuestion {idx}:\n"
+            questions_section += f"- Skill to test: {skill}\n"
+            questions_section += f"- Difficulty: {difficulty}\n"
+
             if exemplars:
-                exemplar_section = "Similar questions for inspiration (do NOT copy exactly):\n"
-                for j, ex in enumerate(exemplars[:3], 1):
-                    exemplar_section += (
-                        f"{j}. \"{ex.get('text', '')}\" ({ex.get('difficulty', 'UNKNOWN')})\n"
+                questions_section += "- Similar questions for inspiration (do NOT copy exactly):\n"
+                for j, exemplar in enumerate(exemplars[:3], 1):
+                    questions_section += (
+                        f"  {j}. \"{exemplar.get('text', '')}\" ({exemplar.get('difficulty', 'UNKNOWN')})\n"
                     )
-                exemplar_section += (
-                    "\nGenerate a NEW question inspired by the style and structure above.\n"
-                )
 
-            # Create chain input for this question
-            chain_input = {
-                "skill": spec["skill"],
-                "difficulty": spec["difficulty"],
-                "cv_summary": context.get("cv_summary", "Not provided"),
-                "covered_topics": context.get("covered_topics", []),
-                "stage": context.get("stage", "early"),
-                "exemplar_section": exemplar_section,
-            }
+        # Aggregate top-level variables expected by DB prompt
+        chain_input = {
+            "question_count": len(question_specs),
+            "summary": context.get("summary") or context.get("cv_summary", "Not provided"),
+            "skills": ", ".join(context.get("skills", [])[:10]) or "Not provided",
+            "experience": context.get("experience", context.get("experience_years", "Not specified")),
+            "questions_section": questions_section.strip(),
+        }
 
-            # Use _invoke_chain_with_metadata to capture metadata
-            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
+        # Execute single chain invocation
+        result, metadata = await self._invoke_chain_with_metadata(chain, chain_input, None)
 
-        # Execute all in parallel
-        results_with_metadata = await asyncio.gather(*coroutines)
-
-        # Extract questions and aggregate metadata
-        questions = []
-        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
-        for result, _ in results_with_metadata:
-            questions.append(result["question_text"])
+        questions = result.get("questions", [])
+        if len(questions) != len(question_specs):
+            raise ValueError(
+                f"Expected {len(question_specs)} questions, got {len(questions)}"
+            )
 
         # Log execution (if DB prompt was used)
         if prompt_template:
@@ -1066,10 +1064,10 @@ Ideal Answer Reference:
                 output_text=str(questions),
                 start_time=start_time,
                 success=True,
-                model_response_metadata=aggregated_metadata,
+                model_response_metadata=metadata,
             )
 
-        return questions
+        return [q.strip() if isinstance(q, str) else "" for q in questions]
 
     async def generate_ideal_answers_batch(
         self,
@@ -1180,9 +1178,9 @@ Ideal Answer Reference:
         """
         start_time = time.time()
 
-        # Load DB prompt (uses same prompt as question generation)
+        # Load DB prompt dedicated to question + answer + rationale generation
         prompt_template, cache_key = await self._load_prompt_from_db(
-            "question_generation"
+            "generate_question_set"
         )
 
         # Get chain (DB or fallback)
@@ -1190,10 +1188,97 @@ Ideal Answer Reference:
             "generate_questions_with_answers_and_rationales_batch", prompt_template, cache_key
         )
 
-        # Build coroutines for all question sets
+        # When DB prompt is active, it expects aggregated variables identical to batch question generation.
+        if prompt_template:
+            questions_section = ""
+            for idx, spec in enumerate(question_specs, 1):
+                skill = spec.get("skill", "general knowledge")
+                difficulty = spec.get("difficulty", "medium")
+                exemplars = spec.get("exemplars") or []
+
+                questions_section += f"\n\nQuestion {idx}:\n"
+                questions_section += f"- Skill to test: {skill}\n"
+                questions_section += f"- Difficulty: {difficulty}\n"
+                questions_section += "- Deliverables: Provide question_text, a 150-300 word ideal_answer, and a 50-100 word question rationale.\n"
+
+                if exemplars:
+                    questions_section += "- Similar questions for inspiration (do NOT copy exactly):\n"
+                    for j, exemplar in enumerate(exemplars[:3], 1):
+                        questions_section += (
+                            f"  {j}. \"{exemplar.get('text', '')}\" ({exemplar.get('difficulty', 'UNKNOWN')})\n"
+                        )
+
+            skills = context.get("skills")
+            if not skills:
+                skills = list({spec.get("skill", "general knowledge") for spec in question_specs})
+
+            chain_input = {
+                "question_count": len(question_specs),
+                "summary": context.get("summary") or context.get("cv_summary", "Not provided"),
+                "skills": ", ".join(skills[:10]) if isinstance(skills, list) else skills,
+                "experience": context.get("experience", context.get("experience_years", "Not specified")),
+                "questions_section": questions_section.strip(),
+            }
+
+            result, metadata = await self._invoke_chain_with_metadata(chain, chain_input, None)
+
+            raw_sets = []
+            if isinstance(result, dict):
+                raw_sets = (
+                    result.get("question_sets")
+                    or result.get("questions")
+                    or result.get("items")
+                    or []
+                )
+            elif isinstance(result, list):
+                raw_sets = result
+
+            if not isinstance(raw_sets, list) or not raw_sets:
+                raise ValueError("Expected list of question objects in response.")
+
+            question_sets = []
+            for item in raw_sets:
+                if isinstance(item, dict):
+                    question_text = (item.get("question_text") or item.get("question") or "").strip()
+                    ideal_answer = (item.get("ideal_answer") or item.get("answer") or "").strip()
+                    rationale = (
+                        item.get("question_rationale")
+                        or item.get("rationale")
+                        or item.get("reasoning")
+                        or ""
+                    ).strip()
+                elif isinstance(item, (list, tuple)) and len(item) >= 3:
+                    question_text = str(item[0]).strip()
+                    ideal_answer = str(item[1]).strip()
+                    rationale = str(item[2]).strip()
+                else:
+                    raise ValueError(f"Unrecognized question set format: {item}")
+
+                if not question_text or not ideal_answer or not rationale:
+                    raise ValueError("Incomplete question set returned from LLM.")
+
+                question_sets.append((question_text, ideal_answer, rationale))
+
+            if len(question_sets) != len(question_specs):
+                raise ValueError(
+                    f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
+                )
+
+            await self._log_execution(
+                prompt_template=prompt_template,
+                context=context,
+                input_variables={"question_specs_count": len(question_specs)},
+                output_text=str(question_sets),
+                start_time=start_time,
+                success=True,
+                model_response_metadata=metadata,
+            )
+
+            return question_sets
+
+        # Fallback prompt path: generate per spec using legacy template
         coroutines = []
         for spec in question_specs:
-            # Format exemplars for this spec
             exemplar_section = ""
             exemplars = spec.get("exemplars")
             if exemplars:
@@ -1206,7 +1291,6 @@ Ideal Answer Reference:
                     "\nGenerate a NEW question inspired by the style and structure above.\n"
                 )
 
-            # Create chain input for this question set
             chain_input = {
                 "skill": spec["skill"],
                 "difficulty": spec["difficulty"],
@@ -1216,13 +1300,10 @@ Ideal Answer Reference:
                 "exemplar_section": exemplar_section,
             }
 
-            # Use _invoke_chain_with_metadata to capture metadata
             coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
 
-        # Execute all in parallel
         results_with_metadata = await asyncio.gather(*coroutines)
 
-        # Extract question sets in order and return as tuples
         question_sets = []
         aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
         for result, _ in results_with_metadata:
@@ -1230,7 +1311,6 @@ Ideal Answer Reference:
             ideal_answer = result.get("ideal_answer", "").strip()
             rationale = result.get("rationale", "").strip()
 
-            # Validate all three components are present
             if not question_text or not ideal_answer or not rationale:
                 raise ValueError(
                     f"Incomplete response from LLM: missing question_text, ideal_answer, or rationale. "
@@ -1243,18 +1323,6 @@ Ideal Answer Reference:
         if len(question_sets) != len(question_specs):
             raise ValueError(
                 f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
-            )
-
-        # Log execution (if DB prompt was used)
-        if prompt_template:
-            await self._log_execution(
-                prompt_template=prompt_template,
-                context=context,
-                input_variables={"question_specs_count": len(question_specs)},
-                output_text=str(question_sets),
-                start_time=start_time,
-                success=True,
-                model_response_metadata=aggregated_metadata,
             )
 
         return question_sets
