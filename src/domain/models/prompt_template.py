@@ -19,7 +19,6 @@ class PromptTemplate(BaseModel):
     prompt_name: str = Field(min_length=1, max_length=100)
     version: int = Field(default=1, ge=1)
     is_active: bool = False
-    traffic_percentage: int = Field(default=0, ge=0, le=100)
 
     # Decomposed prompt structure
     system_prompt: str = Field(description="System message (role/context)")
@@ -70,9 +69,6 @@ class PromptTemplate(BaseModel):
 
     # Soft delete
     deleted_at: Optional[datetime] = None
-
-    # Legacy JSONB (backup, not used in domain logic)
-    template_json_legacy: Optional[Dict[str, Any]] = None
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)

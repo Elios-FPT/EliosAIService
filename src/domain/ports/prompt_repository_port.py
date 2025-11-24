@@ -22,7 +22,6 @@ class PromptRepositoryPort(ABC):
         name: str,
         template_json: dict,
         created_by: str,
-        notes: str | None = None,
     ) -> PromptTemplate:
         """Create initial prompt version (v1).
 
@@ -30,7 +29,6 @@ class PromptRepositoryPort(ABC):
             name: Unique prompt identifier
             template_json: Full prompt content (system, user_template, variables)
             created_by: User creating the prompt
-            notes: Optional notes
 
         Returns:
             Created PromptTemplate (version=1, is_draft=True, is_active=False)
@@ -48,7 +46,6 @@ class PromptRepositoryPort(ABC):
         template_json: dict,
         change_summary: str,
         created_by: str,
-        notes: str | None = None,
     ) -> PromptTemplate:
         """Create new version forked from parent.
 
@@ -58,7 +55,6 @@ class PromptRepositoryPort(ABC):
             template_json: New prompt content
             change_summary: Human-readable change description
             created_by: User creating the version
-            notes: Optional notes
 
         Returns:
             Created PromptTemplate (version=parent+1, is_draft=True, is_active=False)
@@ -95,7 +91,7 @@ class PromptRepositoryPort(ABC):
         """
         pass
 
-    # ========== Activation & A/B Testing ==========
+    # ========== Activation ==========
 
     @abstractmethod
     async def activate_version(
@@ -103,46 +99,21 @@ class PromptRepositoryPort(ABC):
         prompt_id: UUID,
         changed_by: str,
         reason: str,
-        traffic_percentage: int = 100,
-        ab_test_group: str | None = None,
     ) -> None:
-        """Activate version (deactivate others if traffic=100).
+        """Activate version (always deactivates others).
 
         Atomic transaction:
-        - If traffic_percentage=100: deactivate all other versions
-        - If traffic_percentage<100: allow multiple active for A/B testing
+        - Deactivate all other versions of the same prompt
+        - Activate the specified version
         - Log metadata change
 
         Args:
             prompt_id: Prompt version to activate
             changed_by: User activating
             reason: Reason for activation
-            traffic_percentage: % of traffic (0-100)
-            ab_test_group: Optional A/B test group identifier
 
         Raises:
-            ValueError: If prompt not found or traffic invalid
-        """
-        pass
-
-    @abstractmethod
-    async def adjust_ab_traffic(
-        self,
-        prompt_id: UUID,
-        new_traffic_percentage: int,
-        changed_by: str,
-        reason: str,
-    ) -> None:
-        """Adjust traffic percentage for A/B testing.
-
-        Args:
-            prompt_id: Prompt version
-            new_traffic_percentage: New traffic % (0-100)
-            changed_by: User adjusting
-            reason: Reason for adjustment
-
-        Raises:
-            ValueError: If prompt not active or traffic invalid
+            ValueError: If prompt not found
         """
         pass
 
@@ -150,10 +121,7 @@ class PromptRepositoryPort(ABC):
 
     @abstractmethod
     async def get_active_prompt(self, name: str) -> PromptTemplate | None:
-        """Get active prompt with A/B testing logic.
-
-        If single active version: return it
-        If multiple active (A/B test): weighted random selection based on traffic_percentage
+        """Get active prompt version.
 
         Args:
             name: Prompt identifier
@@ -222,7 +190,6 @@ class PromptRepositoryPort(ABC):
             - new_value: str
             - changed_by: str
             - changed_at: datetime
-            - reason: str
         """
         pass
 
@@ -240,7 +207,6 @@ class PromptRepositoryPort(ABC):
             prompt_template_id: Prompt version executed
             execution_data: Dict with keys:
                 - interview_id (optional)
-                - candidate_id (optional)
                 - input_variables: dict
                 - output_text: str
                 - prompt_tokens: int
@@ -267,7 +233,8 @@ class PromptRepositoryPort(ABC):
         Returns:
             Dict with keys:
             - total_executions: int
-            - avg_tokens_used: float
+            - avg_prompt_tokens: float
+            - avg_completion_tokens: float
             - avg_latency_ms: float
             - success_rate: float (0.0-1.0)
             - estimated_cost_usd: float

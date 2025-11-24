@@ -1192,12 +1192,9 @@ Ideal Answer Reference:
             model_name = getattr(self.model, "model_name", getattr(self.model, "model", "unknown"))
 
             # Extract token usage
-            total_tokens, prompt_tokens, completion_tokens = self._extract_token_usage(
+            _, prompt_tokens, completion_tokens = self._extract_token_usage(
                 model_response_metadata, model_name
             )
-
-            # Estimate cost
-            estimated_cost = self._estimate_cost(model_name, prompt_tokens, completion_tokens)
 
             # Sanitize input variables (remove PII if present)
             sanitized_input = self._sanitize_variables(input_variables)
@@ -1205,17 +1202,14 @@ Ideal Answer Reference:
             # Prepare execution data
             execution_data = {
                 "interview_id": context.get("interview_id"),
-                "candidate_id": context.get("candidate_id"),
                 "input_variables": sanitized_input,
                 "output_text": output_text[:10000] if output_text else None,  # Truncate
-                "tokens_used": total_tokens,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "latency_ms": latency_ms,
                 "model_name": model_name,
                 "success": success,
                 "error_message": error_message,
-                "estimated_cost_usd": estimated_cost,
             }
 
             # Log to database

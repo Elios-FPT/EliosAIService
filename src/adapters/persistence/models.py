@@ -500,7 +500,6 @@ class PromptTemplateModel(Base):
     prompt_name: Mapped[str] = mapped_column("name", String(100), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    traffic_percentage: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     # Decomposed prompt structure (editable fields)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -530,7 +529,6 @@ class PromptTemplateModel(Base):
 
     # Auto-generated fields (read-only, created by trigger)
     template_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    template_json_legacy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -571,7 +569,6 @@ class PromptMetadataChangeModel(Base):
     new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_by: Mapped[str] = mapped_column(String(100), nullable=False)
     changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     prompt_template: Mapped["PromptTemplateModel"] = relationship(
@@ -601,14 +598,8 @@ class PromptExecutionModel(Base):
         ForeignKey("interviews.id", ondelete="CASCADE"),
         nullable=True,
     )
-    candidate_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("candidates.id", ondelete="SET NULL"),
-        nullable=True,
-    )
     input_variables: Mapped[dict] = mapped_column(JSONB, nullable=False)
     output_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -637,9 +628,9 @@ class PromptAnalyticsSummaryModel(Base):
     prompt_template_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
-    ab_test_group: Mapped[str | None] = mapped_column(String(50), nullable=True)
     total_executions: Mapped[int] = mapped_column(Integer, nullable=False)
-    avg_tokens_used: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_prompt_tokens: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_completion_tokens: Mapped[float | None] = mapped_column(Float, nullable=True)
     avg_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     success_rate: Mapped[float] = mapped_column(Float, nullable=False)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False)
