@@ -11,6 +11,7 @@ import time
 from typing import Any
 from uuid import UUID
 
+from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -25,6 +26,71 @@ from ...domain.ports.prompt_repository_port import PromptRepositoryPort
 from .prompts import PROMPT_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+
+class MetadataCaptureCallback(AsyncCallbackHandler):
+    """Callback to capture token usage metadata from LangChain LLM responses.
+
+    When using chains with JSON output parser, the final response is just a dict
+    and metadata is lost. This callback captures metadata from the LLM step
+    before JSON parsing.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.metadata: dict[str, Any] | None = None
+        self.model_name: str | None = None
+
+    async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        """Capture metadata when LLM call completes.
+
+        Args:
+            response: LLMResult object containing generations and llm_output
+        """
+        from langchain_core.outputs import LLMResult
+
+        if not isinstance(response, LLMResult):
+            return
+
+        # Initialize metadata dict
+        if not self.metadata:
+            self.metadata = {}
+
+        # First, check llm_output (contains token usage for some providers)
+        if response.llm_output:
+            self.metadata.update(response.llm_output)
+            # Extract model name if available
+            if not self.model_name:
+                self.model_name = response.llm_output.get("model_name") or response.llm_output.get("model")
+
+        # Most importantly, check generations for response_metadata (AIMessage objects)
+        # This is where token usage is typically stored for OpenAI/Anthropic
+        if response.generations:
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    if hasattr(gen, "message"):
+                        message = gen.message
+
+                        # Check response_metadata (primary source for token usage)
+                        if hasattr(message, "response_metadata") and message.response_metadata:
+                            # Merge response_metadata (contains usage dict)
+                            self.metadata.update(message.response_metadata)
+
+                            # Extract model name from message metadata
+                            if not self.model_name:
+                                self.model_name = message.response_metadata.get("model_name") or message.response_metadata.get("model")
+
+                        # Check for usage_metadata (newer LangChain versions)
+                        if hasattr(message, "usage_metadata") and message.usage_metadata:
+                            # Ensure usage dict exists
+                            if "usage" not in self.metadata:
+                                self.metadata["usage"] = {}
+                            # Merge usage_metadata into usage dict
+                            if isinstance(message.usage_metadata, dict):
+                                self.metadata["usage"].update(message.usage_metadata)
+                            else:
+                                # If usage_metadata is an object, try to convert
+                                self.metadata["usage"].update(vars(message.usage_metadata))
 
 
 class LangChainAdapter(LLMPort):
@@ -165,6 +231,65 @@ class LangChainAdapter(LLMPort):
 
         return RunnableConfig(metadata=metadata, callbacks=self.callbacks)
 
+    async def _invoke_chain_with_metadata(
+        self, chain: Runnable, variables: dict[str, Any], config: RunnableConfig | dict[str, Any] | None = None
+    ) -> tuple[Any, dict[str, Any] | None]:
+        """Invoke chain and capture metadata using callback.
+
+        Args:
+            chain: LangChain runnable chain to execute
+            variables: Input variables for the chain
+            config: Optional RunnableConfig or dict (will add metadata callback)
+
+        Returns:
+            Tuple of (result, metadata_dict)
+        """
+        # Create metadata capture callback
+        metadata_callback = MetadataCaptureCallback()
+
+        # Merge callbacks: existing callbacks + metadata callback
+        all_callbacks = list(self.callbacks) + [metadata_callback]
+
+        # Update config with combined callbacks
+        # LangChain accepts both RunnableConfig and dict for config
+        if config:
+            # Handle both dict and RunnableConfig
+            if isinstance(config, dict):
+                # If config is a dict, create new dict with merged callbacks
+                config_with_callbacks = config.copy()
+                # Merge callbacks - if config already has callbacks, combine them
+                existing_callbacks = config_with_callbacks.get("callbacks", [])
+                if not isinstance(existing_callbacks, list):
+                    existing_callbacks = [existing_callbacks] if existing_callbacks else []
+                config_with_callbacks["callbacks"] = list(existing_callbacks) + all_callbacks
+            else:
+                # If config is RunnableConfig, create new RunnableConfig
+                config_with_callbacks = RunnableConfig(
+                    metadata=getattr(config, "metadata", None),
+                    callbacks=all_callbacks,
+                    tags=getattr(config, "tags", None),
+                    run_name=getattr(config, "run_name", None),
+                )
+        else:
+            config_with_callbacks = RunnableConfig(callbacks=all_callbacks)
+
+        # Execute chain
+        result = await chain.ainvoke(variables, config=config_with_callbacks)
+
+        # Extract metadata from callback or response
+        metadata = metadata_callback.metadata
+        if not metadata:
+            metadata = self._extract_response_metadata(result)
+
+        # Debug logging to help diagnose token extraction issues
+        if not metadata or not metadata.get("usage"):
+            logger.debug(
+                f"Token metadata not found. Callback metadata keys: {list(metadata_callback.metadata.keys()) if metadata_callback.metadata else 'None'}, "
+                f"Final metadata keys: {list(metadata.keys()) if metadata else 'None'}"
+            )
+
+        return result, metadata
+
     async def evaluate_answer(
         self,
         question: Question,
@@ -242,8 +367,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
             # Log execution
             if prompt_template:
@@ -327,8 +451,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
             # Log execution
             if prompt_template:
@@ -376,8 +499,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
             # Log execution
             if prompt_template:
@@ -429,8 +551,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
             # Convert to expected format
             skills = []
@@ -505,8 +626,7 @@ Ideal Answer Reference:
         )
 
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
             output_text = result.get("answer_text") or result.get("answer")
 
@@ -563,8 +683,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
 
             # Log execution
             if prompt_template:
@@ -621,8 +740,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
 
             output = {
                 "concepts": result.get("concepts", []),
@@ -717,10 +835,33 @@ Ideal Answer Reference:
             order=order,
         )
 
-        # Execute chain
+        # Execute chain with metadata capture
+        # Create callback before try block so we can access metadata even on parsing errors
+        metadata_callback = MetadataCaptureCallback()
+        all_callbacks = list(self.callbacks) + [metadata_callback]
+
+        if config:
+            if isinstance(config, dict):
+                config_with_callbacks = config.copy()
+                existing_callbacks = config_with_callbacks.get("callbacks", [])
+                if not isinstance(existing_callbacks, list):
+                    existing_callbacks = [existing_callbacks] if existing_callbacks else []
+                config_with_callbacks["callbacks"] = list(existing_callbacks) + all_callbacks
+            else:
+                config_with_callbacks = RunnableConfig(
+                    metadata=getattr(config, "metadata", None),
+                    callbacks=all_callbacks,
+                    tags=getattr(config, "tags", None),
+                    run_name=getattr(config, "run_name", None),
+                )
+        else:
+            config_with_callbacks = RunnableConfig(callbacks=all_callbacks)
+
         try:
-            result = await chain.ainvoke(variables, config=config)
-            metadata = self._extract_response_metadata(result)
+            result = await chain.ainvoke(variables, config=config_with_callbacks)
+            metadata = metadata_callback.metadata
+            if not metadata:
+                metadata = self._extract_response_metadata(result)
 
             # Extract question text - handle both dict (JSON) and string responses
             if isinstance(result, dict):
@@ -767,6 +908,11 @@ Ideal Answer Reference:
                         f"Got plain text instead of JSON from follow-up generation, using it directly: {plain_text[:100]}..."
                     )
 
+                    # Get metadata from callback (LLM call completed, just parsing failed)
+                    metadata = metadata_callback.metadata
+                    if not metadata:
+                        metadata = self._extract_response_metadata(None)
+
                     # Log as successful with plain text
                     if prompt_template:
                         await self._log_execution(
@@ -776,7 +922,7 @@ Ideal Answer Reference:
                             output_text=plain_text,
                             start_time=start_time,
                             success=True,
-                            model_response_metadata=None,
+                            model_response_metadata=metadata,
                         )
 
                     return plain_text
@@ -821,8 +967,7 @@ Ideal Answer Reference:
 
         # Execute chain
         try:
-            result = await chain.ainvoke(variables)
-            metadata = self._extract_response_metadata(result)
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
 
             output = {
                 "strengths": result.get("strengths", []),
@@ -874,7 +1019,7 @@ Ideal Answer Reference:
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain("generate_questions_batch", prompt_template, cache_key)
 
-        # Build coroutines for all questions
+        # Build coroutines for all questions with metadata capture
         coroutines = []
         for spec in question_specs:
             # Format exemplars for this spec
@@ -900,15 +1045,16 @@ Ideal Answer Reference:
                 "exemplar_section": exemplar_section,
             }
 
-            # Add coroutine to list
-            coroutines.append(chain.ainvoke(chain_input))
+            # Use _invoke_chain_with_metadata to capture metadata
+            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
 
         # Execute all in parallel
-        results = await asyncio.gather(*coroutines)
+        results_with_metadata = await asyncio.gather(*coroutines)
 
-        # Extract questions in order
+        # Extract questions and aggregate metadata
         questions = []
-        for result in results:
+        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
+        for result, _ in results_with_metadata:
             questions.append(result["question_text"])
 
         # Log execution (if DB prompt was used)
@@ -920,7 +1066,7 @@ Ideal Answer Reference:
                 output_text=str(questions),
                 start_time=start_time,
                 success=True,
-                model_response_metadata=None,
+                model_response_metadata=aggregated_metadata,
             )
 
         return questions
@@ -941,7 +1087,7 @@ Ideal Answer Reference:
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain("generate_ideal_answers_batch", prompt_template, cache_key)
 
-        # Build coroutines for all answers
+        # Build coroutines for all answers with metadata capture
         coroutines = []
         for question_text in question_texts:
             chain_input = {
@@ -949,14 +1095,15 @@ Ideal Answer Reference:
                 "cv_summary": context.get("cv_summary", "Not provided"),
                 "skill_level": context.get("skill_level", "intermediate"),
             }
-            coroutines.append(chain.ainvoke(chain_input))
+            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
 
         # Execute all in parallel
-        results = await asyncio.gather(*coroutines)
+        results_with_metadata = await asyncio.gather(*coroutines)
 
-        # Extract answers in order
+        # Extract answers and aggregate metadata
         answers = []
-        for result in results:
+        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
+        for result, _ in results_with_metadata:
             answers.append(result["answer_text"])
 
         # Log execution (if DB prompt was used)
@@ -968,7 +1115,7 @@ Ideal Answer Reference:
                 output_text=str(answers),
                 start_time=start_time,
                 success=True,
-                model_response_metadata=None,
+                model_response_metadata=aggregated_metadata,
             )
 
         return answers
@@ -989,21 +1136,22 @@ Ideal Answer Reference:
         # Get chain (DB or fallback)
         chain = self._get_or_build_chain("generate_rationales_batch", prompt_template, cache_key)
 
-        # Build coroutines for all rationales
+        # Build coroutines for all rationales with metadata capture
         coroutines = []
         for question_text, ideal_answer in question_ideal_pairs:
             chain_input = {
                 "question_text": question_text,
                 "ideal_answer": ideal_answer,
             }
-            coroutines.append(chain.ainvoke(chain_input))
+            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
 
         # Execute all in parallel
-        results = await asyncio.gather(*coroutines)
+        results_with_metadata = await asyncio.gather(*coroutines)
 
-        # Extract rationales in order
+        # Extract rationales and aggregate metadata
         rationales = []
-        for result in results:
+        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
+        for result, _ in results_with_metadata:
             rationales.append(result["rationale_text"])
 
         # Log execution (if DB prompt was used)
@@ -1015,7 +1163,7 @@ Ideal Answer Reference:
                 output_text=str(rationales),
                 start_time=start_time,
                 success=True,
-                model_response_metadata=None,
+                model_response_metadata=aggregated_metadata,
             )
 
         return rationales
@@ -1068,15 +1216,16 @@ Ideal Answer Reference:
                 "exemplar_section": exemplar_section,
             }
 
-            # Add coroutine to list
-            coroutines.append(chain.ainvoke(chain_input))
+            # Use _invoke_chain_with_metadata to capture metadata
+            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
 
         # Execute all in parallel
-        results = await asyncio.gather(*coroutines)
+        results_with_metadata = await asyncio.gather(*coroutines)
 
         # Extract question sets in order and return as tuples
         question_sets = []
-        for result in results:
+        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
+        for result, _ in results_with_metadata:
             question_text = result.get("question_text", "").strip()
             ideal_answer = result.get("ideal_answer", "").strip()
             rationale = result.get("rationale", "").strip()
@@ -1105,10 +1254,63 @@ Ideal Answer Reference:
                 output_text=str(question_sets),
                 start_time=start_time,
                 success=True,
-                model_response_metadata=None,
+                model_response_metadata=aggregated_metadata,
             )
 
         return question_sets
+
+    def _aggregate_metadata(self, metadata_list: list[dict[str, Any] | None]) -> dict[str, Any] | None:
+        """Aggregate metadata from multiple LLM calls (for batch operations).
+
+        Sums up token counts and merges other metadata fields.
+
+        Args:
+            metadata_list: List of metadata dicts from multiple calls
+
+        Returns:
+            Aggregated metadata dict, or None if no metadata available
+        """
+        if not metadata_list or all(m is None for m in metadata_list):
+            return None
+
+        aggregated = {}
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_tokens = 0
+
+        # Aggregate token usage
+        for metadata in metadata_list:
+            if not metadata:
+                continue
+
+            # Merge non-token fields (use first non-None value)
+            for key, value in metadata.items():
+                if key not in ("usage", "token_usage") and key not in aggregated:
+                    aggregated[key] = value
+
+            # Extract and sum tokens
+            usage = metadata.get("usage") or metadata.get("token_usage")
+            if usage and isinstance(usage, dict):
+                # OpenAI format
+                if "prompt_tokens" in usage:
+                    total_prompt_tokens += usage.get("prompt_tokens", 0)
+                    total_completion_tokens += usage.get("completion_tokens", 0)
+                    total_tokens += usage.get("total_tokens", 0)
+                # Anthropic format
+                elif "input_tokens" in usage:
+                    total_prompt_tokens += usage.get("input_tokens", 0)
+                    total_completion_tokens += usage.get("output_tokens", 0)
+                    total_tokens += usage.get("total_tokens", 0) or (total_prompt_tokens + total_completion_tokens)
+
+        # Add aggregated usage
+        if total_tokens > 0 or total_prompt_tokens > 0 or total_completion_tokens > 0:
+            aggregated["usage"] = {
+                "total_tokens": total_tokens if total_tokens > 0 else (total_prompt_tokens + total_completion_tokens),
+                "prompt_tokens": total_prompt_tokens,
+                "completion_tokens": total_completion_tokens,
+            }
+
+        return aggregated if aggregated else None
 
     # Helper methods
     def _format_previous_evaluations(self, evaluations: list[Evaluation]) -> str:
@@ -1177,8 +1379,8 @@ Ideal Answer Reference:
             # Calculate latency
             latency_ms = int((time.time() - start_time) * 1000)
 
-            # Get model name
-            model_name = getattr(self.model, "model_name", getattr(self.model, "model", "unknown"))
+            # Get model name (try multiple sources)
+            model_name = self._get_model_name(model_response_metadata)
 
             # Extract token usage
             total_tokens, prompt_tokens, completion_tokens = self._extract_token_usage(
@@ -1283,6 +1485,42 @@ Ideal Answer Reference:
                 )
                 await asyncio.sleep(wait_time)
 
+    def _get_model_name(self, model_response_metadata: dict[str, Any] | None = None) -> str:
+        """Extract model name from LangChain model object.
+
+        Checks multiple possible attributes and metadata sources.
+
+        Args:
+            model_response_metadata: Optional metadata from response (may contain model name)
+
+        Returns:
+            Model name string, or "unknown" if not found
+        """
+        # Try to get from response metadata first
+        if model_response_metadata:
+            model_name = model_response_metadata.get("model_name") or model_response_metadata.get("model")
+            if model_name:
+                return model_name
+
+        # Try common model attributes
+        if hasattr(self.model, "model_name"):
+            return self.model.model_name
+        if hasattr(self.model, "model"):
+            return self.model.model
+        if hasattr(self.model, "model_id"):
+            return self.model.model_id
+
+        # Try to get from model's __dict__ (some models store it differently)
+        if hasattr(self.model, "__dict__"):
+            model_dict = self.model.__dict__
+            if "model_name" in model_dict:
+                return model_dict["model_name"]
+            if "model" in model_dict:
+                return model_dict["model"]
+
+        # Fallback to class name
+        return type(self.model).__name__
+
     def _extract_response_metadata(self, chain_response: Any) -> dict | None:
         """Extract metadata from LangChain chain response.
 
@@ -1332,37 +1570,67 @@ Ideal Answer Reference:
             Returns (None, None, None) if no token data available
         """
         if not model_response_metadata:
+            logger.debug("No model_response_metadata provided for token extraction")
             return None, None, None
 
-        usage = model_response_metadata.get("usage") or model_response_metadata.get("token_usage")
-        if not usage:
-            return None, None, None
+        # Try multiple paths to find usage data
+        # Priority: token_usage (OpenAI format) > usage (Anthropic format)
+        token_usage = None
+        usage = None
 
-        # OpenAI format
-        if "total_tokens" in usage:
-            return (
-                usage.get("total_tokens"),
-                usage.get("prompt_tokens"),
-                usage.get("completion_tokens"),
-            )
+        # Path 1: token_usage key (OpenAI format: prompt_tokens, completion_tokens)
+        if "token_usage" in model_response_metadata:
+            token_usage = model_response_metadata["token_usage"]
+        # Path 2: usage key (Anthropic format: input_tokens, output_tokens)
+        if "usage" in model_response_metadata:
+            usage = model_response_metadata["usage"]
+        # Path 3: Check if nested in response_metadata
+        elif isinstance(model_response_metadata.get("response_metadata"), dict):
+            nested_meta = model_response_metadata["response_metadata"]
+            token_usage = nested_meta.get("token_usage") or token_usage
+            usage = nested_meta.get("usage") or usage
 
-        # Anthropic format
-        if "input_tokens" in usage:
-            input_tokens = usage.get("input_tokens")
-            output_tokens = usage.get("output_tokens")
-            total = (
-                (input_tokens or 0) + (output_tokens or 0)
-                if input_tokens and output_tokens
-                else None
-            )
-            return total, input_tokens, output_tokens
+        # Prefer token_usage (OpenAI format) as it has prompt_tokens/completion_tokens directly
+        if token_usage and isinstance(token_usage, dict):
+            # OpenAI format: total_tokens, prompt_tokens, completion_tokens
+            if "prompt_tokens" in token_usage or "completion_tokens" in token_usage:
+                return (
+                    token_usage.get("total_tokens"),
+                    token_usage.get("prompt_tokens"),
+                    token_usage.get("completion_tokens"),
+                )
 
-        # Generic format
-        return (
-            usage.get("total"),
-            usage.get("prompt"),
-            usage.get("completion"),
-        )
+        # Fall back to usage (Anthropic format)
+        if usage and isinstance(usage, dict):
+            # Anthropic format: input_tokens, output_tokens
+            if "input_tokens" in usage:
+                input_tokens = usage.get("input_tokens")
+                output_tokens = usage.get("output_tokens")
+                total = (
+                    (input_tokens or 0) + (output_tokens or 0)
+                    if input_tokens is not None and output_tokens is not None
+                    else usage.get("total_tokens")
+                )
+                return total, input_tokens, output_tokens
+
+            # Also check for OpenAI format in usage dict (some providers use this)
+            if "prompt_tokens" in usage or "completion_tokens" in usage:
+                return (
+                    usage.get("total_tokens"),
+                    usage.get("prompt_tokens"),
+                    usage.get("completion_tokens"),
+                )
+
+            # Generic format: total, prompt, completion
+            if "total" in usage or "prompt" in usage or "completion" in usage:
+                return (
+                    usage.get("total"),
+                    usage.get("prompt"),
+                    usage.get("completion"),
+                )
+
+        logger.debug(f"No usage data found in metadata. Keys: {list(model_response_metadata.keys())}")
+        return None, None, None
 
     def _estimate_cost(
         self,
