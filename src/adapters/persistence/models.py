@@ -501,6 +501,16 @@ class PromptTemplateModel(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
+    # Version control and lineage
+    parent_version_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("prompt_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     # Decomposed prompt structure (editable fields)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     user_template: Mapped[str] = mapped_column(Text, nullable=False)
@@ -548,6 +558,7 @@ class PromptTemplateModel(Base):
     __table_args__ = (
         Index("idx_prompt_templates_name", "name"),
         Index("idx_prompt_templates_version", "name", "version"),
+        Index("idx_prompt_templates_parent", "parent_version_id"),
         Index("idx_prompt_templates_deleted_at", "deleted_at"),
     )
 

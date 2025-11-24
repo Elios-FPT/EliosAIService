@@ -74,17 +74,27 @@ class PromptTemplateResponse(BaseModel):
     prompt_name: str
     version: int
     is_active: bool
+    # Version control and lineage
+    parent_version_id: UUID | None = None
+    change_summary: str | None = None
+    is_draft: bool
+    created_by: str
+    # Decomposed prompt structure
     system_prompt: str
     user_template: str
     input_variables: list[str]
     partial_variables: dict[str, Any]
     output_parser_type: str
     output_schema: dict[str, Any]
+    # Model parameters
     temperature: float
     max_tokens: int
     top_p: float
     frequency_penalty: float
     presence_penalty: float
+    # Denormalized JSON storage
+    template_json: dict[str, Any] | None = None
+    # Timestamps
     created_at: datetime
     deleted_at: datetime | None
 
@@ -103,17 +113,27 @@ class PromptTemplateResponse(BaseModel):
             prompt_name=prompt.prompt_name,
             version=prompt.version,
             is_active=prompt.is_active,
+            # Version control and lineage
+            parent_version_id=prompt.parent_version_id,
+            change_summary=prompt.change_summary,
+            is_draft=prompt.is_draft,
+            created_by=prompt.created_by,
+            # Decomposed prompt structure
             system_prompt=prompt.system_prompt,
             user_template=prompt.user_template,
             input_variables=prompt.input_variables,
             partial_variables=prompt.partial_variables or {},
             output_parser_type=prompt.output_parser_type,
             output_schema=prompt.output_schema or {},
+            # Model parameters
             temperature=float(prompt.temperature),
             max_tokens=prompt.max_tokens,
             top_p=float(prompt.top_p),
             frequency_penalty=float(prompt.frequency_penalty),
             presence_penalty=float(prompt.presence_penalty),
+            # Denormalized JSON storage
+            template_json=prompt.template_json,
+            # Timestamps
             created_at=prompt.created_at,
             deleted_at=prompt.deleted_at,
         )
@@ -124,9 +144,11 @@ class VersionHistoryResponse(BaseModel):
 
     version: int
     created_at: datetime
-    created_by: str | None = None  # May not be available from repository
-    change_summary: str | None = None  # May not be available from repository
+    created_by: str | None = None
+    change_summary: str | None = None
     is_active: bool
+    is_draft: bool
+    parent_version_id: UUID | None = None
     diff: dict[str, Any] | None
 
 

@@ -20,6 +20,12 @@ class PromptTemplate(BaseModel):
     version: int = Field(default=1, ge=1)
     is_active: bool = False
 
+    # Version control and lineage
+    parent_version_id: Optional[UUID] = Field(default=None, description="Parent version for lineage tracking")
+    change_summary: Optional[str] = Field(default=None, description="Summary of changes in this version")
+    is_draft: bool = Field(default=False, description="Whether this is a draft version")
+    created_by: str = Field(..., max_length=100, description="User who created this version")
+
     # Decomposed prompt structure
     system_prompt: str = Field(description="System message (role/context)")
     user_template: str = Field(description="User message template with {variables}")
@@ -69,6 +75,9 @@ class PromptTemplate(BaseModel):
 
     # Soft delete
     deleted_at: Optional[datetime] = None
+
+    # Denormalized JSON storage
+    template_json: Optional[Dict[str, Any]] = Field(default=None, description="Denormalized JSON storage")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)

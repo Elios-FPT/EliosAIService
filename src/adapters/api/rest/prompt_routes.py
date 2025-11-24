@@ -188,9 +188,11 @@ async def get_version_history(
         VersionHistoryResponse(
             version=entry["version"],
             created_at=entry["created_at"],
-            created_by=entry.get("created_by"),  # May not be available
-            change_summary=entry.get("change_summary"),  # May not be available
+            created_by=entry.get("created_by"),
+            change_summary=entry.get("change_summary"),
             is_active=entry["is_active"],
+            is_draft=entry.get("is_draft", False),
+            parent_version_id=entry.get("parent_version_id"),
             diff=entry.get("diff"),
         )
         for entry in history
@@ -336,6 +338,59 @@ async def get_active_prompt(
         )
 
     return PromptTemplateResponse.from_domain(prompt)
+
+
+@router.patch(
+    "/{prompt_id}/publish",
+    response_model=PromptTemplateResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def publish_draft_prompt(
+    prompt_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+) -> PromptTemplateResponse:
+    """Publish a draft prompt version (change is_draft from True to False).
+
+    Args:
+        prompt_id: Prompt version UUID to publish
+        session: Database session
+
+    Returns:
+        Updated PromptTemplateResponse with is_draft=False
+
+    Raises:
+        HTTPException: 404 if prompt not found, 400 if not a draft or validation fails
+    """
+    container = get_container()
+    prompt_repo = container.prompt_repository_port(session)
+
+    # Get prompt
+    prompt = await prompt_repo.get_by_id(prompt_id)
+    if not prompt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prompt {prompt_id} not found",
+        )
+
+    # Validate it's a draft
+    if not prompt.is_draft:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Prompt {prompt_id} is not a draft (already published)",
+        )
+
+    # Update is_draft to False
+    prompt.is_draft = False
+
+    try:
+        # Update via repository
+        updated_prompt = await prompt_repo.update(prompt)
+        return PromptTemplateResponse.from_domain(updated_prompt)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 # ========== Analytics, Audit & Lifecycle Endpoints ==========
