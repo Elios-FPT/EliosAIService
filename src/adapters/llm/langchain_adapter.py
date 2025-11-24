@@ -13,7 +13,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 
@@ -128,15 +128,13 @@ class LangChainAdapter(LLMPort):
         Returns:
             Dictionary of method_name -> chain
         """
-        # JSON output parser for all chains
-        json_parser = JsonOutputParser()
-
         chains = {}
 
         # Build chain for each method
         for method_name, prompt_template in PROMPT_REGISTRY.items():
             # Simple chain: prompt | model | json_parser
-            chains[method_name] = prompt_template | self.model | json_parser
+            parser = self._get_output_parser(method_name)
+            chains[method_name] = prompt_template | self.model | parser
 
         return chains
 
@@ -162,10 +160,55 @@ class LangChainAdapter(LLMPort):
                 ("human", prompt_template.user_template),
             ]
         )
-        json_parser = JsonOutputParser()
-        chain = prompt_template_obj | self.model | json_parser
+        parser = self._get_output_parser(method_name)
+        chain = prompt_template_obj | self.model | parser
         self._db_chain_cache[cache_identifier] = chain
         return chain
+
+    def _get_output_parser(self, method_name: str):
+        """Return parser for method (text for follow-ups, JSON elsewhere)."""
+        if method_name == "generate_followup_question":
+            return StrOutputParser()
+        return JsonOutputParser()
+
+    def _extract_followup_question_text(self, raw_result: Any) -> str:
+        """Normalize follow-up question output to plain text."""
+        if isinstance(raw_result, dict):
+            question_text = raw_result.get("question_text", "")
+            return question_text.strip() if isinstance(question_text, str) else ""
+
+        if raw_result is None:
+            return ""
+
+        text = raw_result.strip() if isinstance(raw_result, str) else str(raw_result).strip()
+        if not text:
+            return ""
+
+        # Attempt to parse JSON payload if the model returned structured text
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                candidate = parsed.get("question_text")
+                if isinstance(candidate, str):
+                    return candidate.strip()
+        except json.JSONDecodeError:
+            pass
+
+        return text
+
+    @staticmethod
+    def _sanitize_followup_question_text(text: str) -> str:
+        """Remove LangChain troubleshooting hints or stray quotes."""
+        if not text:
+            return ""
+
+        sanitized = text
+        troubleshooting_marker = "For troubleshooting, visit:"
+        if troubleshooting_marker in sanitized:
+            sanitized = sanitized.split(troubleshooting_marker, 1)[0]
+
+        sanitized = sanitized.strip().strip('"').strip("'")
+        return sanitized
 
     async def _load_prompt_from_db(
         self,
@@ -863,17 +906,10 @@ Ideal Answer Reference:
             if not metadata:
                 metadata = self._extract_response_metadata(result)
 
-            # Extract question text - handle both dict (JSON) and string responses
-            if isinstance(result, dict):
-                question_text = result.get("question_text", "")
-            elif isinstance(result, str):
-                # If plain text response, use it directly
-                question_text = result.strip()
-            else:
-                raise ValueError(f"Unexpected result type: {type(result)}")
-
+            question_text = self._extract_followup_question_text(result)
             if not question_text:
                 raise ValueError("Empty question text returned from LLM")
+            question_text = self._sanitize_followup_question_text(question_text)
 
             # Log execution
             if prompt_template:
@@ -925,7 +961,7 @@ Ideal Answer Reference:
                             model_response_metadata=metadata,
                         )
 
-                    return plain_text
+                    return self._sanitize_followup_question_text(plain_text)
 
             # Log other exceptions as failures
             if prompt_template:
