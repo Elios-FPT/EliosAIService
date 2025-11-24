@@ -30,9 +30,7 @@ jobs:
 
           echo "Refreshing materialized view prompt_analytics_summary..."
           # Keep Neon session short: connect → refresh → exit immediately
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-            REFRESH MATERIALIZED VIEW CONCURRENTLY prompt_analytics_summary;
-SQL
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "REFRESH MATERIALIZED VIEW CONCURRENTLY prompt_analytics_summary;"
 
           if [ $? -eq 0 ]; then
             echo "Successfully refreshed prompt_analytics_summary"
