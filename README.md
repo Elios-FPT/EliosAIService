@@ -49,7 +49,8 @@ Manage LLM prompt templates with version control, A/B testing, rollback, and ana
 
 **Version Management:**
 - `POST /api/prompts` - Create initial prompt (v1)
-- `POST /api/prompts/{name}/versions` - Create new version from parent
+- `POST /api/prompts/{name}/versions` - Create new version (optional `parent_version` for lineage)
+- `PATCH /api/prompts/{prompt_id}/draft` - Update draft prompt version content
 - `POST /api/prompts/{name}/rollback` - Rollback to target version
 - `GET /api/prompts/{name}/versions` - Get version history with diffs
 - `GET /api/prompts/{name}/versions/{version}` - Get specific version

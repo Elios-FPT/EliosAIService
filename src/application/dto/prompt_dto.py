@@ -33,7 +33,11 @@ class CreatePromptRequest(BaseModel):
 class CreateVersionRequest(BaseModel):
     """Request to create new version from parent."""
 
-    parent_version: int = Field(..., ge=1, description="Parent version number to fork from")
+    parent_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="Parent version number to fork from (defaults to latest if omitted)",
+    )
     system_prompt: str = Field(..., description="System message (role/context)")
     user_template: str = Field(..., description="User message template with {variables}")
     input_variables: list[str] = Field(default_factory=list, description="Variables to interpolate")
@@ -47,6 +51,22 @@ class CreateVersionRequest(BaseModel):
     presence_penalty: float = Field(..., ge=-2.0, le=2.0, description="Presence penalty")
     change_summary: str = Field(..., description="Human-readable change description")
     created_by: str = Field(..., description="User creating the version")
+
+
+class UpdateDraftPromptRequest(BaseModel):
+    """Request to update an existing draft prompt version."""
+
+    system_prompt: str = Field(..., description="System message (role/context)")
+    user_template: str = Field(..., description="User message template with {variables}")
+    input_variables: list[str] = Field(default_factory=list, description="Variables to interpolate")
+    partial_variables: dict[str, Any] | None = Field(default=None, description="Pre-filled variables")
+    output_parser_type: str = Field(default="json_output_parser", description="Parser type")
+    output_schema: dict[str, Any] | None = Field(default=None, description="Expected output schema")
+    temperature: float = Field(..., ge=0.0, le=2.0, description="Sampling temperature (0-2)")
+    max_tokens: int = Field(..., ge=1, le=100000, description="Maximum tokens to generate")
+    top_p: float = Field(..., ge=0.0, le=1.0, description="Nucleus sampling parameter")
+    frequency_penalty: float = Field(..., ge=-2.0, le=2.0, description="Frequency penalty")
+    presence_penalty: float = Field(..., ge=-2.0, le=2.0, description="Presence penalty")
 
 
 class RollbackRequest(BaseModel):
@@ -142,6 +162,7 @@ class PromptTemplateResponse(BaseModel):
 class VersionHistoryResponse(BaseModel):
     """Response with version history entry including diff."""
 
+    id: UUID
     version: int
     created_at: datetime
     created_by: str | None = None
