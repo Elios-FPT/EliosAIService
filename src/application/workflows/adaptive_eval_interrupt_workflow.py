@@ -451,6 +451,7 @@ class AdaptiveEvalInterruptWorkflow(BaseWorkflow):
                 answer_text=answer_text,
                 ideal_answer=question.ideal_answer or "",
                 question_text=question.text,
+                interview_id=interview.id,
             )
 
             # Determine attempt number
@@ -629,6 +630,7 @@ class AdaptiveEvalInterruptWorkflow(BaseWorkflow):
                 severity=severity,
                 order=iteration + 1,
                 cumulative_gaps=cumulative_gaps,
+                context={"interview_id": str(interview.id)},
             )
 
             # Create follow-up question entity
@@ -809,8 +811,16 @@ class AdaptiveEvalInterruptWorkflow(BaseWorkflow):
         answer_text: str,
         ideal_answer: str,
         question_text: str,
+        interview_id: UUID,
     ) -> dict[str, Any]:
-        """Detect concept gaps using hybrid approach (keywords + LLM)."""
+        """Detect concept gaps using hybrid approach (keywords + LLM).
+
+        Args:
+            answer_text: Candidate's answer
+            ideal_answer: Reference ideal answer
+            question_text: The question asked
+            interview_id: Interview UUID for logging context
+        """
         # Keyword-based gap detection
         keyword_gaps = self._detect_keyword_gaps(answer_text, ideal_answer)
 
@@ -821,6 +831,7 @@ class AdaptiveEvalInterruptWorkflow(BaseWorkflow):
                 ideal_answer=ideal_answer,
                 question_text=question_text,
                 keyword_gaps=keyword_gaps,
+                context={"interview_id": str(interview_id)},
             )
             return llm_gaps
         else:

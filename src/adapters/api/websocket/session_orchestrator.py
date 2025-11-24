@@ -497,6 +497,7 @@ class InterviewSessionOrchestrator:
             severity=severity,
             order=decision["follow_up_count"] + 1,
             cumulative_gaps=decision["cumulative_gaps"],
+            context={"interview_id": str(self.interview_id)},
         )
 
         # Create and save follow-up question entity
