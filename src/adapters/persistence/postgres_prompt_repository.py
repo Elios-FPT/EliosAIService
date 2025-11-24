@@ -102,7 +102,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
     async def create_new_version(
         self,
         name: str,
-        parent_version: int,
+        parent_version: int | None,
         system_prompt: str,
         user_template: str,
         input_variables: list[str],
@@ -117,11 +117,12 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         change_summary: str,
         created_by: str,
     ) -> PromptTemplate:
-        """Create new version forked from parent."""
-        # Get parent version (for validation and parent_version_id)
-        parent = await self.get_version(name, parent_version)
-        if not parent:
-            raise ValueError(f"Parent version {name} v{parent_version} not found")
+        """Create new version optionally forked from parent."""
+        parent = None
+        if parent_version is not None:
+            parent = await self.get_version(name, parent_version)
+            if not parent:
+                raise ValueError(f"Parent version {name} v{parent_version} not found")
 
         # Get max version for this prompt
         result = await self.session.execute(
@@ -136,7 +137,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             version=max_version + 1,
             is_active=False,
             # Version control and lineage
-            parent_version_id=parent.id,  # Set parent UUID
+            parent_version_id=parent.id if parent else None,
             change_summary=change_summary,
             is_draft=True,  # New versions start as drafts
             created_by=created_by,
@@ -266,6 +267,41 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         db_model = result.scalar_one_or_none()
         return PromptTemplateMapper.to_domain(db_model) if db_model else None
 
+    async def update_draft_prompt(self, prompt_id: UUID, updates: dict) -> PromptTemplate:
+        """Update mutable fields on draft prompt."""
+        result = await self.session.execute(
+            select(PromptTemplateModel).where(PromptTemplateModel.id == prompt_id)
+        )
+        draft = result.scalar_one_or_none()
+
+        if not draft:
+            raise LookupError(f"Prompt {prompt_id} not found")
+        if not draft.is_draft:
+            raise ValueError("Only draft prompts can be updated")
+
+        mutable_fields = [
+            "system_prompt",
+            "user_template",
+            "input_variables",
+            "partial_variables",
+            "output_parser_type",
+            "output_schema",
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+        ]
+
+        for field in mutable_fields:
+            if field in updates:
+                setattr(draft, field, updates[field])
+
+        await self.session.commit()
+        await self.session.refresh(draft)
+
+        return PromptTemplateMapper.to_domain(draft)
+
     async def get_version(self, name: str, version: int) -> PromptTemplate | None:
         """Get specific version by name and version number."""
         result = await self.session.execute(
@@ -290,6 +326,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         prev_version = None
         for version in versions:
             entry = {
+                "id": version.id,
                 "version": version.version,
                 "created_at": version.created_at,
                 "created_by": version.created_by,

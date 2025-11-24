@@ -15,6 +15,7 @@ from ....application.dto.prompt_dto import (
     PaginatedPromptsResponse,
     PromptTemplateResponse,
     RollbackRequest,
+    UpdateDraftPromptRequest,
     VersionHistoryResponse,
 )
 from ....infrastructure.database.session import get_async_session
@@ -124,6 +125,61 @@ async def create_new_version(
         ) from e
 
 
+@router.patch(
+    "/{prompt_id}/draft",
+    response_model=PromptTemplateResponse,
+)
+async def update_draft_prompt_version(
+    prompt_id: UUID,
+    request: UpdateDraftPromptRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> PromptTemplateResponse:
+    """Update the content of a draft prompt version.
+
+    Args:
+        prompt_id: Prompt version UUID
+        request: UpdateDraftPromptRequest with updated template content and params
+        session: Database session
+
+    Returns:
+        Updated PromptTemplateResponse
+
+    Raises:
+        HTTPException: 404 if prompt not found, 400 if version is not draft
+    """
+    container = get_container()
+    prompt_repo = container.prompt_repository_port(session)
+
+    try:
+        prompt = await prompt_repo.update_draft_prompt(
+            prompt_id=prompt_id,
+            updates={
+                "system_prompt": request.system_prompt,
+                "user_template": request.user_template,
+                "input_variables": request.input_variables,
+                "partial_variables": request.partial_variables or {},
+                "output_parser_type": request.output_parser_type,
+                "output_schema": request.output_schema or {},
+                "temperature": Decimal(str(request.temperature)),
+                "max_tokens": request.max_tokens,
+                "top_p": Decimal(str(request.top_p)),
+                "frequency_penalty": Decimal(str(request.frequency_penalty)),
+                "presence_penalty": Decimal(str(request.presence_penalty)),
+            },
+        )
+        return PromptTemplateResponse.from_domain(prompt)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
 @router.post(
     "/{name}/rollback",
     response_model=PromptTemplateResponse,
@@ -186,6 +242,7 @@ async def get_version_history(
 
     return [
         VersionHistoryResponse(
+            id=entry["id"],
             version=entry["version"],
             created_at=entry["created_at"],
             created_by=entry.get("created_by"),
