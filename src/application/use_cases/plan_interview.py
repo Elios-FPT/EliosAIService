@@ -104,7 +104,7 @@ class PlanInterviewUseCase:
                 question_specs=question_specs,
                 context={
                     "summary": cv_analysis.summary or "No summary",
-                    "skills": [s.skill for s in cv_analysis.get_top_skills(limit=5)],
+                    "skills": [s.skill_name for s in cv_analysis.get_top_skills(limit=5)],
                     "experience": cv_analysis.work_experience_years or 0,
                 },
             )
@@ -114,7 +114,7 @@ class PlanInterviewUseCase:
                 question_texts=question_texts,
                 context={
                     "summary": cv_analysis.summary or "No summary",
-                    "skills": [s.skill for s in cv_analysis.get_top_skills(limit=5)],
+                    "skills": [s.skill_name for s in cv_analysis.get_top_skills(limit=5)],
                     "experience": cv_analysis.work_experience_years or 0,
                 },
             )
@@ -127,7 +127,7 @@ class PlanInterviewUseCase:
             skills = cv_analysis.get_top_skills(limit=5)
             for i in range(n):
                 question_type, difficulty = self._get_question_distribution(i, n)
-                skill = skills[i % len(skills)].skill if skills else "general knowledge"
+                skill = skills[i % len(skills)].skill_name if skills else "general knowledge"
 
                 question = Question(
                     text=question_texts[i],
@@ -227,7 +227,7 @@ class PlanInterviewUseCase:
 
         for i in range(n):
             question_type, difficulty = self._get_question_distribution(i, n)
-            skill = skills[i % len(skills)].skill if skills else "general knowledge"
+            skill = skills[i % len(skills)].skill_name if skills else "general knowledge"
 
             # Find exemplar questions from vector DB
             exemplars = await self._find_exemplar_questions(
