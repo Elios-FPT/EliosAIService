@@ -30,14 +30,18 @@ def upgrade() -> None:
     # Step 1: Drop materialized view (indexes auto-dropped)
     op.execute("DROP MATERIALIZED VIEW IF EXISTS prompt_analytics_summary")
 
-    # Step 2: Remove columns from prompt_templates
+    # Step 2: Remove constraint BEFORE dropping column (constraint is auto-dropped with column)
+    # Use IF EXISTS to handle case where constraint might not exist
+    op.execute("""
+        ALTER TABLE prompt_templates
+        DROP CONSTRAINT IF EXISTS ck_prompt_templates_traffic_percentage
+    """)
+
+    # Step 3: Remove columns from prompt_templates
     op.drop_column('prompt_templates', 'template_json_legacy')
     op.drop_column('prompt_templates', 'ab_test_group')
     op.drop_column('prompt_templates', 'traffic_percentage')
     op.drop_column('prompt_templates', 'notes')
-
-    # Step 3: Remove constraint
-    op.drop_constraint('ck_prompt_templates_traffic_percentage', 'prompt_templates', type_='check')
 
     # Step 4: Drop index on ab_test_group (if exists)
     op.drop_index('idx_prompt_templates_ab_test', table_name='prompt_templates', if_exists=True)

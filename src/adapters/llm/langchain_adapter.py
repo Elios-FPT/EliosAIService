@@ -17,7 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 
 from ...domain.models.answer import AnswerEvaluation
-from ...domain.models.evaluation import FollowUpEvaluationContext
+from ...domain.models.evaluation import FollowUpEvaluationContext, Evaluation
 from ...domain.models.prompt_template import PromptTemplate
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
@@ -1111,14 +1111,14 @@ Ideal Answer Reference:
         return question_sets
 
     # Helper methods
-    def _format_previous_evaluations(self, evaluations: list[Any]) -> str:
+    def _format_previous_evaluations(self, evaluations: list[Evaluation]) -> str:
         """Format previous evaluations for context."""
         if not evaluations:
             return "None"
 
         formatted = []
         for i, eval_obj in enumerate(evaluations, 1):
-            formatted.append(f"Attempt {i}: Score {eval_obj.score:.1f}/100")
+            formatted.append(f"Attempt {i}: Score {eval_obj.final_score:.1f}/100")
             # Check if it's an Evaluation (has concept_gaps) or AnswerEvaluation (has improvement_suggestions)
             if hasattr(eval_obj, "concept_gaps") and eval_obj.concept_gaps:
                 gaps = [gap.concept for gap in eval_obj.concept_gaps[:3]]
@@ -1181,9 +1181,12 @@ Ideal Answer Reference:
             model_name = getattr(self.model, "model_name", getattr(self.model, "model", "unknown"))
 
             # Extract token usage
-            _, prompt_tokens, completion_tokens = self._extract_token_usage(
+            total_tokens, prompt_tokens, completion_tokens = self._extract_token_usage(
                 model_response_metadata, model_name
             )
+
+            # Calculate estimated cost
+            estimated_cost = self._estimate_cost(model_name, prompt_tokens, completion_tokens)
 
             # Sanitize input variables (remove PII if present)
             sanitized_input = self._sanitize_variables(input_variables)

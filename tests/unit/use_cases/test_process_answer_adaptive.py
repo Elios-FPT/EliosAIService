@@ -168,7 +168,7 @@ class TestProcessAnswerAdaptiveUseCase:
 
         # Verify evaluation
         assert answer.evaluation is not None
-        assert answer.evaluation.score > 0
+        assert answer.evaluation.final_score > 0
         assert answer.evaluation.reasoning is not None
         assert len(answer.evaluation.strengths) > 0
 

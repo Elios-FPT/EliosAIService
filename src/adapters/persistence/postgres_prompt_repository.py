@@ -70,6 +70,12 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             prompt_name=name,
             version=1,
             is_active=False,
+            # Version control and lineage
+            parent_version_id=None,  # No parent for initial version
+            change_summary=None,  # No changes for initial version
+            is_draft=True,  # New versions start as drafts
+            created_by=created_by,
+            # Decomposed fields
             system_prompt=system_prompt,
             user_template=user_template,
             input_variables=input_variables,
@@ -111,12 +117,8 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         change_summary: str,
         created_by: str,
     ) -> PromptTemplate:
-        """Create new version forked from parent.
-
-        NOTE: Simplified schema removed parent_version_id, change_summary, created_by, notes.
-        Version tracking now simpler - just increment version number.
-        """
-        # Get parent version (for validation only)
+        """Create new version forked from parent."""
+        # Get parent version (for validation and parent_version_id)
         parent = await self.get_version(name, parent_version)
         if not parent:
             raise ValueError(f"Parent version {name} v{parent_version} not found")
@@ -133,6 +135,12 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             prompt_name=name,
             version=max_version + 1,
             is_active=False,
+            # Version control and lineage
+            parent_version_id=parent.id,  # Set parent UUID
+            change_summary=change_summary,
+            is_draft=True,  # New versions start as drafts
+            created_by=created_by,
+            # Decomposed fields
             system_prompt=system_prompt,
             user_template=user_template,
             input_variables=input_variables,
@@ -269,11 +277,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         return PromptTemplateMapper.to_domain(db_model) if db_model else None
 
     async def get_version_history(self, name: str) -> list[dict]:
-        """Get version history with simplified schema.
-
-        NOTE: Simplified schema removed parent_version_id, change_summary, created_by,
-        is_draft. Template diff calculated from auto-generated template_json.
-        """
+        """Get version history with JSON diffs."""
         result = await self.session.execute(
             select(PromptTemplateModel)
             .where(PromptTemplateModel.prompt_name == name)
@@ -288,7 +292,11 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             entry = {
                 "version": version.version,
                 "created_at": version.created_at,
+                "created_by": version.created_by,
+                "change_summary": version.change_summary,
                 "is_active": version.is_active,
+                "is_draft": version.is_draft,
+                "parent_version_id": version.parent_version_id,
                 "diff": None,
             }
 
