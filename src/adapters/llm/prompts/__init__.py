@@ -295,8 +295,34 @@ Return in JSON format:
 ])
 
 
-# Batch prompts (use same individual prompts with RunnableParallel)
-BATCH_QUESTIONS_PROMPT = GENERATE_QUESTION_PROMPT
+# Batch prompts (aggregated format for LangChain adapter + DB template)
+BATCH_QUESTIONS_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_INTERVIEWER),
+    ("human", """Generate {question_count} interview questions based on the specifications below.
+
+Context:
+- Candidate's background: {summary}
+- Key Skills: {skills}
+- Experience: {experience} years
+
+Specifications:
+{questions_section}
+
+**IMPORTANT CONSTRAINTS**:
+The questions MUST be verbal/discussion-based. DO NOT generate questions that require:
+- Writing code ("write a function", "implement", "create a class", "code a solution")
+- Drawing diagrams ("draw", "sketch", "diagram", "visualize", "map out")
+- Whiteboard exercises ("design on whiteboard", "show on board", "illustrate")
+- Visual outputs ("create a flowchart", "design a schema visually")
+
+Focus on conceptual understanding, best practices, trade-offs, and problem-solving approaches that can be explained verbally.
+
+Return ONLY valid JSON in this exact format:
+{
+    "questions": ["question 1 text", "question 2 text", "... up to question_count ..."]
+}
+""")
+])
 BATCH_IDEAL_ANSWERS_PROMPT = IDEAL_ANSWER_PROMPT
 BATCH_RATIONALES_PROMPT = RATIONALE_PROMPT
 
