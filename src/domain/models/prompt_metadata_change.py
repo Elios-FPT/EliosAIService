@@ -21,7 +21,6 @@ class PromptMetadataChange(BaseModel):
     new_value: str | None = Field(default=None, description="New value (serialized)")
     changed_by: str = Field(..., max_length=100, description="User identifier")
     changed_at: datetime = Field(default_factory=datetime.utcnow)
-    reason: str | None = Field(default=None, description="Why change made")
 
     class Config:
         """Pydantic config."""
@@ -29,11 +28,10 @@ class PromptMetadataChange(BaseModel):
         json_schema_extra = {
             "example": {
                 "prompt_template_id": "123e4567-e89b-12d3-a456-426614174000",
-                "field_name": "traffic_percentage",
-                "old_value": "50",
-                "new_value": "75",
-                "changed_by": "admin",
-                "reason": "Increasing traffic to new version"
+                "field_name": "is_active",
+                "old_value": "false",
+                "new_value": "true",
+                "changed_by": "admin"
             }
         }
 
@@ -45,7 +43,6 @@ class PromptMetadataChange(BaseModel):
         old_value: Any,
         new_value: Any,
         changed_by: str,
-        reason: str | None = None,
     ) -> "PromptMetadataChange":
         """Factory method to create change entry.
 
@@ -55,7 +52,6 @@ class PromptMetadataChange(BaseModel):
             old_value: Previous value (any type, will be serialized)
             new_value: New value (any type, will be serialized)
             changed_by: User identifier
-            reason: Optional reason for change
 
         Returns:
             PromptMetadataChange instance
@@ -66,5 +62,4 @@ class PromptMetadataChange(BaseModel):
             old_value=str(old_value) if old_value is not None else None,
             new_value=str(new_value) if new_value is not None else None,
             changed_by=changed_by,
-            reason=reason,
         )

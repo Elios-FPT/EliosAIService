@@ -1,6 +1,5 @@
 """PostgreSQL implementation of PromptRepositoryPort."""
 
-import random
 from datetime import datetime
 from uuid import UUID
 
@@ -44,7 +43,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         name: str,
         template_json: dict,
         created_by: str,
-        notes: str | None = None,
     ) -> PromptTemplate:
         """Create initial prompt version (v1).
 
@@ -73,7 +71,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             prompt_name=name,
             version=1,
             is_active=False,
-            traffic_percentage=0,
             system_prompt=system_prompt,
             user_template=user_template,
             input_variables=template_json.get("input_variables", []),
@@ -86,7 +83,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
             presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
             deleted_at=None,
-            template_json_legacy=template_json,  # Store original for reference
             created_at=datetime.utcnow(),
         )
 
@@ -105,7 +101,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         template_json: dict,
         change_summary: str,
         created_by: str,
-        notes: str | None = None,
     ) -> PromptTemplate:
         """Create new version forked from parent.
 
@@ -137,7 +132,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             prompt_name=name,
             version=max_version + 1,
             is_active=False,
-            traffic_percentage=0,
             system_prompt=system_prompt,
             user_template=user_template,
             input_variables=template_json.get("input_variables", []),
@@ -150,7 +144,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
             presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
             deleted_at=None,
-            template_json_legacy=template_json,
             created_at=datetime.utcnow(),
         )
 
@@ -188,23 +181,17 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             template_json=template_json,
             change_summary=f"Rollback to v{target_version}: {reason}",
             created_by=changed_by,
-            notes=f"Rolled back from v{target_version}",
         )
 
-    # ========== Activation & A/B Testing ==========
+    # ========== Activation ==========
 
     async def activate_version(
         self,
         prompt_id: UUID,
         changed_by: str,
         reason: str,
-        traffic_percentage: int = 100,
-        ab_test_group: str | None = None,
     ) -> None:
-        """Activate version (atomic transaction)."""
-        if not 0 <= traffic_percentage <= 100:
-            raise ValueError("traffic_percentage must be between 0 and 100")
-
+        """Activate version (always deactivates others)."""
         # Get target prompt
         result = await self.session.execute(
             select(PromptTemplateModel).where(PromptTemplateModel.id == prompt_id)
@@ -214,26 +201,24 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             raise ValueError(f"Prompt {prompt_id} not found")
 
         async with self.session.begin_nested():
-            # If traffic=100, deactivate all other active versions
-            if traffic_percentage == 100:
-                result = await self.session.execute(
-                    select(PromptTemplateModel)
-                    .where(PromptTemplateModel.prompt_name == target.prompt_name)
-                    .where(PromptTemplateModel.is_active == True)
-                    .where(PromptTemplateModel.id != prompt_id)
-                )
-                active_prompts = result.scalars().all()
+            # Always deactivate all other active versions
+            result = await self.session.execute(
+                select(PromptTemplateModel)
+                .where(PromptTemplateModel.prompt_name == target.prompt_name)
+                .where(PromptTemplateModel.is_active == True)
+                .where(PromptTemplateModel.id != prompt_id)
+            )
+            active_prompts = result.scalars().all()
 
-                for active_prompt in active_prompts:
-                    await self._log_metadata_change(
-                        prompt_template_id=active_prompt.id,
-                        field_name="is_active",
-                        old_value=True,
-                        new_value=False,
-                        changed_by=changed_by,
-                        reason=f"Deactivated by activating v{target.version}",
-                    )
-                    active_prompt.is_active = False
+            for active_prompt in active_prompts:
+                await self._log_metadata_change(
+                    prompt_template_id=active_prompt.id,
+                    field_name="is_active",
+                    old_value=True,
+                    new_value=False,
+                    changed_by=changed_by,
+                )
+                active_prompt.is_active = False
 
             # Activate target
             await self._log_metadata_change(
@@ -242,66 +227,23 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 old_value=target.is_active,
                 new_value=True,
                 changed_by=changed_by,
-                reason=reason,
             )
             target.is_active = True
-            target.traffic_percentage = traffic_percentage
-            # Note: is_draft and ab_test_group removed from simplified schema
 
-        await self.session.commit()
-
-    async def adjust_ab_traffic(
-        self,
-        prompt_id: UUID,
-        new_traffic_percentage: int,
-        changed_by: str,
-        reason: str,
-    ) -> None:
-        """Adjust traffic percentage for A/B testing."""
-        if not 0 <= new_traffic_percentage <= 100:
-            raise ValueError("traffic_percentage must be between 0 and 100")
-
-        # Get prompt
-        result = await self.session.execute(
-            select(PromptTemplateModel).where(PromptTemplateModel.id == prompt_id)
-        )
-        prompt = result.scalar_one_or_none()
-        if not prompt:
-            raise ValueError(f"Prompt {prompt_id} not found")
-        if not prompt.is_active:
-            raise ValueError("Can only adjust traffic for active prompts")
-
-        # Log change and update
-        await self._log_metadata_change(
-            prompt_template_id=prompt.id,
-            field_name="traffic_percentage",
-            old_value=prompt.traffic_percentage,
-            new_value=new_traffic_percentage,
-            changed_by=changed_by,
-            reason=reason,
-        )
-        prompt.traffic_percentage = new_traffic_percentage
         await self.session.commit()
 
     # ========== Retrieval ==========
 
     async def get_active_prompt(self, name: str) -> PromptTemplate | None:
-        """Get active prompt with A/B testing logic."""
+        """Get active prompt (only one active at a time)."""
         result = await self.session.execute(
             select(PromptTemplateModel)
             .where(PromptTemplateModel.prompt_name == name)
             .where(PromptTemplateModel.is_active == True)
+            .limit(1)
         )
-        active_prompts = list(result.scalars().all())
-
-        if not active_prompts:
-            return None
-
-        if len(active_prompts) == 1:
-            return PromptTemplateMapper.to_domain(active_prompts[0])
-
-        # Weighted random selection for A/B testing
-        return self._select_ab_variant(active_prompts)
+        db_model = result.scalar_one_or_none()
+        return PromptTemplateMapper.to_domain(db_model) if db_model else None
 
     async def get_by_id(self, prompt_id: UUID) -> PromptTemplate | None:
         """Get prompt by ID."""
@@ -342,7 +284,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 "version": version.version,
                 "created_at": version.created_at,
                 "is_active": version.is_active,
-                "traffic_percentage": version.traffic_percentage,
                 "diff": None,
             }
 
@@ -387,7 +328,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 "new_value": change.new_value,
                 "changed_by": change.changed_by,
                 "changed_at": change.changed_at,
-                "reason": change.reason,
             }
             for change in changes
         ]
@@ -404,12 +344,10 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         execution = PromptExecution(
             prompt_template_id=prompt_template_id,
             interview_id=execution_data.get("interview_id"),
-            candidate_id=execution_data.get("candidate_id"),
             input_variables=execution_data["input_variables"],
             output_text=execution_data.get("output_text"),
             prompt_tokens=execution_data.get("prompt_tokens"),
             completion_tokens=execution_data.get("completion_tokens"),
-            tokens_used=execution_data.get("tokens_used"),
             latency_ms=execution_data["latency_ms"],
             model_name=execution_data.get("model_name"),
             success=execution_data["success"],
@@ -450,7 +388,8 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
 
         return {
             "total_executions": summary.total_executions,
-            "avg_tokens_used": summary.avg_tokens_used,
+            "avg_prompt_tokens": summary.avg_prompt_tokens,
+            "avg_completion_tokens": summary.avg_completion_tokens,
             "avg_latency_ms": summary.avg_latency_ms,
             "success_rate": summary.success_rate,
             "estimated_cost_usd": summary.estimated_cost_usd,
@@ -511,12 +450,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
 
     # ========== Internal Helpers ==========
 
-    def _select_ab_variant(self, prompts: list[PromptTemplateModel]) -> PromptTemplate:
-        """Weighted random selection for A/B testing."""
-        weights = [p.traffic_percentage for p in prompts]
-        selected = random.choices(prompts, weights=weights, k=1)[0]
-        return PromptTemplateMapper.to_domain(selected)
-
     async def _log_metadata_change(
         self,
         prompt_template_id: UUID,
@@ -524,7 +457,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         old_value: any,
         new_value: any,
         changed_by: str,
-        reason: str | None = None,
     ) -> None:
         """Log metadata change (internal helper)."""
         change = PromptMetadataChange.create_change(
@@ -533,7 +465,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             old_value=old_value,
             new_value=new_value,
             changed_by=changed_by,
-            reason=reason,
         )
 
         db_model = PromptMetadataChangeMapper.to_db_model(change)

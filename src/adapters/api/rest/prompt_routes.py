@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....application.dto.prompt_dto import (
     ActivatePromptRequest,
-    AdjustTrafficRequest,
     AnalyticsSummaryResponse,
     AuditTrailResponse,
     CreatePromptRequest,
@@ -83,7 +82,6 @@ async def create_initial_prompt(
             name=request.prompt_name,
             template_json=template_json,
             created_by=request.created_by,
-            notes=request.notes,
         )
         return PromptTemplateResponse.from_domain(prompt)
     except ValueError as e:
@@ -128,7 +126,6 @@ async def create_new_version(
             template_json=template_json,
             change_summary=request.change_summary,
             created_by=request.created_by,
-            notes=request.notes,
         )
         return PromptTemplateResponse.from_domain(prompt)
     except ValueError as e:
@@ -205,7 +202,6 @@ async def get_version_history(
             created_by=entry.get("created_by"),  # May not be available
             change_summary=entry.get("change_summary"),  # May not be available
             is_active=entry["is_active"],
-            traffic_percentage=entry["traffic_percentage"],
             diff=entry.get("diff"),
         )
         for entry in history
@@ -279,7 +275,7 @@ async def get_prompt_by_id(
     return PromptTemplateResponse.from_domain(prompt)
 
 
-# ========== Activation & A/B Testing Endpoints ==========
+# ========== Activation Endpoints ==========
 
 
 @router.patch("/{prompt_id}/activate", status_code=status.HTTP_204_NO_CONTENT)
@@ -288,10 +284,7 @@ async def activate_prompt_version(
     request: ActivatePromptRequest,
     session: AsyncSession = Depends(get_async_session),
 ) -> None:
-    """Activate prompt version with optional A/B testing traffic percentage.
-
-    If traffic_percentage=100, deactivates all other versions of the same prompt.
-    If traffic_percentage<100, allows multiple active versions for A/B testing.
+    """Activate prompt version (deactivates all other versions).
 
     Args:
         prompt_id: Prompt version UUID to activate
@@ -317,49 +310,6 @@ async def activate_prompt_version(
             prompt_id=prompt_id,
             changed_by=request.changed_by,
             reason=request.reason,
-            traffic_percentage=request.traffic_percentage,
-            ab_test_group=request.ab_test_group,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-
-@router.patch("/{prompt_id}/traffic", status_code=status.HTTP_204_NO_CONTENT)
-async def adjust_ab_traffic(
-    prompt_id: UUID,
-    request: AdjustTrafficRequest,
-    session: AsyncSession = Depends(get_async_session),
-) -> None:
-    """Adjust A/B test traffic percentage for active prompt version.
-
-    Args:
-        prompt_id: Prompt version UUID
-        request: AdjustTrafficRequest with new traffic percentage
-        session: Database session
-
-    Raises:
-        HTTPException: 404 if prompt not found, 400 if prompt not active or validation fails
-    """
-    container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
-
-    # Verify prompt exists
-    prompt = await prompt_repo.get_by_id(prompt_id)
-    if not prompt:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Prompt {prompt_id} not found",
-        )
-
-    try:
-        await prompt_repo.adjust_ab_traffic(
-            prompt_id=prompt_id,
-            new_traffic_percentage=request.new_traffic_percentage,
-            changed_by=request.changed_by,
-            reason=request.reason,
         )
     except ValueError as e:
         raise HTTPException(
@@ -373,17 +323,14 @@ async def get_active_prompt(
     name: str,
     session: AsyncSession = Depends(get_async_session),
 ) -> PromptTemplateResponse:
-    """Get active prompt with A/B testing weighted selection.
-
-    If single active version: returns that version.
-    If multiple active (A/B test): weighted random selection based on traffic_percentage.
+    """Get active prompt version.
 
     Args:
         name: Prompt name
         session: Database session
 
     Returns:
-        PromptTemplateResponse (selected active version)
+        PromptTemplateResponse (active version)
 
     Raises:
         HTTPException: 404 if no active version exists
@@ -436,7 +383,8 @@ async def get_analytics_summary(
     return AnalyticsSummaryResponse(
         prompt_name=name,
         total_executions=summary["total_executions"],
-        avg_tokens_used=summary["avg_tokens_used"],
+        avg_prompt_tokens=summary["avg_prompt_tokens"],
+        avg_completion_tokens=summary["avg_completion_tokens"],
         avg_latency_ms=summary["avg_latency_ms"],
         success_rate=summary["success_rate"],
         estimated_cost_usd=summary["estimated_cost_usd"],
@@ -470,7 +418,6 @@ async def get_audit_trail(
             new_value=entry["new_value"],
             changed_by=entry["changed_by"],
             changed_at=entry["changed_at"],
-            reason=entry["reason"],
         )
         for entry in trail
     ]

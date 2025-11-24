@@ -28,7 +28,6 @@ class CreatePromptRequest(BaseModel):
     frequency_penalty: float = Field(..., ge=-2.0, le=2.0, description="Frequency penalty")
     presence_penalty: float = Field(..., ge=-2.0, le=2.0, description="Presence penalty")
     created_by: str = Field(..., description="User creating the prompt")
-    notes: str | None = Field(default=None, description="Optional notes")
 
 
 class CreateVersionRequest(BaseModel):
@@ -48,7 +47,6 @@ class CreateVersionRequest(BaseModel):
     presence_penalty: float = Field(..., ge=-2.0, le=2.0, description="Presence penalty")
     change_summary: str = Field(..., description="Human-readable change description")
     created_by: str = Field(..., description="User creating the version")
-    notes: str | None = Field(default=None, description="Optional notes")
 
 
 class RollbackRequest(BaseModel):
@@ -64,16 +62,6 @@ class ActivatePromptRequest(BaseModel):
 
     changed_by: str = Field(..., description="User activating the version")
     reason: str = Field(..., description="Reason for activation")
-    traffic_percentage: int = Field(default=100, ge=0, le=100, description="Percentage of traffic (0-100)")
-    ab_test_group: str | None = Field(default=None, description="Optional A/B test group identifier")
-
-
-class AdjustTrafficRequest(BaseModel):
-    """Request to adjust A/B test traffic percentage."""
-
-    new_traffic_percentage: int = Field(..., ge=0, le=100, description="New traffic percentage (0-100)")
-    changed_by: str = Field(..., description="User adjusting traffic")
-    reason: str = Field(..., description="Reason for adjustment")
 
 
 # ========== Response DTOs ==========
@@ -86,7 +74,6 @@ class PromptTemplateResponse(BaseModel):
     prompt_name: str
     version: int
     is_active: bool
-    traffic_percentage: int
     system_prompt: str
     user_template: str
     input_variables: list[str]
@@ -116,7 +103,6 @@ class PromptTemplateResponse(BaseModel):
             prompt_name=prompt.prompt_name,
             version=prompt.version,
             is_active=prompt.is_active,
-            traffic_percentage=prompt.traffic_percentage,
             system_prompt=prompt.system_prompt,
             user_template=prompt.user_template,
             input_variables=prompt.input_variables,
@@ -141,7 +127,6 @@ class VersionHistoryResponse(BaseModel):
     created_by: str | None = None  # May not be available from repository
     change_summary: str | None = None  # May not be available from repository
     is_active: bool
-    traffic_percentage: int
     diff: dict[str, Any] | None
 
 
@@ -150,8 +135,9 @@ class AnalyticsSummaryResponse(BaseModel):
 
     prompt_name: str
     total_executions: int
-    avg_tokens_used: float
-    avg_latency_ms: float
+    avg_prompt_tokens: float | None
+    avg_completion_tokens: float | None
+    avg_latency_ms: float | None
     success_rate: float
     estimated_cost_usd: float
     last_executed_at: datetime | None
@@ -165,7 +151,6 @@ class AuditTrailResponse(BaseModel):
     new_value: str
     changed_by: str
     changed_at: datetime
-    reason: str
 
 
 class PaginatedPromptsResponse(BaseModel):
