@@ -1,5 +1,6 @@
 """Prompt template REST API endpoints."""
 
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,34 +23,6 @@ from ....infrastructure.dependency_injection.container import get_container
 router = APIRouter(prefix="/ai/prompts", tags=["Prompt Management"])
 
 
-def _build_template_json(request: CreatePromptRequest | CreateVersionRequest) -> dict:
-    """Build template_json dict from DTO fields.
-
-    Args:
-        request: CreatePromptRequest or CreateVersionRequest
-
-    Returns:
-        template_json dict matching repository expected format
-    """
-    return {
-        "messages": [
-            {"role": "system", "content": request.system_prompt},
-            {"role": "user", "content": request.user_template},
-        ],
-        "input_variables": request.input_variables,
-        "partial_variables": request.partial_variables or {},
-        "output_parser": {
-            "type": request.output_parser_type,
-            "schema": request.output_schema or {},
-        },
-        "model_params": {
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "top_p": request.top_p,
-            "frequency_penalty": request.frequency_penalty,
-            "presence_penalty": request.presence_penalty,
-        },
-    }
 
 
 # ========== Version Management Endpoints ==========
@@ -75,12 +48,20 @@ async def create_initial_prompt(
     container = get_container()
     prompt_repo = container.prompt_repository_port(session)
 
-    template_json = _build_template_json(request)
-
     try:
         prompt = await prompt_repo.create_initial_prompt(
             name=request.prompt_name,
-            template_json=template_json,
+            system_prompt=request.system_prompt,
+            user_template=request.user_template,
+            input_variables=request.input_variables,
+            partial_variables=request.partial_variables or {},
+            output_parser_type=request.output_parser_type,
+            output_schema=request.output_schema or {},
+            temperature=Decimal(str(request.temperature)),
+            max_tokens=request.max_tokens,
+            top_p=Decimal(str(request.top_p)),
+            frequency_penalty=Decimal(str(request.frequency_penalty)),
+            presence_penalty=Decimal(str(request.presence_penalty)),
             created_by=request.created_by,
         )
         return PromptTemplateResponse.from_domain(prompt)
@@ -117,13 +98,21 @@ async def create_new_version(
     container = get_container()
     prompt_repo = container.prompt_repository_port(session)
 
-    template_json = _build_template_json(request)
-
     try:
         prompt = await prompt_repo.create_new_version(
             name=name,
             parent_version=request.parent_version,
-            template_json=template_json,
+            system_prompt=request.system_prompt,
+            user_template=request.user_template,
+            input_variables=request.input_variables,
+            partial_variables=request.partial_variables or {},
+            output_parser_type=request.output_parser_type,
+            output_schema=request.output_schema or {},
+            temperature=Decimal(str(request.temperature)),
+            max_tokens=request.max_tokens,
+            top_p=Decimal(str(request.top_p)),
+            frequency_penalty=Decimal(str(request.frequency_penalty)),
+            presence_penalty=Decimal(str(request.presence_penalty)),
             change_summary=request.change_summary,
             created_by=request.created_by,
         )

@@ -1,6 +1,8 @@
 """PostgreSQL implementation of PromptRepositoryPort."""
 
 from datetime import datetime
+from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from deepdiff import DeepDiff
@@ -41,16 +43,20 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
     async def create_initial_prompt(
         self,
         name: str,
-        template_json: dict,
+        system_prompt: str,
+        user_template: str,
+        input_variables: list[str],
+        partial_variables: dict[str, Any],
+        output_parser_type: str,
+        output_schema: dict[str, Any],
+        temperature: Decimal,
+        max_tokens: int,
+        top_p: Decimal,
+        frequency_penalty: Decimal,
+        presence_penalty: Decimal,
         created_by: str,
     ) -> PromptTemplate:
-        """Create initial prompt version (v1).
-
-        NOTE: Decomposed schema - accepts template_json for backward compatibility,
-        extracts fields into decomposed structure.
-        """
-        from decimal import Decimal
-
+        """Create initial prompt version (v1)."""
         # Check if prompt already exists
         result = await self.session.execute(
             select(PromptTemplateModel).where(PromptTemplateModel.prompt_name == name).limit(1)
@@ -59,13 +65,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         if existing:
             raise ValueError(f"Prompt '{name}' already exists")
 
-        # Extract decomposed fields from template_json
-        messages = template_json.get("messages", [])
-        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
-        user_template = next((m["content"] for m in messages if m.get("role") == "user"), "")
-
-        model_params = template_json.get("model_params", {})
-
         # Create domain model with decomposed fields
         prompt = PromptTemplate(
             prompt_name=name,
@@ -73,15 +72,15 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             is_active=False,
             system_prompt=system_prompt,
             user_template=user_template,
-            input_variables=template_json.get("input_variables", []),
-            partial_variables=template_json.get("partial_variables", {}),
-            output_parser_type=template_json.get("output_parser", {}).get("type", "json_output_parser"),
-            output_schema=template_json.get("output_parser", {}).get("schema", {}),
-            temperature=Decimal(str(model_params.get("temperature", 0.3))),
-            max_tokens=model_params.get("max_tokens", 2000),
-            top_p=Decimal(str(model_params.get("top_p", 0.95))),
-            frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
-            presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
+            input_variables=input_variables,
+            partial_variables=partial_variables,
+            output_parser_type=output_parser_type,
+            output_schema=output_schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
             deleted_at=None,
             created_at=datetime.utcnow(),
         )
@@ -98,7 +97,17 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         self,
         name: str,
         parent_version: int,
-        template_json: dict,
+        system_prompt: str,
+        user_template: str,
+        input_variables: list[str],
+        partial_variables: dict[str, Any],
+        output_parser_type: str,
+        output_schema: dict[str, Any],
+        temperature: Decimal,
+        max_tokens: int,
+        top_p: Decimal,
+        frequency_penalty: Decimal,
+        presence_penalty: Decimal,
         change_summary: str,
         created_by: str,
     ) -> PromptTemplate:
@@ -107,8 +116,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         NOTE: Simplified schema removed parent_version_id, change_summary, created_by, notes.
         Version tracking now simpler - just increment version number.
         """
-        from decimal import Decimal
-
         # Get parent version (for validation only)
         parent = await self.get_version(name, parent_version)
         if not parent:
@@ -121,28 +128,22 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         )
         max_version = result.scalar() or 0
 
-        # Extract decomposed fields from template_json
-        messages = template_json.get("messages", [])
-        system_prompt = next((m["content"] for m in messages if m.get("role") == "system"), "")
-        user_template = next((m["content"] for m in messages if m.get("role") == "user"), "")
-        model_params = template_json.get("model_params", {})
-
-        # Create new version
+        # Create new version with decomposed fields
         new_prompt = PromptTemplate(
             prompt_name=name,
             version=max_version + 1,
             is_active=False,
             system_prompt=system_prompt,
             user_template=user_template,
-            input_variables=template_json.get("input_variables", []),
-            partial_variables=template_json.get("partial_variables", {}),
-            output_parser_type=template_json.get("output_parser", {}).get("type", "json_output_parser"),
-            output_schema=template_json.get("output_parser", {}).get("schema", {}),
-            temperature=Decimal(str(model_params.get("temperature", 0.3))),
-            max_tokens=model_params.get("max_tokens", 2000),
-            top_p=Decimal(str(model_params.get("top_p", 0.95))),
-            frequency_penalty=Decimal(str(model_params.get("frequency_penalty", 0))),
-            presence_penalty=Decimal(str(model_params.get("presence_penalty", 0))),
+            input_variables=input_variables,
+            partial_variables=partial_variables,
+            output_parser_type=output_parser_type,
+            output_schema=output_schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
             deleted_at=None,
             created_at=datetime.utcnow(),
         )
@@ -162,23 +163,27 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         changed_by: str,
         reason: str,
     ) -> PromptTemplate:
-        """Rollback by creating new version from target version.
-
-        NOTE: Uses target's decomposed fields via to_langchain_config() for backward compat.
-        """
+        """Rollback by creating new version from target version."""
         # Get target version
         target = await self.get_version(name, target_version)
         if not target:
             raise ValueError(f"Target version {name} v{target_version} not found")
 
-        # Convert target to template_json format via domain model method
-        template_json = target.to_langchain_config()
-
-        # Create new version with target's content
+        # Create new version with target's decomposed fields directly
         return await self.create_new_version(
             name=name,
             parent_version=target_version,
-            template_json=template_json,
+            system_prompt=target.system_prompt,
+            user_template=target.user_template,
+            input_variables=target.input_variables,
+            partial_variables=target.partial_variables,
+            output_parser_type=target.output_parser_type,
+            output_schema=target.output_schema,
+            temperature=target.temperature,
+            max_tokens=target.max_tokens,
+            top_p=target.top_p,
+            frequency_penalty=target.frequency_penalty,
+            presence_penalty=target.presence_penalty,
             change_summary=f"Rollback to v{target_version}: {reason}",
             created_by=changed_by,
         )
