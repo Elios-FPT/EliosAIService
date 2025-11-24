@@ -344,6 +344,12 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 await self.interview_repo.update(interview)
                 logger.info(f"Interview {interview_id} transitioned to EVALUATING status")
 
+            # Transition from FOLLOW_UP to EVALUATING when processing follow-up answer
+            if interview.status == InterviewStatus.FOLLOW_UP:
+                interview.answer_followup()
+                await self.interview_repo.update(interview)
+                logger.info(f"Interview {interview_id} transitioned from FOLLOW_UP to EVALUATING status")
+
             # Step 2: Detect if this is a follow-up question
             parent_question_id_str = state.get("parent_question_id")
             is_followup = parent_question_id_str is not None
