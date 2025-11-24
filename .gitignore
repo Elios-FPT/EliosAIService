@@ -207,3 +207,5 @@ uploads/
 .opencode/
 
 .cursor/
+
+tests/reports/*
