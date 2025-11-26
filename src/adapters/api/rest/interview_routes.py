@@ -16,7 +16,6 @@ from ....application.dto.interview_dto import (
 )
 from ....application.use_cases.analyze_cv import AnalyzeCVUseCase
 from ....application.use_cases.get_next_question import GetNextQuestionUseCase
-from ....application.use_cases.plan_interview import PlanInterviewUseCase
 from ....domain.models.interview import InterviewStatus
 from ....infrastructure.config.settings import get_settings
 from ....infrastructure.database.session import get_async_session
@@ -74,7 +73,7 @@ async def upload_cv(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error uploading file: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(
@@ -235,12 +234,13 @@ async def plan_interview(
     request: PlanInterviewRequest,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Plan interview by generating n questions with ideal answers.
+    """Plan interview using LangGraph workflow.
 
     This endpoint triggers the pre-planning phase:
     1. Calculates n based on skill diversity (max 5)
-    2. Generates n questions with ideal_answer + rationale
-    3. Returns interview with status=PREPARING (async process)
+    2. Generates n questions with ideal_answer + rationale (parallel execution)
+    3. Returns interview with status=IDLE
+    4. Uses PostgreSQL checkpointing for crash recovery
 
     Args:
         request: Planning request with cv_analysis_id and candidate_id
@@ -250,7 +250,7 @@ async def plan_interview(
         Planning status with interview_id
 
     Raises:
-        HTTPException: If CV analysis not found
+        HTTPException: If CV analysis not found or workflow fails
     """
     try:
         container = get_container()
@@ -264,54 +264,36 @@ async def plan_interview(
                 detail=f"CV analysis {request.cv_analysis_id} not found",
             )
 
-        # Get settings to check feature flag
+        # Get settings for WebSocket URL
         settings = get_settings()
 
-        # Route handler decides between workflow and use case based on feature flag
-        if settings.use_langgraph_planning:
-            # Use LangGraph workflow (Phase 2)
-            from ....application.workflows.planning_workflow import PlanningWorkflow
+        # Use LangGraph workflow for interview planning
+        from ....application.workflows.planning_workflow import PlanningWorkflow
 
-            # Get checkpointer (async)
-            checkpointer = await container.get_checkpointer()
+        # Get checkpointer (async)
+        checkpointer = await container.get_checkpointer()
 
-            # Create workflow with dependencies from container
-            workflow = PlanningWorkflow(
-                checkpointer=checkpointer,
-                llm_port=container.llm_port(session),
-                cv_repo=cv_analysis_repo,
-                question_repo=container.question_repository_port(session),
-                interview_repo=container.interview_repository_port(session),
-                vector_search=container.vector_search_port(),
-            )
+        # Create workflow with dependencies from container
+        workflow = PlanningWorkflow(
+            checkpointer=checkpointer,
+            llm_port=container.llm_port(session),
+            cv_repo=cv_analysis_repo,
+            question_repo=container.question_repository_port(session),
+            interview_repo=container.interview_repository_port(session),
+            vector_search=container.vector_search_port(),
+        )
 
-            # Execute workflow
-            result = await workflow.execute(
-                cv_analysis_id=request.cv_analysis_id,
-                candidate_id=request.candidate_id,
-            )
-            interview = result.get("interview")
+        # Execute workflow
+        result = await workflow.execute(
+            cv_analysis_id=request.cv_analysis_id,
+            candidate_id=request.candidate_id,
+        )
+        interview = result.get("interview")
 
-            # Check if workflow failed (interview is None)
-            if interview is None:
-                errors = result.get("errors", ["Unknown error occurred during interview planning"])
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to plan interview: {errors}"
-                )
-        else:
-            # Use case (manual implementation)
-            use_case = PlanInterviewUseCase(
-                llm=container.llm_port(session),
-                cv_analysis_repo=cv_analysis_repo,
-                interview_repo=container.interview_repository_port(session),
-                question_repo=container.question_repository_port(session),
-            )
-
-            interview = await use_case.execute(
-                cv_analysis_id=request.cv_analysis_id,
-                candidate_id=request.candidate_id,
-            )
+        # Check if workflow failed (interview is None)
+        if interview is None:
+            errors = result.get("errors", ["Unknown error occurred during interview planning"])
+            raise HTTPException(status_code=500, detail=f"Failed to plan interview: {errors}")
 
         # Construct WebSocket URL for interview session
         ws_url = f"{settings.ws_base_url}/ws/interviews/{interview.id}"

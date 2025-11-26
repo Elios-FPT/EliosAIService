@@ -204,6 +204,14 @@ uploads/
 # MyPy cache
 .mypy_cache/
 
-.opencode/
-
 .cursor/
+
+.claude/
+docs/
+plans/
+CLAUDE.md
+
+.repomixignore
+repomix-output.xml
+
+.opencode/
