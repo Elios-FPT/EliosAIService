@@ -123,16 +123,16 @@ class Settings(BaseSettings):
 
         if db_url:
             # Convert postgresql:// to postgresql+asyncpg://
-            db_url = re.sub(r'^postgresql:', 'postgresql+asyncpg:', db_url)
+            db_url = re.sub(r"^postgresql:", "postgresql+asyncpg:", db_url)
 
             # Strip out SSL parameters that asyncpg doesn't support in URL format
             # asyncpg handles SSL automatically for cloud providers like Neon
-            db_url = re.sub(r'\?sslmode=[^&]*', '', db_url)  # Remove sslmode param
-            db_url = re.sub(r'&sslmode=[^&]*', '', db_url)   # Remove if not first param
-            db_url = re.sub(r'\?channel_binding=[^&]*', '', db_url)  # Remove channel_binding
-            db_url = re.sub(r'&channel_binding=[^&]*', '', db_url)   # Remove if not first param
-            db_url = re.sub(r'\?&', '?', db_url)  # Clean up malformed query string
-            db_url = re.sub(r'\?$', '', db_url)   # Remove trailing ?
+            db_url = re.sub(r"\?sslmode=[^&]*", "", db_url)  # Remove sslmode param
+            db_url = re.sub(r"&sslmode=[^&]*", "", db_url)  # Remove if not first param
+            db_url = re.sub(r"\?channel_binding=[^&]*", "", db_url)  # Remove channel_binding
+            db_url = re.sub(r"&channel_binding=[^&]*", "", db_url)  # Remove if not first param
+            db_url = re.sub(r"\?&", "?", db_url)  # Clean up malformed query string
+            db_url = re.sub(r"\?$", "", db_url)  # Remove trailing ?
 
             return db_url
 
@@ -186,7 +186,9 @@ class Settings(BaseSettings):
             return origins
         elif isinstance(v, list):
             # Already a list, just strip whitespace from each item
-            return [origin.strip() if isinstance(origin, str) else str(origin).strip() for origin in v]
+            return [
+                origin.strip() if isinstance(origin, str) else str(origin).strip() for origin in v
+            ]
         return v
 
     # WebSocket Configuration
@@ -212,23 +214,34 @@ class Settings(BaseSettings):
     langsmith_max_trace_size_kb: int = 1024  # Max trace size in KB (prevent large traces)
 
     # LangGraph Planning Workflow (Phase 2)
-    use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
+    # DEPRECATED: This flag will be removed in v0.5.0 - LangGraph is now the default implementation
+    use_langgraph_planning: bool = True  # Feature flag for LangGraph planning workflow (deprecated)
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
     langgraph_checkpointer_pool_size: int = 5  # Connection pool size for AsyncPostgresSaver
     # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
     # support pool configuration via API. The checkpointer creates its own internal pool (~5-10 connections).
     # Total connections: SQLAlchemy (10-30) + AsyncPostgresSaver (~5-10) = ~35-40 connections.
-    langgraph_checkpointer_init_on_startup: bool = True  # Initialize checkpointer at startup (prevents first-request timeout)
-    langgraph_checkpointer_setup_timeout: float = 20.0  # Timeout in seconds for checkpointer setup (default: 120s)
+    langgraph_checkpointer_init_on_startup: bool = (
+        True  # Initialize checkpointer at startup (prevents first-request timeout)
+    )
+    langgraph_checkpointer_setup_timeout: float = (
+        20.0  # Timeout in seconds for checkpointer setup (default: 120s)
+    )
 
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
-    use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
+    use_langgraph_adaptive_simple: bool = (
+        False  # Feature flag for adaptive evaluation workflow (no interrupts)
+    )
 
     # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
-    use_langgraph_adaptive_interrupt: bool = False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
+    use_langgraph_adaptive_interrupt: bool = (
+        False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
+    )
 
     # LangGraph Interview Conversation Workflow (replaces session_orchestrator)
-    use_langgraph_conversation: bool = True  # Feature flag for conversation workflow with memory and checkpointing
+    use_langgraph_conversation: bool = (
+        True  # Feature flag for conversation workflow with memory and checkpointing
+    )
 
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
