@@ -497,6 +497,10 @@ class InterviewConversationWorkflow(BaseWorkflow):
             # Step 15: Save evaluation
             saved_evaluation = await self.evaluation_repo.save(evaluation)
 
+            # Step 16: Link answer to evaluation (bidirectional link)
+            saved_answer.evaluation_id = saved_evaluation.id
+            saved_answer = await self.answer_repo.update(saved_answer)
+
             logger.info(
                 f"Answer processed: score={saved_evaluation.final_score:.1f}, "
                 f"similarity={f'{similarity_score:.2f}' if similarity_score is not None else 'N/A'}, "
