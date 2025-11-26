@@ -4,9 +4,9 @@ Phase 3A: Simplified adaptive workflow for single answer evaluation with
 follow-up decision. Generates follow-up questions but doesn't execute loop
 (requires user input). Phase 3B will add WebSocket interrupts for full loop.
 
-This workflow consolidates the logic from:
-- ProcessAnswerAdaptiveUseCase (evaluation)
-- FollowUpDecisionUseCase (break conditions)
+This workflow handles:
+- Answer evaluation with adaptive scoring
+- Follow-up decision logic (break conditions)
 - Follow-up question generation (conditional)
 
 NOTE: In Phase 3A, we evaluate ONE answer and decide if follow-up needed.
@@ -701,7 +701,7 @@ class AdaptiveEvalSimpleWorkflow(BaseWorkflow):
         )
         return "generate_followup"
 
-    # Helper methods (shared with ProcessAnswerAdaptiveUseCase)
+    # Helper methods
 
     async def _is_followup_question(self, question_id: UUID) -> tuple[bool, UUID | None]:
         """Check if question_id is a follow-up question.

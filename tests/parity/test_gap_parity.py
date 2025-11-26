@@ -1,49 +1,33 @@
-"""Gap accumulation parity tests between legacy and workflow paths.
+"""Gap accumulation tests for workflow path.
 
-Tests that workflow gap tracking matches legacy behavior.
+Tests that workflow gap tracking works correctly.
 Focus: Gap accumulation across multiple attempts, hybrid strategy validation.
 """
 import pytest
 from tests.parity.conftest import extract_gap_concepts
 
 
-class TestGapAccumulationParity:
-    """Compare gap accumulation logic between legacy and workflow."""
+class TestGapAccumulation:
+    """Test gap accumulation logic in workflow."""
 
     @pytest.mark.asyncio
     async def test_initial_gap_detection(
-        self, test_interview, legacy_runner, workflow_runner, container
+        self, test_interview, workflow_runner, container
     ):
-        """Test initial gap detection matches between paths."""
+        """Test initial gap detection for incomplete answers."""
         interview_id = test_interview["interview"]["id"]
         # Incomplete answer to trigger gap detection
         answer_text = "Async allows concurrent execution"
 
-        # Run both paths
-        legacy_result = await legacy_runner(interview_id, [answer_text], container)
+        # Run workflow
         workflow_result = await workflow_runner(interview_id, [answer_text], container)
 
-        # Extract gaps from evaluations
-        legacy_eval = legacy_result["evaluations"][0]
+        # Extract gaps from evaluation
         workflow_eval = workflow_result["evaluations"][0]
-
-        legacy_gaps = extract_gap_concepts(legacy_eval)
         workflow_gaps = extract_gap_concepts(workflow_eval)
 
-        # Both should detect gaps for incomplete answer
-        assert len(legacy_gaps) > 0, "Legacy detected no gaps"
+        # Should detect gaps for incomplete answer
         assert len(workflow_gaps) > 0, "Workflow detected no gaps"
-
-        # Gaps should overlap significantly
-        if len(legacy_gaps) > 0 and len(workflow_gaps) > 0:
-            overlap = legacy_gaps.intersection(workflow_gaps)
-            min_gap_count = min(len(legacy_gaps), len(workflow_gaps))
-            overlap_ratio = len(overlap) / min_gap_count if min_gap_count > 0 else 0
-
-            assert overlap_ratio >= 0.5, (
-                f"Gap overlap too low: {overlap_ratio:.1%}, "
-                f"legacy={legacy_gaps}, workflow={workflow_gaps}"
-            )
 
     @pytest.mark.asyncio
     async def test_gap_accumulation_across_attempts(
@@ -318,39 +302,3 @@ class TestGapEdgeCases:
         assert True  # Placeholder - validates no exceptions thrown
 
 
-class TestLegacyWorkflowGapConsistency:
-    """Test gap behavior consistency between legacy and workflow paths."""
-
-    @pytest.mark.asyncio
-    async def test_gap_concept_naming_consistency(
-        self, test_interview, legacy_runner, workflow_runner, container
-    ):
-        """Test gap concept names are similar between paths."""
-        interview_id = test_interview["interview"]["id"]
-        answer_text = "Async allows concurrent execution"
-
-        # Run both paths
-        legacy_result = await legacy_runner(interview_id, [answer_text], container)
-        workflow_result = await workflow_runner(interview_id, [answer_text], container)
-
-        legacy_gaps = extract_gap_concepts(legacy_result["evaluations"][0])
-        workflow_gaps = extract_gap_concepts(workflow_result["evaluations"][0])
-
-        # Gaps should use similar terminology
-        # (Allow some variation due to LLM non-determinism)
-        if len(legacy_gaps) > 0 and len(workflow_gaps) > 0:
-            # Check for semantic overlap (e.g., "coroutines" vs "coroutine usage")
-            # Simple check: lowercased word overlap
-            legacy_words = set(
-                word.lower() for gap in legacy_gaps for word in gap.split()
-            )
-            workflow_words = set(
-                word.lower() for gap in workflow_gaps for word in gap.split()
-            )
-
-            word_overlap = legacy_words.intersection(workflow_words)
-
-            # Should have some common terminology
-            assert len(word_overlap) > 0, (
-                f"No common gap terminology: legacy={legacy_gaps}, workflow={workflow_gaps}"
-            )

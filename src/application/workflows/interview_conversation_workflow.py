@@ -309,7 +309,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
     async def _evaluate_answer_node(self, state: ConversationState) -> dict[str, Any]:
         """Evaluate answer with adaptive evaluation (Phase 2).
 
-        Mirrors ProcessAnswerAdaptiveUseCase.execute() logic:
+        Evaluation logic:
         - For main questions (attempt 1): Standard evaluation, no penalty
         - For follow-up questions (attempts 2-3): Context-aware evaluation with penalties
 
@@ -646,7 +646,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
     async def _decide_followup_node(self, state: ConversationState) -> dict[str, Any]:
         """Decide if follow-up question needed.
 
-        Break conditions (aligned with FollowUpDecisionUseCase):
+        Break conditions:
         1. followup_count >= 3 (max reached)
         2. evaluation.is_adaptive_complete() (similarity >= 0.8 OR no gaps)
 

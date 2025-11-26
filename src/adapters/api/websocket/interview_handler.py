@@ -1,4 +1,4 @@
-"""WebSocket handler for interview sessions (orchestrator-based or workflow-based)."""
+"""WebSocket handler for interview sessions (workflow-based)."""
 
 import asyncio
 import base64
@@ -11,16 +11,13 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ....infrastructure.dependency_injection.container import Container, get_container
 from ....infrastructure.database.session import get_async_session
-from ....infrastructure.config.settings import get_settings
 from .connection_manager import manager
-from .session_orchestrator import InterviewSessionOrchestrator
 
 logger = logging.getLogger(__name__)
 
 # Per-session state for streaming audio
 audio_streams: dict[UUID, Queue[bytes | None]] = {}
 transcription_tasks: dict[UUID, asyncio.Task[Any]] = {}
-session_orchestrators: dict[UUID, InterviewSessionOrchestrator] = {}
 
 # Per-session state for workflow (thread IDs)
 workflow_threads: dict[UUID, str] = {}
@@ -30,11 +27,9 @@ async def handle_interview_websocket(
     websocket: WebSocket,
     interview_id: UUID,
 ) -> None:
-    """WebSocket handler for interview session (orchestrator-based or workflow-based).
+    """WebSocket handler for interview session (workflow-based).
 
-    Uses feature flag to determine handler:
-    - use_langgraph_conversation=True: InterviewConversationWorkflow (NEW)
-    - use_langgraph_conversation=False: InterviewSessionOrchestrator (LEGACY)
+    Uses InterviewConversationWorkflow for all interview sessions.
 
     Protocol:
         Client → Server: { type: "text_answer", question_id: UUID, answer_text: str }
@@ -51,13 +46,7 @@ async def handle_interview_websocket(
 
     try:
         container = get_container()
-        settings = get_settings()
-
-        # Check feature flag
-        if settings.use_langgraph_conversation:
-            await _handle_with_workflow(websocket, interview_id, container)
-        else:
-            await _handle_with_orchestrator(websocket, interview_id, container)
+        await _handle_with_workflow(websocket, interview_id, container)
 
     except WebSocketDisconnect:
         manager.disconnect(interview_id)
@@ -91,7 +80,7 @@ async def _handle_with_workflow(
     interview_id: UUID,
     container: Container,
 ) -> None:
-    """Handle interview with LangGraph workflow (NEW).
+    """Handle interview with LangGraph workflow.
 
     Args:
         websocket: WebSocket connection
@@ -324,64 +313,6 @@ async def _generate_tts_audio(
         return None  # Non-blocking failure
 
 
-async def _handle_with_orchestrator(
-    websocket: WebSocket,
-    interview_id: UUID,
-    container: Container,
-) -> None:
-    """Handle interview with session orchestrator (LEGACY).
-
-    Args:
-        websocket: WebSocket connection
-        interview_id: Interview UUID
-        container: DI container
-    """
-    # Create session orchestrator
-    orchestrator = InterviewSessionOrchestrator(
-        interview_id=interview_id,
-        websocket=websocket,
-        container=container,
-    )
-
-    # Store orchestrator for audio chunk handler access
-    session_orchestrators[interview_id] = orchestrator
-
-    # Start session (send first question)
-    await orchestrator.start_session()
-
-    # Listen for messages
-    while True:
-        data = await websocket.receive_json()
-        message_type = data.get("type")
-
-        if message_type == "text_answer":
-            answer_text = data.get("answer_text", "")
-            await orchestrator.handle_answer(answer_text)
-
-        elif message_type == "audio_chunk":
-            await handle_audio_chunk(interview_id, data, container)
-
-        elif message_type == "get_next_question":
-            logger.warning("get_next_question deprecated - use orchestrator state machine")
-            await manager.send_message(
-                interview_id,
-                {
-                    "type": "error",
-                    "code": "DEPRECATED_MESSAGE_TYPE",
-                    "message": "get_next_question deprecated - orchestrator manages flow",
-                },
-            )
-
-        else:
-            await manager.send_message(
-                interview_id,
-                {
-                    "type": "error",
-                    "code": "UNKNOWN_MESSAGE_TYPE",
-                    "message": f"Unknown message type: {message_type}",
-                },
-            )
-
 def _cleanup_audio_resources(interview_id: UUID) -> None:
     """Clean up audio streaming resources for a session.
 
@@ -396,9 +327,6 @@ def _cleanup_audio_resources(interview_id: UUID) -> None:
 
     # Clear audio streams
     audio_streams.pop(interview_id, None)
-
-    # Remove orchestrator reference
-    session_orchestrators.pop(interview_id, None)
 
     logger.debug(f"Cleaned up audio resources for interview {interview_id}")
 
@@ -473,22 +401,83 @@ async def _stream_transcription(
 
         logger.info(f"Sent transcription and voice metrics for interview {interview_id}")
 
-        # Pass to orchestrator for answer processing
-        orchestrator = session_orchestrators.get(interview_id)
-        if orchestrator:
+        # Route voice answer to workflow
+        thread_id = workflow_threads.get(interview_id)
+        if thread_id:
             logger.info(
-                f"Processing voice answer via orchestrator: '{result['text']}' "
+                f"Processing voice answer via workflow: '{result['text']}' "
                 f"(interview {interview_id}, question {question_id})"
             )
-            await orchestrator.handle_voice_answer(
-                audio_bytes=complete_audio,
-                question_id=question_id,
-                transcription=result["text"],
-                voice_metrics=result.get("voice_metrics", {}),
-            )
+            async for session in get_async_session():
+                workflow = await container.create_interview_conversation_workflow(session)
+                workflow_result = await workflow.process_answer(
+                    thread_id=thread_id,
+                    answer_text=result["text"],
+                    is_voice=True,
+                    voice_metrics=result.get("voice_metrics", {}),
+                )
+
+                # Send evaluation if present
+                if "evaluation" in workflow_result and workflow_result["evaluation"]:
+                    await manager.send_message(
+                        interview_id,
+                        {
+                            "type": "evaluation",
+                            "answer_id": workflow_result["evaluation"]["answer_id"],
+                            "score": workflow_result["evaluation"]["score"],
+                            "feedback": workflow_result["evaluation"]["feedback"],
+                            "strengths": workflow_result["evaluation"]["strengths"],
+                            "weaknesses": workflow_result["evaluation"]["weaknesses"],
+                            "gaps": workflow_result["evaluation"]["gaps"],
+                        },
+                    )
+                    logger.info(
+                        f"Sent evaluation for voice answer {workflow_result['evaluation']['answer_id']}, "
+                        f"score={workflow_result['evaluation']['score']:.1f}"
+                    )
+
+                # Check if complete
+                if workflow_result.get("complete"):
+                    await manager.send_message(
+                        interview_id,
+                        {
+                            "type": "interview_complete",
+                            "interview_id": str(interview_id),
+                            "status": workflow_result.get("final_status"),
+                            "detailed_feedback": workflow_result.get("summary"),
+                            "feedback_url": f"/api/interviews/{interview_id}/summary",
+                        },
+                    )
+                    break
+
+                # Send next question (either follow-up or main question)
+                if workflow_result.get("question"):
+                    question_dict = workflow_result.get("question")
+                    question_text = question_dict.get("text", "") if question_dict else ""
+                    audio_data = await _generate_tts_audio(question_text, container)
+
+                    # Format message based on type
+                    message = _format_question_message(
+                        question_dict=question_dict,
+                        question_id=workflow_result.get("question_id"),
+                        has_more=workflow_result.get("has_more"),
+                        audio_data=audio_data,
+                    )
+
+                    await manager.send_message(interview_id, message)
+
+                    logger.info(
+                        f"Sent {message['type']}: {workflow_result.get('question_id')}",
+                        extra={
+                            "interview_id": str(interview_id),
+                            "question_id": workflow_result.get("question_id"),
+                            "type": message["type"],
+                        },
+                    )
+                break
         else:
             logger.warning(
-                f"No orchestrator found for interview {interview_id} - "
+                f"No workflow thread found for interview {interview_id} - "
                 f"cannot process voice answer"
             )
 
@@ -505,10 +494,6 @@ async def _stream_transcription(
                 "message": f"Failed to transcribe audio: {str(e)}",
             },
         )
-
-
-# Deprecated functions - now handled by InterviewSessionOrchestrator
-# Kept for reference during migration period
 
 
 async def handle_audio_chunk(interview_id: UUID, data: dict[str, Any], container: Container) -> None:

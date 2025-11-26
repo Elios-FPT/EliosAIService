@@ -10,9 +10,6 @@ from src.domain.models.cv_analysis import CVAnalysis
 from src.application.workflows.interview_conversation_workflow import (
     InterviewConversationWorkflow,
 )
-from src.adapters.api.websocket.session_orchestrator import (
-    InterviewSessionOrchestrator,
-)
 from src.infrastructure.dependency_injection.container import Container
 
 
@@ -109,53 +106,6 @@ def mock_websocket():
 
     mock.send_json = AsyncMock(side_effect=send_json)
     return mock
-
-
-@pytest.fixture
-async def legacy_runner(async_session, mock_websocket):
-    """Run interview through legacy session_orchestrator."""
-
-    async def _run(
-        interview_id: UUID, answers: list[str], container: Container
-    ) -> dict[str, Any]:
-        """Execute legacy path and collect results."""
-        # Initialize session orchestrator
-        orchestrator = InterviewSessionOrchestrator(
-            interview_id=interview_id,
-            websocket=mock_websocket,
-            container=container,
-        )
-
-        # Start session
-        await orchestrator.start_session()
-
-        # Clear startup messages
-        mock_websocket.sent_messages.clear()
-
-        # Process answers
-        for answer_text in answers:
-            await orchestrator.handle_answer(answer_text)
-
-        # Extract results from WebSocket messages
-        messages = mock_websocket.sent_messages
-        evaluations = [msg for msg in messages if msg.get("type") == "evaluation"]
-        followups = [
-            msg for msg in messages if msg.get("type") == "follow_up_question"
-        ]
-        questions_sent = [
-            msg
-            for msg in messages
-            if msg.get("type") in ("question", "follow_up_question")
-        ]
-
-        return {
-            "messages": messages,
-            "evaluations": evaluations,
-            "followups": followups,
-            "questions": questions_sent,
-        }
-
-    return _run
 
 
 @pytest.fixture
