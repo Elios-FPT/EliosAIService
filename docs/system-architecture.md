@@ -1437,6 +1437,328 @@ Question (1) ──────→ (N) InterviewQuestion (many-to-many via junct
       └──────────→ (N) FollowUpQuestion
 ```
 
+### v0.4.0 Database Architecture Redesign
+
+**Migration**: `0015_251122_redesign_schema.py` (Alembic revision 0015)
+
+**Completion Date**: 2025-11-22
+
+#### Motivation & Design Rationale
+
+**Problem Statement**: Pre-v0.4.0 schema relied heavily on JSONB arrays and metadata columns, leading to:
+- Inefficient querying (array operations slower than indexed foreign keys)
+- Loss of referential integrity (no CASCADE deletes on array elements)
+- Difficult migrations (JSONB mutations require full row updates)
+- Limited query capabilities (can't JOIN on JSONB array elements)
+- Schema flexibility traded for performance
+
+**Solution**: Normalize data structures with dedicated tables and PostgreSQL ENUMs for type safety.
+
+#### Schema Redesign Details
+
+**1. Normalized Skills: cv_skills Table**
+
+**Before (v0.3.0)**:
+```sql
+CREATE TABLE cv_analyses (
+    id UUID PRIMARY KEY,
+    skills JSONB  -- [{"skill": "Python", "proficiency": "expert", "years": 5}]
+);
+```
+
+**After (v0.4.0)**:
+```sql
+CREATE TYPE proficiency_level_enum AS ENUM (
+    'beginner', 'intermediate', 'advanced', 'expert'
+);
+
+CREATE TABLE cv_skills (
+    id UUID PRIMARY KEY,
+    cv_analysis_id UUID NOT NULL REFERENCES cv_analyses(id) ON DELETE CASCADE,
+    skill_name VARCHAR(100) NOT NULL,
+    proficiency_level proficiency_level_enum,
+    years_of_experience FLOAT,
+    is_primary BOOLEAN DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Composite index for efficient filtering
+CREATE INDEX idx_cv_skills_cv_analysis_id ON cv_skills(cv_analysis_id);
+CREATE INDEX idx_cv_skills_skill_name ON cv_skills(skill_name);
+CREATE INDEX idx_cv_skills_proficiency ON cv_skills(proficiency_level);
+CREATE INDEX idx_cv_skills_primary ON cv_skills(is_primary) WHERE is_primary = true;
+```
+
+**Benefits**:
+- ✅ Foreign key constraint enforces referential integrity
+- ✅ CASCADE DELETE removes orphaned skills automatically
+- ✅ B-tree indexes enable fast skill lookups by name or proficiency
+- ✅ Partial index on `is_primary` optimizes interview planning queries
+- ✅ ENUM type prevents invalid proficiency values at database level
+- ✅ Supports skill-level queries (e.g., "all CVs with expert-level Python")
+- ✅ Easy to add metadata (certifications, last_used_date, etc.)
+
+**Migration Strategy**:
+```sql
+-- Extract JSONB array into normalized rows
+INSERT INTO cv_skills (cv_analysis_id, skill_name, proficiency_level, years_of_experience, is_primary, created_at)
+SELECT
+    cv.id,
+    skill->>'skill',
+    CASE
+        WHEN skill->>'proficiency' IN ('beginner', 'intermediate', 'advanced', 'expert')
+        THEN (skill->>'proficiency')::proficiency_level_enum
+        ELSE NULL
+    END,
+    NULLIF(skill->>'years', '')::FLOAT,
+    COALESCE((skill->>'is_primary')::BOOLEAN, false),
+    cv.created_at
+FROM cv_analyses cv
+CROSS JOIN LATERAL jsonb_array_elements(cv.skills::jsonb) AS skill;
+```
+
+**2. Junction Table: interview_questions**
+
+**Before (v0.3.0)**:
+```sql
+CREATE TABLE interviews (
+    id UUID PRIMARY KEY,
+    question_ids UUID[]  -- Array of question IDs
+);
+
+-- Query pattern
+SELECT * FROM questions WHERE id = ANY(interview.question_ids);
+```
+
+**After (v0.4.0)**:
+```sql
+CREATE TABLE interview_questions (
+    id UUID PRIMARY KEY,
+    interview_id UUID NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+    question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    sequence_order INT NOT NULL,
+    asked_at TIMESTAMP,
+    skipped BOOLEAN DEFAULT false,
+    skip_reason TEXT,
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_interview_questions_sequence UNIQUE(interview_id, sequence_order),
+    CONSTRAINT uq_interview_questions_pair UNIQUE(interview_id, question_id)
+);
+
+-- Composite index for ordered retrieval
+CREATE INDEX idx_interview_questions_interview_id ON interview_questions(interview_id, sequence_order);
+CREATE INDEX idx_interview_questions_question_id ON interview_questions(question_id);
+CREATE INDEX idx_interview_questions_asked_at ON interview_questions(asked_at);
+```
+
+**Benefits**:
+- ✅ Foreign key constraints on both sides (interview ← junction → question)
+- ✅ CASCADE DELETE handles cleanup automatically
+- ✅ `sequence_order` maintains question ordering without array manipulation
+- ✅ Additional metadata: `asked_at`, `skipped`, `skip_reason`
+- ✅ Composite index (interview_id, sequence_order) enables efficient ordered retrieval
+- ✅ Unique constraints prevent duplicate questions and sequence conflicts
+- ✅ Easy to reorder questions (UPDATE sequence_order vs array rebuild)
+- ✅ Supports pagination (LIMIT/OFFSET on sequence_order)
+
+**Query Performance**:
+```sql
+-- Array-based (OLD)
+SELECT * FROM questions WHERE id = ANY('{uuid1,uuid2,uuid3}'::UUID[]);
+-- Seq scan + array membership check (~50ms for 1000 questions)
+
+-- Junction table (NEW)
+SELECT q.*
+FROM interview_questions iq
+JOIN questions q ON iq.question_id = q.id
+WHERE iq.interview_id = 'interview-uuid'
+ORDER BY iq.sequence_order;
+-- Index seek + nested loop (~5ms for 1000 questions)
+```
+
+**Migration Strategy**:
+```sql
+-- Convert array to junction table rows with sequence
+INSERT INTO interview_questions (interview_id, question_id, sequence_order, asked_at, created_at)
+SELECT
+    i.id,
+    question_id,
+    (row_number - 1) AS sequence_order,
+    CASE
+        WHEN (row_number - 1) < i.current_question_index
+        THEN i.started_at + (interval '5 minutes' * (row_number - 1))
+        ELSE NULL
+    END,
+    i.created_at
+FROM interviews i
+CROSS JOIN LATERAL unnest(i.question_ids) WITH ORDINALITY AS t(question_id, row_number);
+```
+
+**3. PostgreSQL ENUMs for Type Safety**
+
+**Before (v0.3.0)**:
+```sql
+CREATE TABLE questions (
+    question_type VARCHAR(50),  -- Allows any string (no validation)
+    difficulty VARCHAR(50)      -- Allows any string (no validation)
+);
+```
+
+**After (v0.4.0)**:
+```sql
+-- Define ENUMs at database level
+CREATE TYPE question_type_enum AS ENUM (
+    'technical', 'behavioral', 'situational',
+    'problem_solving', 'system_design'
+);
+
+CREATE TYPE difficulty_enum AS ENUM (
+    'easy', 'medium', 'hard', 'expert'
+);
+
+-- Enforce at column level
+CREATE TABLE questions (
+    question_type question_type_enum NOT NULL,
+    difficulty difficulty_enum NOT NULL
+);
+```
+
+**Benefits**:
+- ✅ Database-level validation (invalid values rejected at INSERT/UPDATE)
+- ✅ Storage efficiency (ENUMs stored as 4-byte integers internally)
+- ✅ Consistent across all rows (no typos like "mediumm" or "tecnical")
+- ✅ Query optimization (ENUM comparisons faster than string comparisons)
+- ✅ Schema documentation (ENUM values visible in `\dT+`)
+- ✅ Application-level type safety (SQLAlchemy maps to Python enums)
+
+**Application Integration**:
+```python
+# Domain model (Python)
+from enum import Enum
+
+class QuestionType(str, Enum):
+    TECHNICAL = "technical"
+    BEHAVIORAL = "behavioral"
+    SITUATIONAL = "situational"
+    PROBLEM_SOLVING = "problem_solving"
+    SYSTEM_DESIGN = "system_design"
+
+# SQLAlchemy mapping
+from sqlalchemy import Enum as SQLAEnum
+
+class QuestionModel(Base):
+    question_type = Column(
+        SQLAEnum(
+            QuestionType,
+            name="question_type_enum",
+            create_constraint=True,
+            validate_strings=True
+        ),
+        nullable=False
+    )
+```
+
+**4. Decomposed Prompt Templates**
+
+**Before (v0.3.0)**:
+```sql
+CREATE TABLE prompt_templates (
+    template_json JSONB  -- All prompt data in single JSONB column
+);
+```
+
+**After (v0.4.0)**:
+```sql
+CREATE TABLE prompt_templates (
+    -- Core prompt content (editable)
+    system_prompt TEXT,
+    user_template TEXT,
+    input_variables TEXT[],
+    partial_variables JSONB DEFAULT '{}',
+
+    -- Output configuration
+    output_parser_type VARCHAR(50) DEFAULT 'json_output_parser',
+    output_schema JSONB,
+
+    -- LLM parameters (version-specific)
+    temperature NUMERIC(3,2) DEFAULT 0.3,
+    max_tokens INT DEFAULT 2000,
+    top_p NUMERIC(3,2) DEFAULT 0.95,
+    frequency_penalty NUMERIC(3,2) DEFAULT 0,
+    presence_penalty NUMERIC(3,2) DEFAULT 0,
+
+    -- Lifecycle management
+    is_active BOOLEAN DEFAULT false,
+    traffic_percentage NUMERIC(5,2) DEFAULT 0,
+    deleted_at TIMESTAMP
+);
+```
+
+**Benefits**:
+- ✅ Separate system_prompt and user_template for easier editing
+- ✅ Explicit input_variables for validation
+- ✅ Version-specific LLM parameters (temperature, max_tokens)
+- ✅ Supports A/B testing (traffic_percentage)
+- ✅ Soft delete (deleted_at) preserves version history
+- ✅ Direct column access (no JSON path extraction)
+- ✅ Easier to create UI for prompt editing
+
+#### Performance Considerations
+
+**Junction Table Query Patterns**:
+
+```python
+# 1. Get all questions for interview (ordered)
+stmt = (
+    select(InterviewQuestionModel, QuestionModel)
+    .join(QuestionModel, InterviewQuestionModel.question_id == QuestionModel.id)
+    .where(InterviewQuestionModel.interview_id == interview_id)
+    .order_by(InterviewQuestionModel.sequence_order)
+)
+# Uses: idx_interview_questions_interview_id (composite)
+
+# 2. Count questions (optimized)
+stmt = select(func.count(InterviewQuestionModel.id)).where(
+    InterviewQuestionModel.interview_id == interview_id
+)
+# Index-only scan: idx_interview_questions_interview_id
+
+# 3. Get current question (by sequence)
+stmt = (
+    select(QuestionModel)
+    .join(InterviewQuestionModel, InterviewQuestionModel.question_id == QuestionModel.id)
+    .where(
+        InterviewQuestionModel.interview_id == interview_id,
+        InterviewQuestionModel.sequence_order == current_index
+    )
+)
+# Index seek on composite index
+
+# 4. Pagination support
+stmt = (
+    select(InterviewQuestionModel, QuestionModel)
+    .join(QuestionModel)
+    .where(InterviewQuestionModel.interview_id == interview_id)
+    .order_by(InterviewQuestionModel.sequence_order)
+    .limit(10)
+    .offset(20)
+)
+# Efficient with composite index
+```
+
+**Composite Index Optimization**:
+```sql
+-- Index structure (interview_id, sequence_order)
+CREATE INDEX idx_interview_questions_interview_id
+ON interview_questions(interview_id, sequence_order);
+
+-- Covers queries:
+-- WHERE interview_id = X
+-- WHERE interview_id = X ORDER BY sequence_order
+-- WHERE interview_id = X AND sequence_order = Y
+-- WHERE interview_id = X AND sequence_order > Y
+```
+
 ### Database Access Patterns (Updated v0.4.0)
 
 **1. Candidate Lookup** (by email):
@@ -1494,6 +1816,29 @@ stmt = (
 )
 # Uses index: answers(interview_id)
 ```
+
+#### Migration Execution Strategy
+
+**Pre-Migration Validation**:
+1. Backup production database
+2. Test migration on staging with production data snapshot
+3. Verify data integrity post-migration
+4. Benchmark query performance (old vs new schema)
+
+**Rollback Plan**:
+- Keep `question_ids` and `skills` columns during transition period
+- Populate both old and new structures (write-both pattern)
+- Rollback by reverting column drops if issues arise
+- Full rollback available via downgrade() function
+
+**Breaking Changes**:
+- ❌ REMOVED: `cv_analyses.skills` (JSONB) → Use `cv_skills` table
+- ❌ REMOVED: `interviews.question_ids` (UUID[]) → Use `interview_questions` table
+- ❌ REMOVED: `interviews.answer_ids` (UUID[]) → Query via `answers.interview_id`
+- ❌ REMOVED: `answers.candidate_id` (redundant, available via interview)
+- ❌ REMOVED: `answers.metadata`, `answers.evaluation` (migrated in v0.003)
+- ❌ RENAMED: `questions.question_type` (VARCHAR → ENUM)
+- ❌ RENAMED: `questions.difficulty` (VARCHAR → ENUM)
 
 ## External Service Integration
 

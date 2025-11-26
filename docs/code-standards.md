@@ -1,13 +1,15 @@
 # Code Standards & Development Guidelines
 
-**Last Updated**: 2025-11-20
-**Version**: 0.3.0
+**Last Updated**: 2025-11-26
+**Version**: 0.4.0
 **Applies To**: Elios AI Interview Service
 **Project**: https://github.com/elios/elios-ai-service
 
 ## Overview
 
 This document defines the coding standards, conventions, and best practices for the Elios AI Interview Service project. All code must adhere to these standards to ensure consistency, maintainability, quality, and alignment with Clean Architecture principles.
+
+**V0.4.0 Update**: Added junction table query patterns, PostgreSQL ENUM usage guidelines, normalized skill management patterns, and decomposed prompt template standards.
 
 **V0.3.0 Update**: Added LangChain LCEL chain patterns, LangGraph workflow standards, Pydantic structured output conventions, and observability best practices.
 
@@ -2626,6 +2628,358 @@ class LangChainAdapter(LLMPort):
 - Ignore cost tracking until production (surprises happen)
 - Mix observability logic with business logic
 - Hardcode LangSmith project names
+
+## v0.4.0 Database Patterns
+
+**Added**: v0.4.0 (Database Schema Redesign)
+
+### Junction Table Query Patterns
+
+**Pattern**: Use junction tables for many-to-many relationships instead of JSONB arrays.
+
+**Example: Interview Questions Junction Table**
+
+```python
+# ❌ OLD (v0.3.0 and earlier) - JSONB array
+class Interview(BaseModel):
+    question_ids: list[UUID]  # JSONB array in database
+
+    def add_question(self, question_id: UUID) -> None:
+        """Add question (requires full entity update)."""
+        self.question_ids.append(question_id)
+
+    def has_more_questions(self) -> bool:
+        """Check if more questions available."""
+        return self.current_question_index < len(self.question_ids)
+
+# ✅ NEW (v0.4.0+) - Junction table
+class InterviewRepositoryPort(ABC):
+    @abstractmethod
+    async def add_question(
+        self,
+        interview_id: UUID,
+        question_id: UUID,
+        sequence_order: int
+    ) -> None:
+        """Add question to interview with ordering."""
+        pass
+
+    @abstractmethod
+    async def get_interview_questions(
+        self,
+        interview_id: UUID,
+        limit: int | None = None,
+        offset: int = 0
+    ) -> list[Question]:
+        """Get ordered questions for interview."""
+        pass
+
+    @abstractmethod
+    async def count_interview_questions(self, interview_id: UUID) -> int:
+        """Count total questions in interview."""
+        pass
+
+    @abstractmethod
+    async def get_current_question(
+        self,
+        interview_id: UUID,
+        current_index: int
+    ) -> Question | None:
+        """Get question at specific index."""
+        pass
+
+# Usage in use case
+async def add_question_to_interview(
+    interview_id: UUID,
+    question_id: UUID
+) -> None:
+    # Get current count for sequence_order
+    current_count = await interview_repo.count_interview_questions(interview_id)
+
+    # Add with proper sequencing
+    await interview_repo.add_question(
+        interview_id=interview_id,
+        question_id=question_id,
+        sequence_order=current_count  # Next in sequence
+    )
+
+# Query patterns
+questions = await interview_repo.get_interview_questions(
+    interview_id=interview_id,
+    limit=5,
+    offset=10  # Pagination support
+)
+
+current_question = await interview_repo.get_current_question(
+    interview_id=interview_id,
+    current_index=interview.current_question_index
+)
+```
+
+**Key Principles**:
+- ✅ Use dedicated junction table (interview_questions) with foreign keys
+- ✅ Include sequence_order column for ordering
+- ✅ Support pagination (limit/offset)
+- ✅ Provide helper methods (count, get_current)
+- ✅ Avoid loading all questions at once
+- ✅ Enable efficient filtering and querying
+
+### Normalized Skill Management Pattern
+
+**Pattern**: Store skills in dedicated table with foreign keys instead of JSONB arrays.
+
+```python
+# ❌ OLD (v0.3.0 and earlier) - JSONB array
+class CVAnalysis(BaseModel):
+    skills: list[dict[str, Any]]  # [{"skill": "Python", "proficiency": "expert"}]
+
+# ✅ NEW (v0.4.0+) - Normalized table
+from enum import Enum
+
+class ProficiencyLevel(str, Enum):
+    """PostgreSQL ENUM for skill proficiency."""
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
+    EXPERT = "expert"
+
+class CVSkill(BaseModel):
+    """Domain model for CV skill."""
+    id: UUID
+    cv_analysis_id: UUID
+    skill_name: str
+    proficiency_level: ProficiencyLevel
+    years_of_experience: float | None = None
+    is_primary: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+# Repository pattern
+class CVAnalysisRepositoryPort(ABC):
+    @abstractmethod
+    async def add_skill(self, skill: CVSkill) -> None:
+        """Add skill to CV analysis."""
+        pass
+
+    @abstractmethod
+    async def get_skills(
+        self,
+        cv_analysis_id: UUID,
+        proficiency_filter: ProficiencyLevel | None = None
+    ) -> list[CVSkill]:
+        """Get skills for CV analysis with optional filtering."""
+        pass
+
+    @abstractmethod
+    async def get_primary_skills(self, cv_analysis_id: UUID) -> list[CVSkill]:
+        """Get primary skills for interview focus."""
+        pass
+
+# Usage
+skill = CVSkill(
+    cv_analysis_id=cv_analysis.id,
+    skill_name="Python",
+    proficiency_level=ProficiencyLevel.EXPERT,
+    years_of_experience=5.0,
+    is_primary=True
+)
+await cv_repo.add_skill(skill)
+
+# Query patterns
+all_skills = await cv_repo.get_skills(cv_analysis_id)
+expert_skills = await cv_repo.get_skills(
+    cv_analysis_id,
+    proficiency_filter=ProficiencyLevel.EXPERT
+)
+primary_skills = await cv_repo.get_primary_skills(cv_analysis_id)
+```
+
+**Key Principles**:
+- ✅ Dedicated cv_skills table with foreign key to cv_analyses
+- ✅ Use PostgreSQL ENUM for proficiency_level (type safety)
+- ✅ Support skill-level queries and filtering
+- ✅ Track additional metadata (years_of_experience, is_primary)
+- ✅ Enable efficient indexing and searching
+
+### PostgreSQL ENUM Usage Guidelines
+
+**Pattern**: Use PostgreSQL ENUMs for fixed value sets (type safety at database level).
+
+```python
+# ✅ Good: ENUM definition
+from enum import Enum
+
+class QuestionType(str, Enum):
+    """PostgreSQL ENUM for question categories."""
+    TECHNICAL = "technical"
+    BEHAVIORAL = "behavioral"
+    SITUATIONAL = "situational"
+
+class Difficulty(str, Enum):
+    """PostgreSQL ENUM for difficulty levels."""
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+# Domain model usage
+class Question(BaseModel):
+    text: str
+    question_type: QuestionType  # Type-safe
+    difficulty: Difficulty      # Type-safe
+    skills: list[str]
+
+# Repository implementation (SQLAlchemy)
+from sqlalchemy import Enum as SQLAEnum
+
+class QuestionModel(Base):
+    __tablename__ = "questions"
+
+    question_type = Column(
+        SQLAEnum(
+            QuestionType,
+            name="questiontype",  # PostgreSQL ENUM type name
+            create_constraint=True,
+            validate_strings=True
+        ),
+        nullable=False
+    )
+    difficulty = Column(
+        SQLAEnum(
+            Difficulty,
+            name="difficulty",
+            create_constraint=True,
+            validate_strings=True
+        ),
+        nullable=False
+    )
+
+# Alembic migration for ENUM
+def upgrade():
+    # Create ENUM types
+    op.execute("CREATE TYPE questiontype AS ENUM ('technical', 'behavioral', 'situational')")
+    op.execute("CREATE TYPE difficulty AS ENUM ('easy', 'medium', 'hard')")
+    op.execute("CREATE TYPE proficiencylevel AS ENUM ('beginner', 'intermediate', 'advanced', 'expert')")
+
+    # Create table with ENUM columns
+    op.create_table(
+        'questions',
+        sa.Column('question_type', sa.Enum('technical', 'behavioral', 'situational', name='questiontype'), nullable=False),
+        sa.Column('difficulty', sa.Enum('easy', 'medium', 'hard', name='difficulty'), nullable=False),
+    )
+
+def downgrade():
+    # Drop table first
+    op.drop_table('questions')
+
+    # Drop ENUM types
+    op.execute("DROP TYPE IF EXISTS questiontype")
+    op.execute("DROP TYPE IF EXISTS difficulty")
+    op.execute("DROP TYPE IF EXISTS proficiencylevel")
+```
+
+**Key Principles**:
+- ✅ Define Python Enum with string inheritance
+- ✅ Use SQLAlchemy `Enum` column type with `create_constraint=True`
+- ✅ Create PostgreSQL ENUM types in Alembic migration
+- ✅ Drop table before dropping ENUM types in downgrade
+- ✅ Use lowercase ENUM type names in PostgreSQL
+- ✅ Validate strings to prevent invalid values
+
+### Decomposed Prompt Template Pattern
+
+**Pattern**: Split prompt templates into system_prompt and user_template for A/B testing.
+
+```python
+# ✅ Good: Decomposed prompt template
+class PromptTemplate(BaseModel):
+    """Domain model for prompt template."""
+    id: UUID
+    prompt_name: str
+    version: int
+    system_prompt: str          # Separated for modification
+    user_template: str          # Parameterized template
+    input_variables: list[str]  # Required variables
+    temperature: float
+    max_tokens: int
+    is_active: bool
+    parent_version: int | None  # Lineage tracking
+    created_by: str
+    created_at: datetime
+
+# Repository pattern
+class PromptRepositoryPort(ABC):
+    @abstractmethod
+    async def create_prompt(self, prompt: PromptTemplate) -> None:
+        """Create new prompt version."""
+        pass
+
+    @abstractmethod
+    async def get_active_prompt(
+        self,
+        prompt_name: str
+    ) -> PromptTemplate | None:
+        """Get active prompt (handles A/B testing if multiple active)."""
+        pass
+
+    @abstractmethod
+    async def create_version(
+        self,
+        prompt_name: str,
+        system_prompt: str,
+        user_template: str,
+        parent_version: int | None = None
+    ) -> PromptTemplate:
+        """Create new version with lineage."""
+        pass
+
+# Usage
+prompt = await prompt_repo.get_active_prompt("answer_evaluation")
+
+# Format with variables
+formatted_user_prompt = prompt.user_template.format(
+    question_text=question.text,
+    answer_text=answer.text,
+    difficulty=question.difficulty.value
+)
+
+# Execute LLM call
+result = await llm.chat(
+    system_prompt=prompt.system_prompt,
+    user_prompt=formatted_user_prompt,
+    temperature=prompt.temperature,
+    max_tokens=prompt.max_tokens
+)
+```
+
+**Key Principles**:
+- ✅ Separate system_prompt and user_template
+- ✅ Track input_variables for validation
+- ✅ Support A/B testing via multiple active versions
+- ✅ Maintain version lineage (parent_version)
+- ✅ Store LLM parameters with template
+- ✅ Enable prompt evolution without code changes
+
+### Best Practices for v0.4.0 Patterns
+
+**✅ DO**:
+- Use junction tables for many-to-many relationships
+- Normalize data with foreign keys
+- Use PostgreSQL ENUMs for fixed value sets
+- Decompose prompts for A/B testing
+- Provide pagination for junction table queries
+- Add composite indexes on (interview_id, sequence_order)
+- Create migration scripts for ENUM types
+- Test ENUM constraints in integration tests
+
+**❌ DON'T**:
+- Use JSONB arrays for structured relationships
+- Store skills as JSON strings
+- Use string literals for fixed values
+- Combine system and user prompts
+- Load all junction table rows at once
+- Skip ENUM type creation in migrations
+- Forget to drop tables before dropping ENUMs
+- Hardcode proficiency levels or difficulty values
 
 ## References
 

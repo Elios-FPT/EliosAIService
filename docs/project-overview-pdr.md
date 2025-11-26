@@ -1,16 +1,18 @@
 # Project Overview & Product Development Requirements (PDR)
 
 **Project Name**: Elios AI Interview Service
-**Version**: 0.3.0
-**Last Updated**: 2025-11-20
-**Status**: Active Development (Phase 1 Complete, LangChain Integration Complete)
+**Version**: 0.4.0
+**Last Updated**: 2025-11-26
+**Status**: Active Development (Phase 1.5 Complete, v0.4.0 Schema Redesign Complete)
 **Repository**: https://github.com/elios/elios-ai-service
 
 ## Executive Summary
 
 Elios AI Interview Service is an AI-powered mock interview platform that helps candidates prepare for technical interviews through personalized CV analysis, adaptive question generation, real-time answer evaluation, and comprehensive feedback. The platform leverages Large Language Models (OpenAI GPT-4), vector databases (Pinecone), LangChain/LangGraph workflows, and advanced NLP techniques to deliver a realistic, intelligent interview experience.
 
-**Major Update (v0.3.0)**: Integration of LangChain Expression Language (LCEL) and LangGraph workflows with PostgreSQL checkpointing, LangSmith observability, and cost tracking for production-grade orchestration.
+**Major Update (v0.4.0)**: Database schema redesign with normalized tables (cv_skills, interview_questions), PostgreSQL ENUMs for type safety, and decomposed prompt templates for A/B testing.
+
+**Previous Update (v0.3.0)**: Integration of LangChain Expression Language (LCEL) and LangGraph workflows with PostgreSQL checkpointing, LangSmith observability, and cost tracking.
 
 ## Project Purpose
 
@@ -392,6 +394,27 @@ result = await chain.ainvoke(input, config=config)
 - Calculate cost per interview session
 - Generate daily cost summaries
 - Tag traces with contextual metadata
+
+**FR10: Normalized Skill Management (NEW v0.4.0)**
+- Store CV skills in dedicated table with foreign keys
+- Track proficiency levels (BEGINNER, INTERMEDIATE, ADVANCED, EXPERT)
+- Record years_of_experience per skill
+- Mark primary skills for interview focus
+- Support skill-level filtering and querying
+
+**FR11: Junction Table Query Patterns (NEW v0.4.0)**
+- Query interview questions with sequence ordering
+- Add/remove questions from interviews dynamically
+- Track question order in interview flow
+- Support question reordering without array manipulation
+- Enable efficient pagination of interview questions
+
+**FR12: ENUM Type Safety (NEW v0.4.0)**
+- Enforce question types at database level (TECHNICAL, BEHAVIORAL, SITUATIONAL)
+- Validate difficulty levels (EASY, MEDIUM, HARD)
+- Ensure proficiency level consistency
+- Prevent invalid enum values in application layer
+- Support enum value migrations
 
 ### Non-Functional Requirements
 
@@ -857,12 +880,30 @@ result = await chain.ainvoke(input, config=config)
 
 ## Appendices
 
-### Appendix A: Database Schema Summary
-- 5 main tables: candidates, interviews, questions, answers, cv_analyses
-- Foreign key relationships for data integrity
-- Indexes on frequently queried columns
-- JSONB columns for flexible metadata
-- **NEW**: PostgreSQL checkpointing table for workflows
+### Appendix A: Database Schema Summary (v0.4.0)
+
+**Core Tables** (7 main tables):
+- `candidates` - User profiles
+- `cv_analyses` - CV analysis results
+- `cv_skills` - Normalized skill storage (NEW v0.4.0)
+- `interviews` - Interview sessions
+- `interview_questions` - Junction table (NEW v0.4.0)
+- `questions` - Question bank
+- `answers` - Candidate responses
+
+**Workflow & Observability**:
+- `checkpoints` - LangGraph workflow state (v0.3.0)
+- `prompt_templates` - Decomposed prompt versioning (v0.4.0)
+- `prompt_executions` - LLM execution tracking
+
+**Schema Features**:
+- Foreign key relationships for referential integrity
+- B-tree indexes on frequently queried columns
+- PostgreSQL ENUMs (QuestionType, Difficulty, ProficiencyLevel) - v0.4.0
+- JSONB columns for flexible metadata (answers, evaluations)
+- Composite indexes for junction table queries (interview_id, sequence_order)
+
+**Migration**: 15 Alembic migrations total (0001-0015)
 
 ### Appendix B: API Endpoint Summary
 - `/health` - Health check
