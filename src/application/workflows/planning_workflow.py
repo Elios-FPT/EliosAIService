@@ -13,7 +13,6 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from tests.unit.application.use_cases.test_follow_up_decision import interview_id
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.interview import Interview
 from ...domain.models.question import Question, QuestionType, DifficultyLevel
