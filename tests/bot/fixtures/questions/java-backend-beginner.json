@@ -1,0 +1,67 @@
+{
+  "name": "java-backend-beginner",
+  "interview": {
+    "id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+    "status": "IDLE",
+    "cv_analysis_id": "206a91e8-27f4-4bb7-a4f3-ca894e75e88c",
+    "current_question_index": 0,
+    "started_at": "2025-11-23 04:55:38.55251",
+    "completed_at": null,
+    "created_at": "2025-11-24 08:06:54.995327",
+    "updated_at": "2025-11-23 04:55:38.55251",
+    "plan_metadata": {},
+    "adaptive_follow_ups": [],
+    "current_parent_question_id": null,
+    "current_followup_count": 0
+  },
+  "interview_questions": [
+    {
+      "id": "7809a338-2606-442f-ad5a-b50f0bd2d717",
+      "interview_id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+      "question_id": "ea82f789-9390-44bf-8a85-faac08a92c61",
+      "sequence_order": 0,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 08:12:01.067213"
+    },
+    {
+      "id": "3c99a977-e84a-43d0-a561-e201d6d0a5b2",
+      "interview_id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+      "question_id": "4eff6317-4865-4ea9-8814-88ae5bc583f5",
+      "sequence_order": 1,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 08:12:01.067213"
+    }
+  ],
+  "questions": [
+    {
+      "id": "4eff6317-4865-4ea9-8814-88ae5bc583f5",
+      "text": "Can you explain the main components of a Spring Boot application and how they interact with each other?",
+      "skills": [
+        "Spring Boot"
+      ],
+      "version": 1,
+      "created_at": "2025-11-23 04:55:27.223742",
+      "ideal_answer": "A Spring Boot application typically consists of several key components: the application class, configuration classes, controllers, services, and repositories. The application class is usually annotated with @SpringBootApplication, which enables component scanning, auto-configuration, and property support. Configuration classes, often marked with @Configuration, define beans that can be injected throughout the application. Controllers, annotated with @RestController or @Controller, handle incoming requests, process them, and return responses. They interact with services, which contain the business logic. Services are typically annotated with @Service and can call repositories to perform data access operations. Repositories are marked with @Repository and utilize Spring Data JPA or other persistence frameworks to interface with the database. These components work together in a layered architecture: controllers handle user requests, services contain the core logic, and repositories manage data interactions. This separation of concerns enhances maintainability and testability, as each layer can be developed and tested independently. Additionally, Spring Boot's auto-configuration feature simplifies setup, allowing developers to focus on business functionality rather than boilerplate code.",
+      "rationale": "This answer is ideal as it covers the essential components of a Spring Boot application and their interactions in a clear, structured manner. It demonstrates a deep understanding of the framework's architecture, emphasizing separation of concerns, which is a critical design principle in software engineering. The explanation also highlights practical annotations and their roles, providing insight into best practices in Spring Boot application development.",
+      "question_type": "technical",
+      "difficulty": "easy"
+    },
+    {
+      "id": "ea82f789-9390-44bf-8a85-faac08a92c61",
+      "text": "Can you explain the concept of Java's garbage collection and its importance in memory management?",
+      "skills": [
+        "Java"
+      ],
+      "version": 1,
+      "created_at": "2025-11-23 04:55:26.118868",
+      "ideal_answer": "Java's garbage collection (GC) is an automatic memory management feature that helps to reclaim memory occupied by objects that are no longer in use, preventing memory leaks and optimizing performance. In Java, when an object is created, it occupies space in the heap memory. When there are no more references to that object, the garbage collector identifies it as unreachable and marks it for deletion. This process is essential as it alleviates the programmer from manual memory management, a common source of errors in languages like C and C++. The Java Virtual Machine (JVM) employs different GC algorithms, such as Serial, Parallel, CMS (Concurrent Mark-Sweep), and G1 (Garbage-First), each with its own trade-offs regarding pause times, throughput, and memory footprint. For example, G1 is particularly useful for applications with large heaps and aims to prioritize short garbage collection pauses while maintaining high throughput. Understanding GC helps developers write more efficient code by minimizing object creation, choosing appropriate data structures, and recognizing the potential impacts of GC on application performance, particularly in large-scale systems.",
+      "rationale": "This answer is ideal as it demonstrates a comprehensive understanding of Java's garbage collection mechanism, covering its purpose, process, and significance in memory management. It also mentions various GC algorithms, highlighting their trade-offs, which shows depth in knowledge. The mention of practical implications allows the candidate to connect theory with real-world scenarios, demonstrating their ability to apply concepts effectively.",
+      "question_type": "technical",
+      "difficulty": "easy"
+    }
+  ]
+}

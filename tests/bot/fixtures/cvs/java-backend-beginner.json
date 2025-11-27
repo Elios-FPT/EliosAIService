@@ -1,0 +1,16 @@
+{
+  "name": "Le Cao Khanh",
+  "title": "Junior Java Backend Developer",
+  "email": "caokhanhle145@gmail.com",
+  "summary": "A dedicated software developer with a Bachelor's degree in Information Systems from FPT University, specializing in Java and Spring Boot.",
+  "skills": ["Java", "Spring Boot", "Python", "Backend Services", "Spring Framework"],
+  "experience": [
+    {
+      "role": "Software Developer",
+      "company": "FPT University Projects",
+      "years": "2024-Present",
+      "description": "Built backend services and APIs with Java core and Spring Boot while contributing to academic and personal projects."
+    }
+  ],
+  "education": "B.S. Information Systems, FPT University"
+}
