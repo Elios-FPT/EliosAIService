@@ -56,6 +56,11 @@ loggers:
     level: INFO
     propagate: False
 
+  src.adapters:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
 root:
   level: INFO
   handlers: []  # Remove console handler to prevent duplicates, but keep root logger active

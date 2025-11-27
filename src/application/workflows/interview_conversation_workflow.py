@@ -27,6 +27,7 @@ from ...domain.models.follow_up_question import FollowUpQuestion
 from ...domain.ports.llm_port import LLMPort
 from ...domain.ports.answer_repository_port import AnswerRepositoryPort
 from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...domain.ports.event_publisher_port import EventPublisherPort
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from ...domain.ports.question_repository_port import QuestionRepositoryPort
 from ...domain.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
@@ -52,6 +53,7 @@ class ConversationState(TypedDict):
     # Current context
     current_question_id: str | None
     current_question: dict[str, Any] | None  # Question.model_dump()
+    parent_question: dict[str, Any] | None  # Original main question for follow-ups
     parent_question_id: str | None  # For follow-ups
     pending_answer_text: str | None  # From WebSocket input
     is_voice_answer: bool
@@ -102,6 +104,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         evaluation_repo: EvaluationRepositoryPort,
         followup_repo: FollowUpQuestionRepositoryPort,
         llm: LLMPort,
+        event_publisher: EventPublisherPort,
     ):
         """Initialize conversation workflow.
 
@@ -113,6 +116,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
             evaluation_repo: Evaluation repository
             followup_repo: Follow-up question repository
             llm: LLM adapter for evaluation and follow-up generation
+            event_publisher: Event publisher for domain events
         """
         super().__init__(checkpointer)
         self.interview_repo = interview_repo
@@ -121,6 +125,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         self.evaluation_repo = evaluation_repo
         self.followup_repo = followup_repo
         self.llm = llm
+        self.event_publisher = event_publisher
         self.app = self._build_graph()
 
     def _build_graph(self) -> CompiledStateGraph[ConversationState]:
@@ -727,20 +732,24 @@ class InterviewConversationWorkflow(BaseWorkflow):
         try:
             interview_id = UUID(state["interview_id"])
             current_q_id = state.get("current_question_id")
-            if not current_q_id:
-                logger.error("No current_question_id for follow-up generation")
-                return {"errors": state.get("errors", []) + ["No current_question_id"], "needs_followup": False}
+            parent_question_id_str = state.get("parent_question_id") or current_q_id
+            if not parent_question_id_str:
+                logger.error("No parent_question_id/current_question_id for follow-up generation")
+                return {
+                    "errors": state.get("errors", []) + ["No parent question available"],
+                    "needs_followup": False,
+                }
 
-            parent_question_id = UUID(current_q_id)
+            parent_question_id = UUID(parent_question_id_str)
             followup_count = state.get("followup_count", 0)
 
             # Get parent question
-            current_question_dict = state.get("current_question")
-            if not current_question_dict:
-                logger.error("No current question in state")
-                return {"errors": state.get("errors", []) + ["No current question"], "needs_followup": False}
+            parent_question_dict = state.get("parent_question") or state.get("current_question")
+            if not parent_question_dict:
+                logger.error("No parent/current question in state")
+                return {"errors": state.get("errors", []) + ["No parent question"], "needs_followup": False}
 
-            parent_question = Question(**current_question_dict)
+            parent_question = Question(**parent_question_dict)
             answers_list = state.get("answers", [])
             if not answers_list:
                 logger.error("No answers in state")
@@ -802,7 +811,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
             )
 
             # Extract ideal_answer from parent question (in state) for gap detection
-            parent_question_dict = state.get("current_question") or {}
+            parent_question_dict = state.get("parent_question") or parent_question.model_dump(mode="json")
             ideal_answer = parent_question_dict.get("ideal_answer") or ""
 
             if not ideal_answer:
@@ -818,13 +827,16 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "current_question": {
                     "id": str(followup.id),
                     "text": followup.text,
-                    "question_type": "FOLLOW_UP",
+                    # Follow-ups inherit parent's metadata to keep Question model valid
+                    "question_type": parent_question.question_type.value,
+                    "difficulty": parent_question.difficulty.value,
                     "ideal_answer": ideal_answer,  # NEW: Pass parent's ideal_answer
                     "parent_question_id": str(parent_question_id),  # WebSocket compatibility (Phase 2)
                     "generated_reason": followup.generated_reason,  # WebSocket compatibility
                     "order_in_sequence": followup.order_in_sequence,  # WebSocket compatibility
                 },
                 "parent_question_id": str(parent_question_id),
+                "parent_question": parent_question.model_dump(mode="json"),
                 "followup_count": followup_count + 1,
                 "needs_followup": False,  # Reset for next cycle
             }
@@ -892,6 +904,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                     "total": total,  # WebSocket compatibility (Phase 2)
                 },
                 "parent_question_id": None,  # Reset (new main question)
+                "parent_question": None,
                 "followup_count": 0,  # Reset counter
                 "cumulative_gaps": [],  # Reset gaps
                 "has_more_questions": has_more,
@@ -1003,6 +1016,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 follow_up_question_repository=self.followup_repo,
                 evaluation_repository=self.evaluation_repo,
                 llm=self.llm,
+                event_publisher=self.event_publisher,
             )
 
             result = await complete_uc.execute(interview_id)
@@ -1383,6 +1397,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "messages": [],
                 "current_question_id": None,
                 "current_question": None,
+                "parent_question": None,
                 "parent_question_id": None,
                 "pending_answer_text": None,
                 "is_voice_answer": False,

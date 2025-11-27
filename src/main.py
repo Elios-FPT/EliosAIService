@@ -131,6 +131,18 @@ async def lifespan(app: FastAPI):
     debug_print("init_db() completed")
     logger.info("Database connection established")
 
+    # Start event publisher (Kafka producer)
+    from .infrastructure.dependency_injection import get_container
+    container = get_container()
+    try:
+        await container.start_event_publisher()
+        debug_print("Event publisher started")
+        logger.info("Event publisher started successfully")
+    except Exception as e:
+        debug_print(f"Failed to start event publisher: {e}")
+        # Non-critical: Continue startup even if Kafka fails
+        logger.warning(f"Event publisher failed to start: {e}", exc_info=True)
+
     # Optionally initialize LangGraph checkpointer at startup
     # This prevents first-request timeouts when the feature is enabled
     if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
@@ -157,6 +169,18 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down application...")
+
+    # Stop event publisher (flush pending messages)
+    from .infrastructure.dependency_injection import get_container
+    container = get_container()
+    try:
+        await container.stop_event_publisher()
+        debug_print("Event publisher stopped")
+        logger.info("Event publisher stopped successfully")
+    except Exception as e:
+        debug_print(f"Error stopping event publisher: {e}")
+        logger.warning(f"Error stopping event publisher: {e}", exc_info=True)
+
     logger.info("Closing database connections...")
     await close_db()
     logger.info("Database connections closed")

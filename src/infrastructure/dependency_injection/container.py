@@ -30,6 +30,7 @@ debug_print("container.py: About to import mock adapters...")
 from ...adapters.mock import (
     MockAnalyticsAdapter,
     MockCVAnalyzerAdapter,
+    MockEventPublisher,
     MockLLMAdapter,
     MockSTTAdapter,
     MockTTSAdapter,
@@ -62,6 +63,11 @@ from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
 debug_print("container.py: CVProcessingAdapter imported")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 debug_print("container.py: HybridCVAnalyzerAdapter imported")
+
+debug_print("container.py: About to import messaging adapters...")
+from ...adapters.messaging import KafkaEventPublisher
+debug_print("container.py: KafkaEventPublisher imported")
+
 debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
     AnalyticsPort,
@@ -70,6 +76,7 @@ from ...domain.ports import (
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
     EvaluationRepositoryPort,
+    EventPublisherPort,
     FollowUpQuestionRepositoryPort,
     InterviewRepositoryPort,
     LLMPort,
@@ -108,6 +115,7 @@ class Container:
         self._stt_port: SpeechToTextPort | None = None
         self._tts_port: TextToSpeechPort | None = None
         self._checkpointer = None  # LangGraph checkpointer (lazy init)
+        self._event_publisher: EventPublisherPort | None = None
 
     def llm_port(self, session: AsyncSession | None = None) -> LLMPort:
         """Get LLM port implementation.
@@ -441,6 +449,53 @@ class Container:
 
         return self._tts_port
 
+    def event_publisher_port(self) -> EventPublisherPort:
+        """Get event publisher port implementation.
+
+        Returns:
+            Configured event publisher (Kafka or Mock)
+
+        Note:
+            Kafka adapter must be started via start_event_publisher().
+            Mock adapter does not require start/stop.
+        """
+        if self._event_publisher is None:
+            if self.settings.use_mock_event_publisher:
+                self._event_publisher = MockEventPublisher()
+            else:
+                self._event_publisher = KafkaEventPublisher(
+                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                    interview_topic=self.settings.kafka_interview_topic,
+                )
+
+        return self._event_publisher
+
+    async def start_event_publisher(self) -> None:
+        """Start event publisher (call in FastAPI lifespan startup).
+
+        Only starts Kafka producer (Mock has no start/stop).
+
+        Raises:
+            Exception: If Kafka producer fails to start
+        """
+        publisher = self.event_publisher_port()
+
+        # Only Kafka adapter has start() method
+        if isinstance(publisher, KafkaEventPublisher):
+            await publisher.start()
+
+    async def stop_event_publisher(self) -> None:
+        """Stop event publisher (call in FastAPI lifespan shutdown).
+
+        Flushes pending Kafka messages before stopping.
+        """
+        if self._event_publisher is None:
+            return
+
+        # Only Kafka adapter has stop() method
+        if isinstance(self._event_publisher, KafkaEventPublisher):
+            await self._event_publisher.stop()
+
     def analytics_port(self) -> AnalyticsPort:
         """Get analytics port implementation.
 
@@ -684,6 +739,7 @@ class Container:
         evaluation_repo = self.evaluation_repository_port(session)
         followup_repo = self.follow_up_question_repository(session)
         llm = self.llm_port(session)
+        event_publisher = self.event_publisher_port()
 
         # Create and return workflow
         return InterviewConversationWorkflow(
@@ -694,6 +750,7 @@ class Container:
             evaluation_repo=evaluation_repo,
             followup_repo=followup_repo,
             llm=llm,
+            event_publisher=event_publisher,
         )
 
 
