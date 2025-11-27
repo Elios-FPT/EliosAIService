@@ -215,3 +215,7 @@ CLAUDE.md
 repomix-output.xml
 
 .opencode/
+
+.cursor/
+
+tests/reports/*

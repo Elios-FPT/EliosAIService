@@ -44,6 +44,31 @@ class LogCaptureHandler(logging.Handler):
         self.logs.clear()
 
 
+class AttrDict(dict):
+    """Dictionary with attribute access (used in assertions)."""
+
+    def __getattr__(self, item: str):
+        try:
+            value = self[item]
+        except KeyError as exc:
+            raise AttributeError(item) from exc
+
+        if isinstance(value, dict):
+            return AttrDict(value)
+        if isinstance(value, list):
+            return [_as_attr_dict(v) for v in value]
+        return value
+
+
+def _as_attr_dict(value: Any):
+    """Recursively convert dicts to AttrDict for attribute access."""
+    if isinstance(value, dict):
+        return AttrDict({k: _as_attr_dict(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_as_attr_dict(item) for item in value]
+    return value
+
+
 @dataclass
 class ScenarioResult:
     """Result of single test scenario."""
@@ -191,6 +216,60 @@ class TestRunner:
 
         return test_results
 
+    async def run_single_test(
+        self,
+        scenarios_file: Path,
+        scenario_id: str,
+        enable_baseline_comparison: bool = True,
+    ) -> TestResults:
+        """Run a single scenario from file without iterating through others."""
+        logger.info(
+            f"Loading single scenario '{scenario_id}' from {scenarios_file}"
+        )
+        with open(scenarios_file) as f:
+            data = yaml.safe_load(f)
+
+        scenarios = data.get("scenarios", [])
+        scenario = next(
+            (s for s in scenarios if s.get("id") == scenario_id), None
+        )
+        if not scenario:
+            msg = (
+                f"Scenario '{scenario_id}' not found in {scenarios_file}"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.http_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.config.api.timeout_sec
+        )
+
+        start_time = time.time()
+        try:
+            result = await self.run_scenario(scenario)
+        finally:
+            await self.http_client.aclose()
+
+        total_duration = time.time() - start_time
+
+        test_results = TestResults(
+            total=1,
+            passed=1 if result.status == "passed" else 0,
+            failed=1 if result.status == "failed" else 0,
+            skipped=1 if result.status == "skipped" else 0,
+            total_duration_sec=total_duration,
+            total_cost_usd=result.cost_usd,
+            scenarios=[result],
+            metrics=self.metrics_collector.get_summary(),
+        )
+
+        if enable_baseline_comparison:
+            test_results.baseline_comparison = self._compare_to_baseline(
+                test_results, scenarios_file
+            )
+
+        return test_results
+
     async def run_scenario(self, scenario: dict) -> ScenarioResult:
         """Execute single test scenario.
 
@@ -309,22 +388,78 @@ class TestRunner:
                 db_helper = DatabaseHelper(session, self.config)
 
                 # Insert pre-defined data
-                candidate_id, interview_id, question_ids = await db_helper.insert_mock_interview_data(
+                (
+                    candidate_id,
+                    interview_id,
+                    question_ids,
+                    question_map,
+                ) = await db_helper.insert_mock_interview_data(
                     cv_fixture=config["cv_fixture"],
                     expected_questions=config["expected_questions"],
+                    question_fixture=config.get("question_fixture"),
                 )
 
             # Construct WebSocket URL
             ws_url = f"{self.ws_base_url}/ws/interviews/{interview_id}"
 
+            ideal_answer_map = self._load_ideal_answers(
+                config.get("question_fixture"), question_map
+            )
+
             # Run WebSocket QA phase only
-            context = await self._run_websocket_qa(interview_id, ws_url, config)
+            context = await self._run_websocket_qa(
+                interview_id, ws_url, config, ideal_answer_map
+            )
 
             return interview_id, ws_url, context
 
         finally:
             # Cleanup engine
             await engine.dispose()
+
+    def _load_ideal_answers(
+        self,
+        fixture_name: str | None,
+        question_map: dict[UUID, UUID] | None = None,
+    ) -> dict[str, str]:
+        """Load ideal answers from question fixture (if provided)."""
+        if not fixture_name:
+            return {}
+
+        fixtures_dir = Path(__file__).parent / "fixtures" / "questions"
+        fixture_path = fixtures_dir / fixture_name
+
+        if not fixture_path.exists():
+            logger.warning("Question fixture not found for ideal answers: %s", fixture_path)
+            return {}
+
+        try:
+            with open(fixture_path) as f:
+                data = json.load(f)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read question fixture %s: %s", fixture_path, exc
+            )
+            return {}
+
+        ideal_map: dict[str, str] = {}
+        for payload in data.get("questions", []):
+            question_id = payload.get("id")
+            ideal_answer = payload.get("ideal_answer")
+            if question_id and ideal_answer:
+                actual_question_id = question_id
+                if question_map:
+                    try:
+                        original_uuid = UUID(str(question_id))
+                    except (ValueError, TypeError):
+                        original_uuid = None
+
+                    if original_uuid and original_uuid in question_map:
+                        actual_question_id = question_map[original_uuid]
+
+                ideal_map[str(actual_question_id)] = ideal_answer
+
+        return ideal_map
 
     async def _run_real_scenario(
         self, config: dict
@@ -390,7 +525,11 @@ class TestRunner:
         return interview_id, ws_url, context
 
     async def _run_websocket_qa(
-        self, interview_id: UUID, ws_url: str, config: dict
+        self,
+        interview_id: UUID,
+        ws_url: str,
+        config: dict,
+        ideal_answer_map: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Run WebSocket QA phase (common for both mock and real tests).
 
@@ -398,6 +537,7 @@ class TestRunner:
             interview_id: Interview UUID
             ws_url: WebSocket URL
             config: Scenario config
+            ideal_answer_map: Optional mapping of question_id -> ideal answer text
 
         Returns:
             Context dict with questions, answers, evaluations, etc.
@@ -463,23 +603,37 @@ class TestRunner:
                         context["follow_ups"].append(message)
 
                     # Generate answer
-                    question_text = message["text"]
-                    answer_text = self.answer_generator.generate(question_text, answer_quality)
+                    question_id_str = message["question_id"]
+                    question_id = UUID(question_id_str)
+                    answer_text = None
+                    if (
+                        ideal_answer_map
+                        and answer_quality == "good"
+                        and question_id_str in ideal_answer_map
+                    ):
+                        answer_text = ideal_answer_map[question_id_str]
+
+                    if not answer_text:
+                        answer_text = self.answer_generator.generate(
+                            message["text"], answer_quality
+                        )
 
                     # Send answer
-                    question_id = UUID(message["question_id"])
                     await bot.send_text_answer(question_id, answer_text)
 
-                    context["answers"].append({
-                        "question_id": str(question_id),
-                        "text": answer_text,
-                    })
+                    context["answers"].append(
+                        {
+                            "type": "text_answer",
+                            "question_id": str(question_id),
+                            "answer_text": answer_text,
+                        }
+                    )
 
                     # Wait for evaluation
                     evaluation = await bot.wait_for_evaluation(
                         timeout=self.config.timeouts.evaluation_timeout_sec
                     )
-                    context["evaluations"].append(evaluation)
+                    context["evaluations"].append(_as_attr_dict(evaluation))
 
                 except Exception as e:
                     logger.error(f"Error in QA loop: {e}")
