@@ -72,7 +72,8 @@ class AnalyzeCVUseCase:
         )
 
         try:
-            await self.candidate_repository_port.save(candidate)
+            if not await self.candidate_repository_port.get_by_id(candidate_id=candidate.id):
+                await self.candidate_repository_port.save(candidate)
             await self.cv_analysis_repository_port.save(cv_analysis)
         except Exception as e:
             print("Error saving candidate: ", e)

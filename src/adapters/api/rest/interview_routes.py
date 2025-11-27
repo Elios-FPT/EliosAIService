@@ -52,7 +52,8 @@ async def upload_cv(
             content = await file.read()
             buffer.write(content)
 
-        candidate_id = uuid.uuid4()
+        # TODO: replace with data from User Service
+        candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
         container = get_container()
         cv_analyzer = container.cv_analyzer_port()
 
