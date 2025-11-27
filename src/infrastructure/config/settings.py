@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
 
+    # Kafka Configuration (Event Publishing)
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_interview_topic: str = "interview-user-interview"
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"  # json or text
@@ -247,6 +251,7 @@ class Settings(BaseSettings):
     use_mock_stt: bool = True
     use_mock_tts: bool = True
     use_mock_analytics: bool = True
+    use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
     # Hybrid CV Analyzer Configuration
     use_hybrid_cv_analyzer: bool = False  # Feature flag (default: legacy)

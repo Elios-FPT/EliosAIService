@@ -65,6 +65,9 @@ dependencies = [
     "pyyaml>=6.0.0",
     "python-dotenv>=1.0.0",
     "deepdiff>=6.7.0",
+
+    # Messaging
+    "aiokafka>=0.10.0",
 ]
 
 [project.optional-dependencies]

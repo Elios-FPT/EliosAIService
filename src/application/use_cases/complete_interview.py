@@ -9,6 +9,7 @@ from ...domain.models.evaluation import Evaluation
 from ...domain.models.interview import Interview, InterviewStatus
 from ...domain.ports.answer_repository_port import AnswerRepositoryPort
 from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...domain.ports.event_publisher_port import EventPublisherPort
 from ...domain.ports.follow_up_question_repository_port import (
     FollowUpQuestionRepositoryPort,
 )
@@ -43,6 +44,7 @@ class CompleteInterviewUseCase:
         follow_up_question_repository: FollowUpQuestionRepositoryPort,
         evaluation_repository: EvaluationRepositoryPort,
         llm: LLMPort,
+        event_publisher: EventPublisherPort,
     ):
         """Initialize with all required dependencies.
 
@@ -53,6 +55,7 @@ class CompleteInterviewUseCase:
             follow_up_question_repository: Follow-up question persistence port
             evaluation_repository: Evaluation persistence port
             llm: LLM port for generating recommendations
+            event_publisher: Event publisher port for domain events
         """
         self.interview_repo = interview_repository
         self.answer_repo = answer_repository
@@ -60,6 +63,7 @@ class CompleteInterviewUseCase:
         self.follow_up_repo = follow_up_question_repository
         self.evaluation_repo = evaluation_repository
         self.llm = llm
+        self.event_publisher = event_publisher
 
     async def execute(self, interview_id: UUID) -> InterviewCompletionResult:
         """Complete interview and generate comprehensive summary.
@@ -69,7 +73,8 @@ class CompleteInterviewUseCase:
         2. Generates comprehensive summary (scores, gaps, recommendations)
         3. Stores summary in interview metadata
         4. Transitions interview to COMPLETE status
-        5. Returns both interview and summary
+        5. Publishes INTERVIEW_ATTEMPTED event
+        6. Returns both interview and summary
 
         Args:
             interview_id: The interview UUID
@@ -104,7 +109,13 @@ class CompleteInterviewUseCase:
         interview.complete()
         updated_interview = await self.interview_repo.update(interview)
 
-        # 5. Return result DTO
+        # 5. Publish INTERVIEW_ATTEMPTED event (fire-and-forget)
+        await self._publish_interview_attempted_event(
+            interview=updated_interview,
+            summary=summary,
+        )
+
+        # 6. Return result DTO
         return InterviewCompletionResult(
             interview=updated_interview,
             summary=summary,
@@ -520,3 +531,41 @@ class CompleteInterviewUseCase:
             gaps=gap_details,
             evaluated_at=evaluation.evaluated_at,
         )
+
+    async def _publish_interview_attempted_event(
+        self,
+        interview: Interview,
+        summary: DetailedInterviewFeedback,
+    ) -> None:
+        """Publish INTERVIEW_ATTEMPTED event after interview completion.
+
+        Fire-and-forget pattern: Errors are logged but don't fail use case.
+
+        Args:
+            interview: Completed interview entity
+            summary: Generated feedback summary with scores
+        """
+        try:
+            # Generate correlation ID from interview ID (deterministic)
+            correlation_id = interview.id
+
+            await self.event_publisher.publish_interview_attempted(
+                candidate_id=interview.candidate_id,
+                interview_id=interview.id,
+                correlation_id=correlation_id,
+                overall_score=summary.overall_score,
+                theoretical_score_avg=summary.theoretical_score_avg,
+                speaking_score_avg=summary.speaking_score_avg,
+            )
+        except Exception as e:
+            # Log error but DO NOT raise (fire-and-forget)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Failed to publish INTERVIEW_ATTEMPTED event: {e}",
+                extra={
+                    "interview_id": str(interview.id),
+                    "candidate_id": str(interview.candidate_id),
+                },
+                exc_info=True,
+            )
