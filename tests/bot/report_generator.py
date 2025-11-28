@@ -42,6 +42,7 @@ class ReportGenerator:
                     "assertions_failed": s.assertions_failed,
                     "errors": s.errors,
                     "logs": s.logs,
+                    "metadata": s.metadata,
                 }
                 for s in results.scenarios
             ],
@@ -85,6 +86,12 @@ class ReportGenerator:
             else:
                 logs_html = "<em>No logs captured</em>"
 
+            metadata_html = (
+                "<em>No metadata</em>"
+                if not s.metadata
+                else f"<pre>{json.dumps(s.metadata, indent=2)}</pre>"
+            )
+
             scenario_rows += f"""
             <tr class="table-{status_class}">
                 <td>{s.id}</td>
@@ -104,7 +111,11 @@ class ReportGenerator:
             <tr class="collapse" id="logs-{idx}">
                 <td colspan="7">
                     <div class="card card-body logs-container">
-                        <h6>Test Logs:</h6>
+                        <h6>Metadata:</h6>
+                        <div class="logs-content">
+                            {metadata_html}
+                        </div>
+                        <h6 class="mt-3">Test Logs:</h6>
                         <div class="logs-content">
                             {logs_html}
                         </div>

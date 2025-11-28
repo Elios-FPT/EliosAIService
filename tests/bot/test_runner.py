@@ -13,11 +13,20 @@ from uuid import UUID
 
 import httpx
 import yaml
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from .answer_generator import AnswerGenerator
+from .answer_strategy import AnswerStrategyEngine
 from .assertion_validator import AssertionValidator
 from .config import BotConfig, get_config
 from .metrics_collector import MetricsCollector
+from .sql_loader import (
+    DataSeedConfig,
+    build_data_seed_config,
+    execute_sql_fixture,
+)
 from .test_bot_client import InterviewTestBot
 
 logger = logging.getLogger(__name__)
@@ -83,6 +92,7 @@ class ScenarioResult:
     errors: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -132,6 +142,7 @@ class TestRunner:
         self.assertion_validator = AssertionValidator()
 
         self.http_client: httpx.AsyncClient | None = None
+        self._bot_root = Path(__file__).parent
 
     async def run_all_tests(
         self,
@@ -301,6 +312,7 @@ class TestRunner:
         assertions_passed = 0
         assertions_failed = 0
         cost = 0.0
+        scenario_metadata: dict[str, Any] = {}
 
         try:
             use_mock = config.get("use_mock", True)
@@ -308,11 +320,30 @@ class TestRunner:
 
             # Execute based on test type
             if use_mock:
-                # Mock test: Use DB helper to insert data, skip API calls
-                interview_id, ws_url, context = await self._run_mock_scenario(config)
+                (
+                    interview_id,
+                    ws_url,
+                    context,
+                    metadata,
+                    question_map,
+                ) = await self._run_mock_scenario(scenario_id, config)
             else:
-                # Real test: Full API flow (CV upload → plan → WebSocket QA)
-                interview_id, ws_url, context = await self._run_real_scenario(config)
+                (
+                    interview_id,
+                    ws_url,
+                    context,
+                    metadata,
+                    question_map,
+                ) = await self._run_real_scenario(scenario_id, config)
+
+            scenario_metadata.update(metadata)
+
+            # Log expected vs actual responses/states for easier debugging
+            self._log_expectations(
+                scenario_id=scenario_id,
+                config=config,
+                context=context,
+            )
 
             # Validate assertions
             assertions_passed, assertions_failed = await self._validate_assertions(
@@ -359,11 +390,14 @@ class TestRunner:
             errors=errors,
             metrics=bot_metrics,
             logs=captured_logs,
+            metadata=scenario_metadata,
         )
 
     async def _run_mock_scenario(
-        self, config: dict
-    ) -> tuple[UUID, str, dict[str, Any]]:
+        self, scenario_id: str, config: dict
+    ) -> tuple[
+        UUID, str, dict[str, Any], dict[str, Any], dict[UUID, UUID] | None
+    ]:
         """Run mock scenario (DB insert + WebSocket QA only).
 
         Args:
@@ -378,28 +412,51 @@ class TestRunner:
         from .db_helper import DatabaseHelper
 
         settings = get_settings()
+        metadata: dict[str, Any] = {}
 
-        # Create DB session
+        # Create DB session/engine
         engine = create_async_engine(settings.async_database_url, echo=False)
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async_session = sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
 
         try:
-            async with async_session() as session:
-                db_helper = DatabaseHelper(session, self.config)
+            data_seed_config = build_data_seed_config(
+                config.get("data_seed"),
+                self._bot_root,
+            )
 
-                # Insert pre-defined data
-                (
-                    candidate_id,
-                    interview_id,
-                    question_ids,
-                    question_map,
-                ) = await db_helper.insert_mock_interview_data(
-                    cv_fixture=config["cv_fixture"],
-                    expected_questions=config["expected_questions"],
-                    question_fixture=config.get("question_fixture"),
+            if data_seed_config:
+                fixture_result = await execute_sql_fixture(
+                    engine, data_seed_config.sql_path
                 )
+                metadata["data_seed"] = {
+                    "sql_file": str(data_seed_config.sql_path.relative_to(self._bot_root)),
+                    "checksum": fixture_result.checksum,
+                    "statements": fixture_result.statements_executed,
+                    "duration_ms": fixture_result.duration_ms,
+                }
 
-            # Construct WebSocket URL
+                async with async_session() as session:
+                    await self._verify_seeded_data(session, data_seed_config)
+
+                interview_id = data_seed_config.interview_id
+                question_map = None
+            else:
+                async with async_session() as session:
+                    db_helper = DatabaseHelper(session, self.config)
+
+                    (
+                        _candidate_id,
+                        interview_id,
+                        _question_ids,
+                        question_map,
+                    ) = await db_helper.insert_mock_interview_data(
+                        cv_fixture=config["cv_fixture"],
+                        expected_questions=config["expected_questions"],
+                        question_fixture=config.get("question_fixture"),
+                    )
+
             ws_url = f"{self.ws_base_url}/ws/interviews/{interview_id}"
 
             ideal_answer_map = self._load_ideal_answers(
@@ -408,10 +465,15 @@ class TestRunner:
 
             # Run WebSocket QA phase only
             context = await self._run_websocket_qa(
-                interview_id, ws_url, config, ideal_answer_map
+                scenario_id,
+                interview_id,
+                ws_url,
+                config,
+                ideal_answer_map,
+                question_map,
             )
 
-            return interview_id, ws_url, context
+            return interview_id, ws_url, context, metadata, question_map
 
         finally:
             # Cleanup engine
@@ -461,9 +523,39 @@ class TestRunner:
 
         return ideal_map
 
+    async def _verify_seeded_data(
+        self,
+        session: AsyncSession,
+        data_seed: DataSeedConfig,
+    ) -> None:
+        """Ensure SQL fixtures inserted the expected records."""
+        interview_exists = await session.execute(
+            text("SELECT 1 FROM interviews WHERE id = :id"),
+            {"id": data_seed.interview_id},
+        )
+        if interview_exists.scalar_one_or_none() is None:
+            raise ValueError(
+                f"SQL fixture did not insert interview {data_seed.interview_id}"
+            )
+
+        missing_questions: list[str] = []
+        for question_id in data_seed.question_ids:
+            question_exists = await session.execute(
+                text("SELECT 1 FROM questions WHERE id = :id"),
+                {"id": question_id},
+            )
+            if question_exists.scalar_one_or_none() is None:
+                missing_questions.append(str(question_id))
+
+        if missing_questions:
+            raise ValueError(
+                "SQL fixture missing question IDs: " + ", ".join(missing_questions)
+            )
+
+
     async def _run_real_scenario(
-        self, config: dict
-    ) -> tuple[UUID, str, dict[str, Any]]:
+        self, scenario_id: str, config: dict
+    ) -> tuple[UUID, str, dict[str, Any], dict[str, Any], None]:
         """Run real scenario (full API flow).
 
         Args:
@@ -520,16 +612,20 @@ class TestRunner:
         logger.info(f"Planned interview: {interview_id}")
 
         # Step 4: Run WebSocket QA phase
-        context = await self._run_websocket_qa(interview_id, ws_url, config)
+        context = await self._run_websocket_qa(
+            scenario_id, interview_id, ws_url, config, {}
+        )
 
-        return interview_id, ws_url, context
+        return interview_id, ws_url, context, {}, None
 
     async def _run_websocket_qa(
         self,
+        scenario_id: str,
         interview_id: UUID,
         ws_url: str,
         config: dict,
         ideal_answer_map: dict[str, str] | None = None,
+        question_map: dict[UUID, UUID] | None = None,
     ) -> dict[str, Any]:
         """Run WebSocket QA phase (common for both mock and real tests).
 
@@ -550,6 +646,13 @@ class TestRunner:
             "summary": None,
         }
 
+        strategy_engine = AnswerStrategyEngine(
+            scenario_id=scenario_id,
+            strategy_config=config.get("answer_strategy"),
+            ideal_answers=ideal_answer_map or {},
+            question_map=question_map,
+        )
+
         # Create bot
         bot = InterviewTestBot(
             interview_id=interview_id,
@@ -562,13 +665,11 @@ class TestRunner:
             await bot.connect(ws_url)
 
             # Run QA loop
-            answer_quality = config.get(
-                "answer_quality", self.config.interview.default_answer_quality
-            )
             expected_questions = config.get(
                 "expected_questions", self.config.interview.default_expected_questions
             )
 
+            loop_start_time = time.time()
             for i in range(
                 expected_questions + self.config.interview.qa_loop_buffer
             ):  # Buffer for follow-ups
@@ -577,6 +678,7 @@ class TestRunner:
                     message = None
                     message_type = None
 
+                    iteration_start = time.time()
                     try:
                         message_type, message = await bot.wait_for_next_question(
                             timeout=self.config.timeouts.question_timeout_sec
@@ -590,7 +692,14 @@ class TestRunner:
 
                     except TimeoutError:
                         # Timeout without completion message - interview may have ended
-                        logger.warning(f"Timeout after {i} iterations - interview may be incomplete")
+                        elapsed = time.time() - loop_start_time
+                        waited = time.time() - iteration_start
+                        logger.warning(
+                            "Timeout after %s iterations (waited %.1fs, total %.1fs) - interview may be incomplete",
+                            i,
+                            waited,
+                            elapsed,
+                        )
                         break
 
                     if not message:
@@ -605,18 +714,26 @@ class TestRunner:
                     # Generate answer
                     question_id_str = message["question_id"]
                     question_id = UUID(question_id_str)
-                    answer_text = None
-                    if (
-                        ideal_answer_map
-                        and answer_quality == "good"
-                        and question_id_str in ideal_answer_map
-                    ):
-                        answer_text = ideal_answer_map[question_id_str]
 
-                    if not answer_text:
-                        answer_text = self.answer_generator.generate(
-                            message["text"], answer_quality
+                    def default_answer() -> str:
+                        if config.get("answer_text") is not None:
+                            return config["answer_text"]
+                        answer_quality = config.get(
+                            "answer_quality",
+                            self.config.interview.default_answer_quality,
                         )
+                        length_target = config.get("answer_text_length")
+                        return self.answer_generator.generate(
+                            message["text"],
+                            answer_quality,
+                            length_target=length_target,
+                        )
+
+                    answer_text = strategy_engine.get_answer(
+                        question_id,
+                        message["text"],
+                        default_answer,
+                    )
 
                     # Send answer
                     await bot.send_text_answer(question_id, answer_text)
@@ -772,3 +889,92 @@ class TestRunner:
                 },
             },
         }
+
+    def _log_expectations(
+        self,
+        scenario_id: str,
+        config: dict[str, Any],
+        context: dict[str, Any],
+    ) -> None:
+        """Log expected vs actual interview responses/states."""
+
+        def log_pair(label: str, expected: Any, actual: Any) -> None:
+            logger.info(
+                "[%s] %s expected=%s actual=%s",
+                scenario_id,
+                label,
+                expected,
+                actual,
+            )
+
+        questions = context.get("questions", [])
+        evaluations = context.get("evaluations", [])
+        follow_ups = context.get("follow_ups", [])
+        summary = context.get("summary") or {}
+        metrics = context.get("bot_metrics") or {}
+        metrics_summary = metrics.get("summary") or {}
+
+        expected_questions = config.get("expected_questions")
+        if expected_questions is not None:
+            actual_questions = len(questions)
+            actual_answers = len(context.get("answers", []))
+            actual_evaluations = len(evaluations)
+            log_pair("questions_received", expected_questions, actual_questions)
+            log_pair("answers_sent", expected_questions, actual_answers)
+            log_pair("evaluations_received", expected_questions, actual_evaluations)
+
+        expected_follow_ups = config.get("expected_follow_ups")
+        if expected_follow_ups is not None:
+            log_pair("follow_ups_received", expected_follow_ups, len(follow_ups))
+
+        if "expected_follow_ups" in config or metrics_summary:
+            summary_counts = {
+                "questions": metrics_summary.get("questions_received"),
+                "answers": metrics_summary.get("answers_sent"),
+                "evaluations": metrics_summary.get("evaluations_received"),
+                "follow_ups": metrics_summary.get("follow_ups_received"),
+            }
+            logger.info(
+                "[%s] bot_metrics.summary=%s",
+                scenario_id,
+                summary_counts,
+            )
+
+        expected_error = config.get("expect_error")
+        if expected_error is not None:
+            bot_errors = metrics.get("errors") or []
+            summary_status = summary.get("status")
+            actual_error = bool(bot_errors) or (summary_status == "ERROR")
+            log_pair("error_state", bool(expected_error), actual_error)
+
+        expected_state = config.get("expected_final_state")
+        if expected_state is None:
+            expected_state = "ERROR" if expected_error else "COMPLETE"
+
+        actual_state = (
+            summary.get("status")
+            or summary.get("interview_status")
+            or summary.get("state")
+            or "UNKNOWN"
+        )
+        log_pair("final_state", expected_state, actual_state)
+
+        if summary:
+            summary_snapshot = {
+                key: summary.get(key)
+                for key in ["status", "overall_score", "total_questions", "ended_at"]
+                if key in summary
+            }
+            logger.info(
+                "[%s] completion_summary=%s",
+                scenario_id,
+                summary_snapshot or summary,
+            )
+
+        if config.get("track_transitions"):
+            states = [entry.get("state") for entry in metrics.get("states", [])]
+            logger.info(
+                "[%s] state_transitions expected=tracked actual=%s",
+                scenario_id,
+                states or [],
+            )

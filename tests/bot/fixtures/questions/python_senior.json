@@ -1,0 +1,47 @@
+{
+  "name": "python_senior",
+  "interview": {
+    "id": "43c5a8f2-0f48-4ccc-8fae-0fb56c63510a",
+    "status": "IDLE",
+    "cv_analysis_id": "c44d55e0-b462-4d4f-b766-59964c85c7ac",
+    "current_question_index": 0,
+    "started_at": null,
+    "completed_at": null,
+    "created_at": "2025-11-27 00:00:00",
+    "updated_at": "2025-11-27 00:00:00",
+    "plan_metadata": {},
+    "adaptive_follow_ups": [],
+    "current_parent_question_id": null,
+    "current_followup_count": 0
+  },
+  "interview_questions": [
+    {
+      "id": "d5b8de90-ffd1-4e7b-8cf4-11aaf04bb27d",
+      "interview_id": "43c5a8f2-0f48-4ccc-8fae-0fb56c63510a",
+      "question_id": "e2cb66cb-2a4f-4c62-9955-9aa1bb476988",
+      "sequence_order": 0,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-27 00:00:01"
+    }
+  ],
+  "questions": [
+    {
+      "id": "e2cb66cb-2a4f-4c62-9955-9aa1bb476988",
+      "text": "Explain Python's Global Interpreter Lock (GIL) and how it impacts multi-threaded applications.",
+      "skills": [
+        "Python",
+        "Concurrency"
+      ],
+      "version": 1,
+      "created_at": "2025-11-27 00:00:00",
+      "updated_at": "2025-11-27 00:00:00",
+      "ideal_answer": "The Global Interpreter Lock is a mutex inside CPython that ensures only one thread executes Python bytecode at a time. It simplifies memory management but limits true parallelism for CPU-bound threads. I explain how it affects workload types and discuss mitigation strategies like multiprocessing or leveraging extensions that release the GIL.",
+      "rationale": "Senior Python roles require understanding of concurrency trade-offs. This question validates whether the candidate can reason about performance bottlenecks.",
+      "question_type": "technical",
+      "difficulty": "medium"
+    }
+  ]
+}
+

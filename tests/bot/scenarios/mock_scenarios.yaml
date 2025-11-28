@@ -14,7 +14,15 @@ scenarios:
       expected_questions: 2
       answer_quality: good
       expected_follow_ups: 0
-      timeout: 10.0
+      timeout: 60.0
+      data_seed:
+        sql_file: fixtures/sql/java-backend-beginner.sql
+        interview_id: b323c6a1-4749-4922-876f-72b6c426b2a6
+        question_ids:
+          - 453523fb-8ac5-43d9-8aa8-856803fa950d
+          - f405aaad-3e97-401f-bd5c-d68c62bb1445
+      answer_strategy:
+        type: ideal
 
     assertions:
       - expression: "interview.status == 'COMPLETE'"
@@ -96,9 +104,12 @@ scenarios:
       cv_fixture: python_senior.json
       question_fixture: python_senior.json
       expected_questions: 1
-      answer_text: "   "
       expect_error: true
       timeout: 60.0
+      answer_strategy:
+        type: scripted
+        scripted_answers:
+          e2cb66cb-2a4f-4c62-9955-9aa1bb476988: EMPTY
 
     assertions:
       - expression: "error_occurred == true"
@@ -114,9 +125,12 @@ scenarios:
       cv_fixture: fullstack_mid.json
       question_fixture: fullstack_mid.json
       expected_questions: 1
-      answer_text_length: 2500
       answer_quality: good
       timeout: 60.0
+      answer_strategy:
+        type: scripted
+        scripted_answers:
+          7f9bf40e-3970-4c91-8c4f-8f9a2b5f9c02: LONG_2500
 
     assertions:
       - expression: "len(answers[0].answer_text) == 2500"

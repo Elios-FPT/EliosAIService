@@ -216,6 +216,6 @@ repomix-output.xml
 
 .opencode/
 
-.cursor/
-
 tests/reports/*
+
+reports/*
