@@ -12,6 +12,7 @@ from .follow_up_question_repository import PostgreSQLFollowUpQuestionRepository
 from .interview_repository import PostgreSQLInterviewRepository
 from .postgres_prompt_repository import PostgreSQLPromptRepository
 from .question_repository import PostgreSQLQuestionRepository
+from .session_provider import SessionProvider
 
 __all__ = [
     "PostgreSQLCandidateRepository",
@@ -22,4 +23,5 @@ __all__ = [
     "PostgreSQLEvaluationRepository",
     "PostgreSQLCVAnalysisRepository",
     "PostgreSQLPromptRepository",
+    "SessionProvider",
 ]

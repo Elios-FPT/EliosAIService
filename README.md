@@ -711,6 +711,7 @@ Configuration is managed through environment variables with the following priori
 - **PostgreSQL**: Database connection and credentials
 - **Speech Services**: Azure STT, Edge TTS (planned)
 - **Interview Settings**: Question count, scoring, timeouts
+- **Database Pooling**: `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE_SECONDS` let you tune SQLAlchemy's connection pool for serverless Postgres providers (defaults keep Neon free tier under its 5-minute idle timeout). Sessions are now short-lived and acquired per request via `session_scope()` / FastAPI dependencies to avoid stale connections.
 
 See [ENV_SETUP.md](ENV_SETUP.md) for detailed configuration guide.
 

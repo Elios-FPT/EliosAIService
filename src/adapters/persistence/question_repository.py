@@ -3,12 +3,12 @@
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...domain.models.question import DifficultyLevel, Question, QuestionType
 from ...domain.ports.question_repository_port import QuestionRepositoryPort
 from .mappers import QuestionMapper
 from .models import QuestionModel
+from .session_provider import SessionProvider
 
 
 class PostgreSQLQuestionRepository(QuestionRepositoryPort):
@@ -18,37 +18,36 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
     using SQLAlchemy and PostgreSQL for persistence.
     """
 
-    def __init__(self, session: AsyncSession):
-        """Initialize repository with database session.
-
-        Args:
-            session: Async SQLAlchemy session
-        """
-        self.session = session
+    def __init__(self, session_provider: SessionProvider):
+        """Initialize repository with session provider."""
+        self._session_provider = session_provider
 
     async def save(self, question: Question) -> Question:
         """Save a new question to the database."""
-        db_model = QuestionMapper.to_db_model(question)
-        self.session.add(db_model)
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return QuestionMapper.to_domain(db_model)
+        async with self._session_provider() as session:
+            db_model = QuestionMapper.to_db_model(question)
+            session.add(db_model)
+            await session.commit()
+            await session.refresh(db_model)
+            return QuestionMapper.to_domain(db_model)
 
     async def get_by_id(self, question_id: UUID) -> Question | None:
         """Retrieve a question by ID."""
-        result = await self.session.execute(
-            select(QuestionModel).where(QuestionModel.id == question_id)
-        )
-        db_model = result.scalar_one_or_none()
-        return QuestionMapper.to_domain(db_model) if db_model else None
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(QuestionModel).where(QuestionModel.id == question_id)
+            )
+            db_model = result.scalar_one_or_none()
+            return QuestionMapper.to_domain(db_model) if db_model else None
 
     async def get_by_ids(self, question_ids: list[UUID]) -> list[Question]:
         """Retrieve multiple questions by IDs."""
-        result = await self.session.execute(
-            select(QuestionModel).where(QuestionModel.id.in_(question_ids))
-        )
-        db_models = result.scalars().all()
-        return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(QuestionModel).where(QuestionModel.id.in_(question_ids))
+            )
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def find_by_skill(
         self,
@@ -66,9 +65,10 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
 
         query = query.limit(limit)
 
-        result = await self.session.execute(query)
-        db_models = result.scalars().all()
-        return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def find_by_type(
         self,
@@ -86,9 +86,10 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
 
         query = query.limit(limit)
 
-        result = await self.session.execute(query)
-        db_models = result.scalars().all()
-        return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def find_by_tags(
         self,
@@ -116,46 +117,50 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
 
         query = query.limit(limit)
 
-        result = await self.session.execute(query)
-        db_models = result.scalars().all()
-        return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def update(self, question: Question) -> Question:
         """Update an existing question."""
-        result = await self.session.execute(
-            select(QuestionModel).where(QuestionModel.id == question.id)
-        )
-        db_model = result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(QuestionModel).where(QuestionModel.id == question.id)
+            )
+            db_model = result.scalar_one_or_none()
 
-        if not db_model:
-            raise ValueError(f"Question with id {question.id} not found")
+            if not db_model:
+                raise ValueError(f"Question with id {question.id} not found")
 
-        QuestionMapper.update_db_model(db_model, question)
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return QuestionMapper.to_domain(db_model)
+            QuestionMapper.update_db_model(db_model, question)
+            await session.commit()
+            await session.refresh(db_model)
+            return QuestionMapper.to_domain(db_model)
 
     async def delete(self, question_id: UUID) -> bool:
         """Delete a question by ID."""
-        result = await self.session.execute(
-            select(QuestionModel).where(QuestionModel.id == question_id)
-        )
-        db_model = result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(QuestionModel).where(QuestionModel.id == question_id)
+            )
+            db_model = result.scalar_one_or_none()
 
-        if not db_model:
-            return False
+            if not db_model:
+                return False
 
-        await self.session.delete(db_model)
-        await self.session.commit()
-        return True
+            await session.delete(db_model)
+            await session.commit()
+            return True
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[Question]:
         """List all questions with pagination."""
-        result = await self.session.execute(
-            select(QuestionModel)
-            .order_by(QuestionModel.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        db_models = result.scalars().all()
-        return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(QuestionModel)
+                .order_by(QuestionModel.created_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]

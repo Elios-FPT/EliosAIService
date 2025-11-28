@@ -4,6 +4,8 @@ This module wires up all dependencies and provides them to the application.
 It's the only place that knows about concrete implementations.
 """
 
+# ruff: noqa: E402, I001
+
 from datetime import datetime
 
 def debug_print(msg: str):
@@ -12,6 +14,7 @@ def debug_print(msg: str):
 
 debug_print("container.py: Starting imports...")
 
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +52,7 @@ from ...adapters.persistence import (
     PostgreSQLInterviewRepository,
     PostgreSQLPromptRepository,
     PostgreSQLQuestionRepository,
+    SessionProvider,
 )
 debug_print("container.py: Persistence adapters imported")
 
@@ -90,6 +94,7 @@ debug_print("container.py: Domain ports imported")
 
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
+from ...infrastructure.database import session_scope
 debug_print("container.py: Settings imported")
 
 debug_print("container.py: All imports completed, defining Container class...")
@@ -116,13 +121,36 @@ class Container:
         self._tts_port: TextToSpeechPort | None = None
         self._checkpointer = None  # LangGraph checkpointer (lazy init)
         self._event_publisher: EventPublisherPort | None = None
+        self._default_session_provider: SessionProvider | None = None
+
+    def _resolve_session_provider(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> SessionProvider:
+        """Return a session provider based on explicit provider or session."""
+        if session_provider is not None:
+            return session_provider
+        if session is not None:
+            @asynccontextmanager
+            async def _provider():
+                try:
+                    yield session
+                except Exception:
+                    await session.rollback()
+                    raise
+
+            return _provider
+        if self._default_session_provider is None:
+            self._default_session_provider = session_scope
+        return self._default_session_provider
 
     def llm_port(self, session: AsyncSession | None = None) -> LLMPort:
         """Get LLM port implementation.
 
         Args:
             session: Optional database session for injecting prompt repository.
-                    If provided and using LangChain adapter, prompt repository will be injected.
+                If provided and using LangChain adapter, prompt repository will be injected.
 
         Returns:
             Configured LLM port based on settings
@@ -130,17 +158,14 @@ class Container:
         Raises:
             ValueError: If LLM provider is not supported or not configured
         """
-        # If session is provided, create a new instance with repository (don't use cache)
+        # If a session is provided, build a fresh instance that can use a session-scoped prompt repo.
         if session is not None:
-            # Use mock adapter if configured
             if self.settings.use_mock_llm:
                 return MockLLMAdapter()
-            # Use LangChain adapter if feature flag enabled
-            elif self.settings.use_langchain:
-                prompt_repo = self.prompt_repository_port(session)
+            if self.settings.use_langchain:
+                prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
-            elif self.settings.llm_provider == "openai":
-                # Check if using Azure OpenAI
+            if self.settings.llm_provider == "openai":
                 if self.settings.use_azure_openai:
                     if not self.settings.azure_openai_api_key:
                         raise ValueError("Azure OpenAI API key not configured")
@@ -156,40 +181,31 @@ class Container:
                         deployment_name=self.settings.azure_openai_deployment_name,
                         temperature=self.settings.openai_temperature,
                     )
-                else:
-                    # Standard OpenAI
-                    if not self.settings.openai_api_key:
-                        raise ValueError("OpenAI API key not configured")
 
-                    return OpenAIAdapter(
-                        api_key=self.settings.openai_api_key,
-                        model=self.settings.openai_model,
-                        temperature=self.settings.openai_temperature,
-                    )
-            elif self.settings.llm_provider == "claude":
+                if not self.settings.openai_api_key:
+                    raise ValueError("OpenAI API key not configured")
+
+                return OpenAIAdapter(
+                    api_key=self.settings.openai_api_key,
+                    model=self.settings.openai_model,
+                    temperature=self.settings.openai_temperature,
+                )
+
+            if self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
-
-                # Import Claude adapter when implemented
-                # from ...adapters.llm.claude_adapter import ClaudeAdapter
-                # return ClaudeAdapter(
-                #     api_key=self.settings.anthropic_api_key,
-                #     model=self.settings.anthropic_model,
-                # )
                 raise NotImplementedError("Claude adapter not yet implemented")
-            else:
-                raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
-        # No session provided - use cached singleton instance
+            raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
+
+        # No session → use cached singleton instance.
         if self._llm_port is None:
-            # Use mock adapter if configured
             if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
-            # Use LangChain adapter if feature flag enabled
             elif self.settings.use_langchain:
-                self._llm_port = self._create_langchain_adapter()
+                prompt_repo = self.prompt_repository_port()
+                self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
             elif self.settings.llm_provider == "openai":
-                # Check if using Azure OpenAI
                 if self.settings.use_azure_openai:
                     if not self.settings.azure_openai_api_key:
                         raise ValueError("Azure OpenAI API key not configured")
@@ -206,7 +222,6 @@ class Container:
                         temperature=self.settings.openai_temperature,
                     )
                 else:
-                    # Standard OpenAI
                     if not self.settings.openai_api_key:
                         raise ValueError("OpenAI API key not configured")
 
@@ -218,13 +233,6 @@ class Container:
             elif self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
-
-                # Import Claude adapter when implemented
-                # from ...adapters.llm.claude_adapter import ClaudeAdapter
-                # self._llm_port = ClaudeAdapter(
-                #     api_key=self.settings.anthropic_api_key,
-                #     model=self.settings.anthropic_model,
-                # )
                 raise NotImplementedError("Claude adapter not yet implemented")
             else:
                 raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
@@ -271,7 +279,11 @@ class Container:
 
         return self._vector_search_port
 
-    def question_repository_port(self, session: AsyncSession) -> QuestionRepositoryPort:
+    def question_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> QuestionRepositoryPort:
         """Get question repository port implementation.
 
         Args:
@@ -280,10 +292,13 @@ class Container:
         Returns:
             Configured question repository
         """
-        return PostgreSQLQuestionRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLQuestionRepository(provider)
 
     def follow_up_question_repository(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> FollowUpQuestionRepositoryPort:
         """Get follow-up question repository port implementation.
 
@@ -293,9 +308,14 @@ class Container:
         Returns:
             Configured follow-up question repository
         """
-        return PostgreSQLFollowUpQuestionRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLFollowUpQuestionRepository(provider)
 
-    def candidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
+    def candidate_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> CandidateRepositoryPort:
         """Get candidate repository port implementation.
 
         Args:
@@ -304,9 +324,14 @@ class Container:
         Returns:
             Configured candidate repository
         """
-        return PostgreSQLCandidateRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLCandidateRepository(provider)
 
-    def interview_repository_port(self, session: AsyncSession) -> InterviewRepositoryPort:
+    def interview_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> InterviewRepositoryPort:
         """Get interview repository port implementation.
 
         Args:
@@ -315,9 +340,14 @@ class Container:
         Returns:
             Configured interview repository
         """
-        return PostgreSQLInterviewRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLInterviewRepository(provider)
 
-    def answer_repository_port(self, session: AsyncSession) -> AnswerRepositoryPort:
+    def answer_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> AnswerRepositoryPort:
         """Get answer repository port implementation.
 
         Args:
@@ -326,10 +356,13 @@ class Container:
         Returns:
             Configured answer repository
         """
-        return PostgreSQLAnswerRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLAnswerRepository(provider)
 
     def evaluation_repository_port(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> EvaluationRepositoryPort:
         """Get evaluation repository port implementation.
 
@@ -339,9 +372,14 @@ class Container:
         Returns:
             Configured evaluation repository
         """
-        return PostgreSQLEvaluationRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLEvaluationRepository(provider)
 
-    def prompt_repository_port(self, session: AsyncSession) -> PromptRepositoryPort:
+    def prompt_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> PromptRepositoryPort:
         """Get prompt repository port implementation.
 
         Args:
@@ -350,10 +388,13 @@ class Container:
         Returns:
             Configured prompt repository
         """
-        return PostgreSQLPromptRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLPromptRepository(provider)
 
     def cv_analysis_repository_port(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> CVAnalysisRepositoryPort:
         """Get CV analysis repository port implementation.
 
@@ -363,7 +404,8 @@ class Container:
         Returns:
             Configured CV analysis repository
         """
-        return PostgreSQLCVAnalysisRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLCVAnalysisRepository(provider)
 
     def cv_analyzer_port(self) -> CVAnalyzerPort:
         """Get CV analyzer port implementation.
@@ -641,11 +683,11 @@ class Container:
 
         return self._checkpointer
 
-    async def create_adaptive_eval_simple_workflow(self, session: AsyncSession):
+    async def create_adaptive_eval_simple_workflow(self):
         """Create AdaptiveEvalSimpleWorkflow with all dependencies.
 
         Args:
-            session: Async database session
+            session: Deprecated
 
         Returns:
             Configured AdaptiveEvalSimpleWorkflow instance
@@ -659,12 +701,12 @@ class Container:
         checkpointer = await self.get_checkpointer()
 
         # Get all required ports
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
+        answer_repo = self.answer_repository_port()
+        evaluation_repo = self.evaluation_repository_port()
+        interview_repo = self.interview_repository_port()
+        question_repo = self.question_repository_port()
+        follow_up_repo = self.follow_up_question_repository()
+        llm = self.llm_port()
 
         # Create and return workflow
         return AdaptiveEvalSimpleWorkflow(
@@ -677,11 +719,11 @@ class Container:
             llm=llm,
         )
 
-    async def create_adaptive_eval_interrupt_workflow(self, session: AsyncSession):
+    async def create_adaptive_eval_interrupt_workflow(self):
         """Create AdaptiveEvalInterruptWorkflow with all dependencies (Phase 3B).
 
         Args:
-            session: Async database session
+            session: Deprecated
 
         Returns:
             Configured AdaptiveEvalInterruptWorkflow instance
@@ -696,12 +738,12 @@ class Container:
         checkpointer = await self.get_checkpointer()
 
         # Get all required ports (same as Phase 3A)
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
+        answer_repo = self.answer_repository_port()
+        evaluation_repo = self.evaluation_repository_port()
+        interview_repo = self.interview_repository_port()
+        question_repo = self.question_repository_port()
+        follow_up_repo = self.follow_up_question_repository()
+        llm = self.llm_port()
 
         # Create and return workflow
         return AdaptiveEvalInterruptWorkflow(
@@ -714,11 +756,16 @@ class Container:
             llm=llm,
         )
 
-    async def create_interview_conversation_workflow(self, session: AsyncSession):
+    async def create_interview_conversation_workflow(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ):
         """Create InterviewConversationWorkflow with all dependencies.
 
         Args:
-            session: Async database session
+            session: Optional AsyncSession for request-scoped workflows
+            session_provider: Optional provider override
 
         Returns:
             Configured InterviewConversationWorkflow instance
@@ -733,12 +780,12 @@ class Container:
         checkpointer = await self.get_checkpointer()
 
         # Get all required ports
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        followup_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
+        interview_repo = self.interview_repository_port(session=session, session_provider=session_provider)
+        question_repo = self.question_repository_port(session=session, session_provider=session_provider)
+        answer_repo = self.answer_repository_port(session=session, session_provider=session_provider)
+        evaluation_repo = self.evaluation_repository_port(session=session, session_provider=session_provider)
+        followup_repo = self.follow_up_question_repository(session=session, session_provider=session_provider)
+        llm = self.llm_port(session=session)
         event_publisher = self.event_publisher_port()
 
         # Create and return workflow

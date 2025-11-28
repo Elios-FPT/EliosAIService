@@ -9,8 +9,8 @@ from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ....infrastructure.database.session import session_scope
 from ....infrastructure.dependency_injection.container import Container, get_container
-from ....infrastructure.database.session import get_async_session
 from .connection_manager import manager
 
 logger = logging.getLogger(__name__)
@@ -87,9 +87,9 @@ async def _handle_with_workflow(
         interview_id: Interview UUID
         container: DI container
     """
-    async for session in get_async_session():
+    async with session_scope() as session:
         # Get candidate_id from interview
-        interview_repo = container.interview_repository_port(session)
+        interview_repo = container.interview_repository_port(session=session)
         interview = await interview_repo.get_by_id(interview_id)
         if not interview:
             await manager.send_message(
@@ -408,8 +408,8 @@ async def _stream_transcription(
                 f"Processing voice answer via workflow: '{result['text']}' "
                 f"(interview {interview_id}, question {question_id})"
             )
-            async for session in get_async_session():
-                workflow = await container.create_interview_conversation_workflow(session)
+            async with session_scope() as session:
+                workflow = await container.create_interview_conversation_workflow(session=session)
                 workflow_result = await workflow.process_answer(
                     thread_id=thread_id,
                     answer_text=result["text"],
@@ -448,7 +448,7 @@ async def _stream_transcription(
                             "feedback_url": f"/api/interviews/{interview_id}/summary",
                         },
                     )
-                    break
+                    return
 
                 # Send next question (either follow-up or main question)
                 if workflow_result.get("question"):
@@ -474,7 +474,7 @@ async def _stream_transcription(
                             "type": message["type"],
                         },
                     )
-                break
+                return
         else:
             logger.warning(
                 f"No workflow thread found for interview {interview_id} - "
