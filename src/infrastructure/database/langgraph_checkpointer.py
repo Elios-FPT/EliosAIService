@@ -26,7 +26,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
+import time
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -46,7 +47,14 @@ class CheckpointerWrapper:
     Also adds retry logic for connection errors (e.g., Neon idle timeout).
     """
 
-    def __init__(self, context_manager, checkpointer, conn_string: str, timeout: float = 20.0):
+    def __init__(
+        self,
+        context_manager,
+        checkpointer,
+        conn_string: str,
+        timeout: float = 20.0,
+        endpoint_type: str = "unknown",
+    ):
         """Initialize wrapper.
 
         Args:
@@ -61,6 +69,9 @@ class CheckpointerWrapper:
         self._timeout = timeout
         self._context_entered = False
         self._recreating = False
+        self._retry_count = 0
+        self._last_retry_ts: Optional[float] = None
+        self.endpoint_type = endpoint_type
 
     async def __aenter__(self):
         """Enter context manager."""
@@ -82,7 +93,19 @@ class CheckpointerWrapper:
             return
         self._recreating = True
         try:
-            logger.warning("Recreating checkpointer due to connection error...")
+            self._retry_count += 1
+            now = time.monotonic()
+            elapsed = None if self._last_retry_ts is None else now - self._last_retry_ts
+            self._last_retry_ts = now
+            logger.warning(
+                "Recreating checkpointer due to connection error",
+                extra={
+                    "event": "checkpointer_retry",
+                    "retry_count": self._retry_count,
+                    "seconds_since_last_retry": round(elapsed, 3) if elapsed is not None else None,
+                    "endpoint_type": self.endpoint_type,
+                },
+            )
             # Exit old context
             if self._context_entered:
                 await self._context_manager.__aexit__(None, None, None)
@@ -99,9 +122,24 @@ class CheckpointerWrapper:
             self._context_manager = new_context_manager
             self._checkpointer = new_checkpointer
             self._context_entered = True
-            logger.info("Checkpointer recreated successfully")
+            logger.info(
+                "Checkpointer recreated successfully",
+                extra={
+                    "event": "checkpointer_retry_success",
+                    "retry_count": self._retry_count,
+                    "endpoint_type": self.endpoint_type,
+                },
+            )
         except Exception as e:
-            logger.error(f"Failed to recreate checkpointer: {e}", exc_info=True)
+            logger.error(
+                f"Failed to recreate checkpointer: {e}",
+                exc_info=True,
+                extra={
+                    "event": "checkpointer_retry_failed",
+                    "retry_count": self._retry_count,
+                    "endpoint_type": self.endpoint_type,
+                },
+            )
             raise
         finally:
             self._recreating = False
@@ -131,7 +169,13 @@ class CheckpointerWrapper:
                 if is_connection_error and attempt < max_retries:
                     logger.warning(
                         f"Connection error in {method_name} (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                        "Recreating checkpointer..."
+                        "Recreating checkpointer...",
+                        extra={
+                            "event": "checkpointer_connection_error",
+                            "method": method_name,
+                            "attempt": attempt + 1,
+                            "endpoint_type": self.endpoint_type,
+                        },
                     )
                     await self._recreate_checkpointer()
                     continue
@@ -216,6 +260,16 @@ def _convert_to_standard_postgres_url(sqlalchemy_url: str) -> str:
     return url
 
 
+def _detect_endpoint_type(sqlalchemy_url: str) -> str:
+    """Identify whether URL uses Neon pooler endpoint."""
+    lowered = sqlalchemy_url.lower()
+    if "-pooler." in lowered:
+        return "pooler"
+    if "neon.tech" in lowered:
+        return "direct"
+    return "unknown"
+
+
 async def create_checkpointer(conn_string: str, timeout: float = 20.0) -> AsyncPostgresSaver:
     """Create and initialize AsyncPostgresSaver for LangGraph workflows.
 
@@ -270,11 +324,15 @@ async def create_checkpointer(conn_string: str, timeout: float = 20.0) -> AsyncP
     # Convert SQLAlchemy connection string to standard PostgreSQL format
     # AsyncPostgresSaver uses psycopg which expects postgresql:// not postgresql+asyncpg://
     # Also convert pooler endpoints to direct endpoints (psycopg may not work with poolers)
+    endpoint_type = _detect_endpoint_type(conn_string)
     standard_conn_string = _convert_to_standard_postgres_url(conn_string)
 
     # Log connection string (mask password for security)
     masked_conn_string = re.sub(r':([^:@]+)@', ':***@', standard_conn_string)
-    logger.info(f"Creating AsyncPostgresSaver checkpointer with connection: {masked_conn_string}")
+    logger.info(
+        f"Creating AsyncPostgresSaver checkpointer with connection: {masked_conn_string}",
+        extra={"event": "checkpointer_create", "endpoint_type": endpoint_type},
+    )
     logger.info(f"Setup timeout: {timeout} seconds")
     logger.info("Note: Using separate connection pool from SQLAlchemy (psycopg vs asyncpg)")
 
@@ -306,7 +364,13 @@ async def create_checkpointer(conn_string: str, timeout: float = 20.0) -> AsyncP
 
         # Create wrapper that keeps context manager alive and handles connection errors
         # The context manager is already entered and will stay entered
-        wrapper = CheckpointerWrapper(context_manager, checkpointer, conn_string, timeout)
+        wrapper = CheckpointerWrapper(
+            context_manager,
+            checkpointer,
+            conn_string,
+            timeout,
+            endpoint_type=endpoint_type,
+        )
         wrapper._context_entered = True  # Mark as already entered
 
         logger.info("Checkpointer created and initialized successfully")

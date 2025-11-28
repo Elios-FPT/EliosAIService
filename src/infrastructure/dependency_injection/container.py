@@ -6,11 +6,17 @@ It's the only place that knows about concrete implementations.
 
 # ruff: noqa: E402, I001
 
+import asyncio
+import logging
+import re
 from datetime import datetime
 
 def debug_print(msg: str):
     """Helper function to print debug messages with timestamps."""
     print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
+
+
+logger = logging.getLogger(__name__)
 
 debug_print("container.py: Starting imports...")
 
@@ -95,6 +101,10 @@ debug_print("container.py: Domain ports imported")
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
 from ...infrastructure.database import session_scope
+from ...infrastructure.background.checkpointer_heartbeat import (
+    HeartbeatHandle,
+    start_checkpointer_heartbeat,
+)
 debug_print("container.py: Settings imported")
 
 debug_print("container.py: All imports completed, defining Container class...")
@@ -120,6 +130,7 @@ class Container:
         self._stt_port: SpeechToTextPort | None = None
         self._tts_port: TextToSpeechPort | None = None
         self._checkpointer = None  # LangGraph checkpointer (lazy init)
+        self._checkpointer_heartbeat: HeartbeatHandle | None = None
         self._event_publisher: EventPublisherPort | None = None
         self._default_session_provider: SessionProvider | None = None
 
@@ -680,6 +691,11 @@ class Container:
 
             # Create and setup checkpointer with configurable timeout
             self._checkpointer = await create_checkpointer(conn_string, timeout=timeout)
+            self._log_checkpointer_diagnostics(
+                conn_string,
+                getattr(self._checkpointer, "endpoint_type", "unknown"),
+            )
+            await self._start_checkpointer_heartbeat(self._checkpointer)
 
         return self._checkpointer
 
@@ -799,6 +815,82 @@ class Container:
             llm=llm,
             event_publisher=event_publisher,
         )
+
+    def _log_checkpointer_diagnostics(self, conn_string: str, endpoint_type: str) -> None:
+        """Log masked diagnostics for operators."""
+        masked_conn = re.sub(r":([^:@]+)@", ":***@", conn_string)
+        logger.info(
+            "LangGraph checkpointer diagnostics",
+            extra={
+                "event": "checkpointer_diagnostics",
+                "endpoint_type": endpoint_type,
+                "db_pool_recycle_seconds": self.settings.db_pool_recycle_seconds,
+                "db_pool_size": self.settings.db_pool_size,
+                "db_max_overflow": self.settings.db_max_overflow,
+                "connection_string": masked_conn,
+            },
+        )
+
+    async def _start_checkpointer_heartbeat(self, checkpointer) -> None:
+        """Start heartbeat loop if enabled."""
+        if not self.settings.langgraph_checkpointer_heartbeat_enabled:
+            return
+        if self._checkpointer_heartbeat:
+            return
+
+        async def ping():
+            await checkpointer.alist(limit=1)
+
+        interval = max(1, self.settings.langgraph_checkpointer_heartbeat_interval_seconds)
+        self._checkpointer_heartbeat = await start_checkpointer_heartbeat(ping, interval)
+        logger.info(
+            "LangGraph checkpointer heartbeat started",
+            extra={
+                "event": "checkpointer_heartbeat_started",
+                "interval_seconds": interval,
+            },
+        )
+
+    async def stop_checkpointer_heartbeat(self) -> None:
+        """Stop heartbeat loop if running."""
+        if self._checkpointer_heartbeat:
+            await self._checkpointer_heartbeat.stop()
+            self._checkpointer_heartbeat = None
+            logger.info("LangGraph checkpointer heartbeat stopped")
+
+    async def ensure_checkpointer_alive(self) -> None:
+        """Ensure checkpointer connection is alive before workflow execution."""
+        checkpointer = await self.get_checkpointer()
+        timeout = max(1.0, float(self.settings.langgraph_checkpointer_ensure_timeout_seconds))
+        max_attempts = 2
+        last_exc: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await asyncio.wait_for(checkpointer.alist(limit=1), timeout=timeout)
+                if attempt > 1:
+                    logger.info("Checkpointer ensure alive succeeded after retry")
+                return
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Checkpointer ensure alive attempt %s failed: %s",
+                    attempt,
+                    exc,
+                )
+                if attempt < max_attempts:
+                    await self._start_checkpointer_heartbeat(checkpointer)
+                    await asyncio.sleep(0)
+                    continue
+                break
+
+        if last_exc:
+            logger.error(
+                "Checkpointer ensure alive failed after retries: %s",
+                last_exc,
+                extra={"event": "checkpointer_ensure_failed"},
+            )
+            raise last_exc
 
 
 @lru_cache

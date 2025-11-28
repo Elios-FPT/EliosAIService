@@ -8,10 +8,12 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
+from psycopg import OperationalError as PsycopgOperationalError
 
 from ....infrastructure.database.session import session_scope
 from ....infrastructure.dependency_injection.container import Container, get_container
 from .connection_manager import manager
+from .workflow_guard import execute_with_workflow_guard
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +103,23 @@ async def _handle_with_workflow(
         # Create workflow
         workflow = await container.create_interview_conversation_workflow(session)
 
-        # Start session
-        result = await workflow.start_session(interview_id, interview.candidate_id)
+        # Start session with guard
+        try:
+            result = await execute_with_workflow_guard(
+                "start_session",
+                lambda: workflow.start_session(interview_id, interview.candidate_id),
+                container.ensure_checkpointer_alive,
+            )
+        except PsycopgOperationalError as exc:
+            logger.error(
+                "Failed to start workflow for interview %s: %s",
+                interview_id,
+                exc,
+            )
+            await _notify_transient_failure(interview_id)
+            _cleanup_audio_resources(interview_id)
+            _cleanup_workflow_resources(interview_id)
+            return
 
         # Store thread ID
         thread_id = result.get("thread_id")
@@ -141,12 +158,25 @@ async def _handle_with_workflow(
             if message_type == "text_answer":
                 answer_text = data.get("answer_text", "")
 
-                # Process answer through workflow
-                result = await workflow.process_answer(
-                    thread_id=thread_id,
-                    answer_text=answer_text,
-                    is_voice=False,
-                )
+                # Process answer through workflow with guard
+                try:
+                    result = await execute_with_workflow_guard(
+                        "process_answer",
+                        lambda: workflow.process_answer(
+                            thread_id=thread_id,
+                            answer_text=answer_text,
+                            is_voice=False,
+                        ),
+                        container.ensure_checkpointer_alive,
+                    )
+                except PsycopgOperationalError as exc:
+                    logger.error(
+                        "process_answer failed for interview %s: %s",
+                        interview_id,
+                        exc,
+                    )
+                    await _notify_transient_failure(interview_id)
+                    break
 
                 # Send evaluation if present
                 if "evaluation" in result and result["evaluation"]:
@@ -341,6 +371,19 @@ def _cleanup_workflow_resources(interview_id: UUID) -> None:
     workflow_threads.pop(interview_id, None)
 
     logger.debug(f"Cleaned up workflow resources for interview {interview_id}")
+
+
+async def _notify_transient_failure(interview_id: UUID) -> None:
+    """Notify client about transient DB issues."""
+    await manager.send_message(
+        interview_id,
+        {
+            "type": "system_error",
+            "code": "DB_CONNECTION",
+            "action": "retry",
+            "message": "Temporary database hiccup. Please retry.",
+        },
+    )
 
 
 async def _stream_transcription(

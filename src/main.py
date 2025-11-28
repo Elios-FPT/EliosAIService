@@ -181,6 +181,11 @@ async def lifespan(app: FastAPI):
         debug_print(f"Error stopping event publisher: {e}")
         logger.warning(f"Error stopping event publisher: {e}", exc_info=True)
 
+    try:
+        await container.stop_checkpointer_heartbeat()
+    except Exception as e:
+        logger.warning(f"Error stopping checkpointer heartbeat: {e}", exc_info=True)
+
     logger.info("Closing database connections...")
     await close_db()
     logger.info("Database connections closed")

@@ -395,6 +395,12 @@ result = await chain.ainvoke(input, config=config)
 - Generate daily cost summaries
 - Tag traces with contextual metadata
 
+**Ops Note – Neon Checkpointer (NEW v0.4.1)**
+LangGraph workflows now emit structured `checkpointer_*` logs that report endpoint type, retry counts, and seconds since the previous retry. Operators **must** deploy with direct Neon endpoints (no `-pooler`) and keep `DB_POOL_RECYCLE_SECONDS ≤ 240` to avoid the 5-minute idle shutdown on the free tier. See `docs/deployment-guide.md` for the full checklist.
+
+**Ops Note – Workflow Resilience (NEW v0.4.1)**
+Interview WebSocket flows use a workflow execution guard that auto-retries psycopg `OperationalError`s, surfaces `system_error` messages with `action=retry`, and stores deterministic thread IDs (`interview_<uuid>`) so checkpoints can resume after reconnects. Docs in `docs/deployment-guide.md` now list the `system_error` contract for frontend teams.
+
 **FR10: Normalized Skill Management (NEW v0.4.0)**
 - Store CV skills in dedicated table with foreign keys
 - Track proficiency levels (BEGINNER, INTERMEDIATE, ADVANCED, EXPERT)
