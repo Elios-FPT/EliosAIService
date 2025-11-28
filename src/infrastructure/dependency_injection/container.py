@@ -839,7 +839,9 @@ class Container:
             return
 
         async def ping():
-            await checkpointer.alist(limit=1)
+            # alist() requires config parameter with thread_id
+            config = {"configurable": {"thread_id": "__heartbeat__"}}
+            await checkpointer.alist(config, limit=1)
 
         interval = max(1, self.settings.langgraph_checkpointer_heartbeat_interval_seconds)
         self._checkpointer_heartbeat = await start_checkpointer_heartbeat(ping, interval)
@@ -867,7 +869,10 @@ class Container:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                await asyncio.wait_for(checkpointer.alist(limit=1), timeout=timeout)
+                # alist() requires config parameter with thread_id
+                # Use dummy thread_id for health check
+                config = {"configurable": {"thread_id": "__health_check__"}}
+                await asyncio.wait_for(checkpointer.alist(config, limit=1), timeout=timeout)
                 if attempt > 1:
                     logger.info("Checkpointer ensure alive succeeded after retry")
                 return
