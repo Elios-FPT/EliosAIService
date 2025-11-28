@@ -58,7 +58,7 @@ class PathConfig(BaseModel):
     """Configuration for file paths."""
 
     output_dir: str = Field(
-        default="reports/",
+        default="tests/bot/reports",
         description="Output directory for test reports",
     )
     scenarios_dir: str = Field(
