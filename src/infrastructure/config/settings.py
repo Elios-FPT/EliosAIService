@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     postgres_db: str = "elios_interviews"
     database_url: str | None = None  # Full DATABASE_URL from environment
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_pool_timeout: int = 30
+    db_pool_recycle_seconds: int = 240
 
     @property
     def async_database_url(self) -> str:

@@ -1941,14 +1941,15 @@ create_async_engine(
     echo=True,  # Log SQL
 )
 
-# Production
+# Production (Neon-friendly defaults)
 create_async_engine(
     "postgresql+asyncpg://user:pass@host/db",
     poolclass=QueuePool,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_size=settings.db_pool_size,          # default 5
+    max_overflow=settings.db_max_overflow,    # default 5
+    pool_timeout=settings.db_pool_timeout,    # default 30s
+    pool_pre_ping=True,                       # refresh idle sockets
+    pool_recycle=settings.db_pool_recycle_seconds,  # default 240s (< Neon 5m idle)
 )
 ```
 

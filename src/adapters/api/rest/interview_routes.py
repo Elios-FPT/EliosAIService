@@ -60,8 +60,8 @@ async def upload_cv(
         cv_analysis_use_case = AnalyzeCVUseCase(
             cv_analyzer=cv_analyzer,
             vector_search=container.vector_search_port(),
-            candidate_repository_port=container.candidate_repository_port(session),
-            cv_analysis_repository_port=container.cv_analysis_repository_port(session),
+            candidate_repository_port=container.candidate_repository_port(session=session),
+            cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
         )
         cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
         return cv_analysis
@@ -101,7 +101,7 @@ async def get_interview(
     container = get_container()
     settings = get_settings()
 
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -141,7 +141,7 @@ async def start_interview(
     container = get_container()
     settings = get_settings()
 
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -187,8 +187,8 @@ async def get_current_question(
     container = get_container()
 
     use_case = GetNextQuestionUseCase(
-        interview_repository=container.interview_repository_port(session),
-        question_repository=container.question_repository_port(session),
+        interview_repository=container.interview_repository_port(session=session),
+        question_repository=container.question_repository_port(session=session),
     )
 
     try:
@@ -200,7 +200,7 @@ async def get_current_question(
             )
 
         # Get interview for context
-        interview_repo = container.interview_repository_port(session)
+        interview_repo = container.interview_repository_port(session=session)
         interview = await interview_repo.get_by_id(interview_id)
 
         if not interview:
@@ -257,7 +257,7 @@ async def plan_interview(
         container = get_container()
 
         # Validate CV analysis exists
-        cv_analysis_repo = container.cv_analysis_repository_port(session)
+        cv_analysis_repo = container.cv_analysis_repository_port(session=session)
         cv_analysis = await cv_analysis_repo.get_by_id(request.cv_analysis_id)
         if not cv_analysis:
             raise HTTPException(
@@ -277,10 +277,10 @@ async def plan_interview(
         # Create workflow with dependencies from container
         workflow = PlanningWorkflow(
             checkpointer=checkpointer,
-            llm_port=container.llm_port(session),
+            llm_port=container.llm_port(session=session),
             cv_repo=cv_analysis_repo,
-            question_repo=container.question_repository_port(session),
-            interview_repo=container.interview_repository_port(session),
+            question_repo=container.question_repository_port(session=session),
+            interview_repo=container.interview_repository_port(session=session),
             vector_search=container.vector_search_port(),
         )
 
@@ -334,7 +334,7 @@ async def get_planning_status(
         HTTPException: If interview not found
     """
     container = get_container()
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -398,7 +398,7 @@ async def get_interview_summary(
             - 404: Summary not generated
     """
     container = get_container()
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
