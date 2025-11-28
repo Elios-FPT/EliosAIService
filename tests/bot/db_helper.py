@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from contextlib import asynccontextmanager
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.domain.models.cv_analysis import CVAnalysis
@@ -37,8 +39,15 @@ class DatabaseHelper:
             config: Optional bot configuration (uses global config if not provided)
         """
         self.session = session
-        self.cv_analysis_repo = PostgreSQLCVAnalysisRepository(session)
+        self.cv_analysis_repo = PostgreSQLCVAnalysisRepository(
+            self._session_provider
+        )
         self.config = config or get_config()
+
+    @asynccontextmanager
+    async def _session_provider(self):
+        """Yield existing session without closing it."""
+        yield self.session
 
     async def insert_mock_interview_data(
         self,

@@ -12,7 +12,7 @@ Uses PostgreSQL checkpointing for state persistence across reconnects.
 import logging
 from datetime import datetime
 from typing import Any, TypedDict
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -1387,8 +1387,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
             Dict with question, thread_id, and workflow state
         """
         try:
-            # Generate thread ID
-            thread_id = self.generate_thread_id(f"interview_{interview_id}")
+            # Deterministic thread ID per interview
+            thread_id = self.build_thread_id(interview_id)
 
             # Initialize state
             initial_state: ConversationState = {
@@ -1438,6 +1438,11 @@ class InterviewConversationWorkflow(BaseWorkflow):
         except Exception as exc:
             logger.error(f"start_session failed: {exc}", exc_info=True)
             raise
+
+    @staticmethod
+    def build_thread_id(interview_id: UUID) -> str:
+        """Derive deterministic thread ID for interview workflow."""
+        return f"interview_{interview_id}"
 
     async def process_answer(
         self,

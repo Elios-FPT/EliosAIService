@@ -235,6 +235,9 @@ class Settings(BaseSettings):
     langgraph_checkpointer_setup_timeout: float = (
         20.0  # Timeout in seconds for checkpointer setup (default: 120s)
     )
+    langgraph_checkpointer_heartbeat_enabled: bool = True
+    langgraph_checkpointer_heartbeat_interval_seconds: int = 240
+    langgraph_checkpointer_ensure_timeout_seconds: float = 10.0
 
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
     use_langgraph_adaptive_simple: bool = (
