@@ -12,7 +12,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -183,7 +183,7 @@ async def main():
 
     # Generate reports
     report_gen = ReportGenerator()
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
     for scenarios_file, results in all_results:
         # Determine report prefix

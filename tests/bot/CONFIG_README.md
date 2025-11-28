@@ -108,6 +108,47 @@ timeouts:
   interview_timeout_sec: 30.0    # Timeout for entire interview session
 ```
 
+### Data Seed Configuration (NEW)
+
+Mock scenarios can seed the database using curated SQL:
+
+```yaml
+config:
+  data_seed:
+    sql_file: fixtures/sql/java-backend-beginner.sql  # Relative to tests/bot/
+    interview_id: b323c6a1-4749-4922-876f-72b6c426b2a6
+    question_ids:
+      - 453523fb-8ac5-43d9-8aa8-856803fa950d
+      - f405aaad-3e97-401f-bd5c-d68c62bb1445
+```
+
+Guidelines:
+- Fixtures must live under `tests/bot/fixtures/sql`.
+- Scripts should delete conflicting IDs before inserting replacements.
+- SQL execution is allowed only when `ENVIRONMENT=test`; ensure this env var is set before running the bot.
+- `question_ids` help downstream validation but remain optional.
+
+### Answer Strategy Configuration (NEW)
+
+The bot can follow deterministic answer plans:
+
+```yaml
+config:
+  answer_strategy:
+    type: ideal        # ideal | degraded | scripted
+    degrade_profile:
+      keep_ratio: 0.4
+      min_sentences: 1
+    scripted_answers:
+      e2cb66cb-2a4f-4c62-9955-9aa1bb476988: EMPTY
+      7f9bf40e-3970-4c91-8c4f-8f9a2b5f9c02: LONG_2500
+```
+
+- `ideal`: reuse question fixture `ideal_answer` verbatim.
+- `degraded`: shuffle/truncate the ideal answer; tuned via `degrade_profile`.
+- `scripted`: map question IDs to explicit responses. Macros `EMPTY` and `LONG_<len>` are supported. When using question fixtures, you may reference fixture IDs; the runner maps them to runtime IDs automatically.
+- If no strategy is defined, the legacy generator stays in place.
+
 ## Configuration Precedence
 
 The configuration system uses the following precedence (highest to lowest):

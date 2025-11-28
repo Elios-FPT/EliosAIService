@@ -1,0 +1,47 @@
+{
+  "name": "fullstack_mid",
+  "interview": {
+    "id": "d1f4f2a6-e6de-4950-b3e2-06dd5b024fe4",
+    "status": "IDLE",
+    "cv_analysis_id": "a0c8c899-8b74-4cbf-aba7-7c6d85a0d4d9",
+    "current_question_index": 0,
+    "started_at": null,
+    "completed_at": null,
+    "created_at": "2025-11-27 00:05:00",
+    "updated_at": "2025-11-27 00:05:00",
+    "plan_metadata": {},
+    "adaptive_follow_ups": [],
+    "current_parent_question_id": null,
+    "current_followup_count": 0
+  },
+  "interview_questions": [
+    {
+      "id": "cf7141b2-9fdf-4408-8c85-1aea33b373f9",
+      "interview_id": "d1f4f2a6-e6de-4950-b3e2-06dd5b024fe4",
+      "question_id": "7f9bf40e-3970-4c91-8c4f-8f9a2b5f9c02",
+      "sequence_order": 0,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-27 00:05:01"
+    }
+  ],
+  "questions": [
+    {
+      "id": "7f9bf40e-3970-4c91-8c4f-8f9a2b5f9c02",
+      "text": "Describe how you would design a resilient API gateway that routes to both frontend and backend services.",
+      "skills": [
+        "API Design",
+        "Architecture"
+      ],
+      "version": 1,
+      "created_at": "2025-11-27 00:05:00",
+      "updated_at": "2025-11-27 00:05:00",
+      "ideal_answer": "A strong response covers reverse proxy patterns, authentication propagation, rate limiting, circuit breakers, and observability. It should mention technologies such as NGINX, Envoy, or API Gateway as well as deployment considerations for blue/green and canary releases.",
+      "rationale": "Fullstack engineers must reason about cross-layer routing and resilience; this question exposes whether they think beyond a single tier.",
+      "question_type": "technical",
+      "difficulty": "medium"
+    }
+  ]
+}
+
