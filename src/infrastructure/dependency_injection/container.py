@@ -840,8 +840,10 @@ class Container:
 
         async def ping():
             # alist() requires config parameter with thread_id
+            # alist() returns async generator, consume one item to verify connection
             config = {"configurable": {"thread_id": "__heartbeat__"}}
-            await checkpointer.alist(config, limit=1)
+            async for _ in checkpointer.alist(config, limit=1):
+                break  # Just need to verify connection works
 
         interval = max(1, self.settings.langgraph_checkpointer_heartbeat_interval_seconds)
         self._checkpointer_heartbeat = await start_checkpointer_heartbeat(ping, interval)
@@ -870,9 +872,12 @@ class Container:
         for attempt in range(1, max_attempts + 1):
             try:
                 # alist() requires config parameter with thread_id
-                # Use dummy thread_id for health check
+                # alist() returns async generator, consume one item to verify connection
                 config = {"configurable": {"thread_id": "__health_check__"}}
-                await asyncio.wait_for(checkpointer.alist(config, limit=1), timeout=timeout)
+                async def consume_one():
+                    async for _ in checkpointer.alist(config, limit=1):
+                        break  # Just need to verify connection works
+                await asyncio.wait_for(consume_one(), timeout=timeout)
                 if attempt > 1:
                     logger.info("Checkpointer ensure alive succeeded after retry")
                 return

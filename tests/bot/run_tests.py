@@ -88,8 +88,8 @@ async def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="reports/",
-        help="Output directory for reports (default: reports/)",
+        default="tests/bot/reports",
+        help="Output directory for reports (default: tests/bot/reports)",
     )
 
     parser.add_argument(
@@ -154,9 +154,10 @@ async def main():
         output_dir=args.output if args.output != parser.get_default("output") else None,
         config=config,
     )
+    output_dir = runner.output_dir
 
     # Run tests
-    all_results = []
+    all_results: list[tuple[Path, TestResults, str | None]] = []
 
     if args.scenario and single_scenario_file:
         logger.info(
@@ -169,7 +170,7 @@ async def main():
             scenario_id=args.scenario,
             enable_baseline_comparison=not args.no_baseline,
         )
-        all_results.append((single_scenario_file, results))
+        all_results.append((single_scenario_file, results, args.scenario))
     else:
         for scenarios_file in scenarios_files:
             logger.info(f"\nRunning scenarios from: {scenarios_file}")
@@ -179,22 +180,24 @@ async def main():
                 enable_baseline_comparison=not args.no_baseline,
             )
 
-            all_results.append((scenarios_file, results))
+            all_results.append((scenarios_file, results, None))
 
     # Generate reports
     report_gen = ReportGenerator()
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
-    for scenarios_file, results in all_results:
+    for scenarios_file, results, override_prefix in all_results:
+        report_prefix = override_prefix or scenarios_file.stem
+
         # Determine report prefix
-        file_prefix = scenarios_file.stem  # e.g., "mock_scenarios"
+        file_prefix = report_prefix
 
         # JSON report
-        json_path = Path(args.output) / f"{file_prefix}_{timestamp}.json"
+        json_path = output_dir / f"{file_prefix}_{timestamp}.json"
         report_gen.generate_json(results, json_path)
 
         # HTML report
-        html_path = Path(args.output) / f"{file_prefix}_{timestamp}.html"
+        html_path = output_dir / f"{file_prefix}_{timestamp}.html"
         report_gen.generate_html(results, html_path)
 
         # Console summary
@@ -202,7 +205,7 @@ async def main():
         print(console_summary)
 
     # Exit with error if any tests failed
-    total_failed = sum(r.failed for _, r in all_results)
+    total_failed = sum(results.failed for _, results, _ in all_results)
     if total_failed > 0:
         logger.error(f"FAILED: {total_failed} test(s) failed")
         return 1

@@ -191,9 +191,14 @@ class CheckpointerWrapper:
         """Put checkpoint with retry logic."""
         return await self._call_with_retry("aput", *args, **kwargs)
 
-    async def alist(self, *args, **kwargs):
-        """List checkpoints with retry logic."""
-        return await self._call_with_retry("alist", *args, **kwargs)
+    def alist(self, *args, **kwargs):
+        """List checkpoints with retry logic.
+
+        Note: alist() returns an async generator, not a coroutine.
+        Consumers should use 'async for' to iterate over results.
+        """
+        method = getattr(self._checkpointer, "alist")
+        return method(*args, **kwargs)
 
     def __getattr__(self, name):
         """Proxy all other attribute access to the checkpointer."""
