@@ -32,6 +32,12 @@ COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY README.md ./
 
+# Copy test bot directory (for running tests inside container)
+# Copy tests directory structure needed for bot
+COPY tests/__init__.py ./tests/__init__.py
+COPY tests/conftest.py ./tests/conftest.py
+COPY tests/bot/ ./tests/bot/
+
 # Install the package in editable mode (only after copying src)
 # This is fast since dependencies are already installed
 RUN pip install --no-cache-dir -e .

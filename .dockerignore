@@ -20,7 +20,19 @@ __pycache__/
 *~
 
 # Test files and coverage
-tests/
+# Note: tests/bot is included for running tests inside container
+# Exclude test subdirectories but allow bot directory
+tests/unit/
+tests/integration/
+tests/e2e/
+tests/cost/
+tests/performance/
+tests/parity/
+tests/prototypes/
+tests/validation/
+tests/fixtures/
+tests/reports/
+tests/__pycache__/
 htmlcov/
 .pytest_cache/
 .coverage
