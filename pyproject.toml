@@ -72,6 +72,9 @@ dependencies = [
 
     # Messaging
     "aiokafka>=0.10.0",
+
+    # WebSocket Client (for test bot)
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
