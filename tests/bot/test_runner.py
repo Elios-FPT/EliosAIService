@@ -116,21 +116,19 @@ class TestRunner:
     def __init__(
         self,
         base_url: str | None = None,
-        output_dir: str | None = None,
         config: BotConfig | None = None,
     ):
         """Initialize test runner.
 
         Args:
             base_url: API base URL (overrides config if provided)
-            output_dir: Report output directory (overrides config if provided)
             config: Bot configuration (uses global config if not provided)
         """
         self.config = config or get_config()
 
         # Use explicit params if provided, otherwise use config
         self.base_url = base_url or self.config.api.base_url
-        self.output_dir = Path(output_dir or self.config.paths.output_dir)
+        self.output_dir = Path(self.config.paths.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.ws_base_url = self.base_url.replace("http://", "ws://").replace(
@@ -147,13 +145,11 @@ class TestRunner:
     async def run_all_tests(
         self,
         scenarios_file: Path,
-        enable_baseline_comparison: bool = True,
     ) -> TestResults:
         """Run all scenarios in file.
 
         Args:
             scenarios_file: Path to YAML scenarios file
-            enable_baseline_comparison: Compare to baseline metrics
 
         Returns:
             Aggregate test results
@@ -220,10 +216,9 @@ class TestRunner:
             metrics=self.metrics_collector.get_summary(),
         )
 
-        if enable_baseline_comparison:
-            test_results.baseline_comparison = self._compare_to_baseline(
-                test_results, scenarios_file
-            )
+        test_results.baseline_comparison = self._compare_to_baseline(
+            test_results, scenarios_file
+        )
 
         return test_results
 
@@ -231,7 +226,6 @@ class TestRunner:
         self,
         scenarios_file: Path,
         scenario_id: str,
-        enable_baseline_comparison: bool = True,
     ) -> TestResults:
         """Run a single scenario from file without iterating through others."""
         logger.info(
@@ -274,10 +268,10 @@ class TestRunner:
             metrics=self.metrics_collector.get_summary(),
         )
 
-        if enable_baseline_comparison:
-            test_results.baseline_comparison = self._compare_to_baseline(
-                test_results, scenarios_file
-            )
+        # Always compare to baseline
+        test_results.baseline_comparison = self._compare_to_baseline(
+            test_results, scenarios_file
+        )
 
         return test_results
 
@@ -315,26 +309,17 @@ class TestRunner:
         scenario_metadata: dict[str, Any] = {}
 
         try:
-            use_mock = config.get("use_mock", True)
-            os.environ["USE_MOCK_ADAPTERS"] = "true" if use_mock else "false"
+            # Always use mock adapters
+            os.environ["USE_MOCK_ADAPTERS"] = "true"
 
-            # Execute based on test type
-            if use_mock:
-                (
-                    interview_id,
-                    ws_url,
-                    context,
-                    metadata,
-                    question_map,
-                ) = await self._run_mock_scenario(scenario_id, config)
-            else:
-                (
-                    interview_id,
-                    ws_url,
-                    context,
-                    metadata,
-                    question_map,
-                ) = await self._run_real_scenario(scenario_id, config)
+            # Execute mock scenario
+            (
+                interview_id,
+                ws_url,
+                context,
+                metadata,
+                question_map,
+            ) = await self._run_mock_scenario(scenario_id, config)
 
             scenario_metadata.update(metadata)
 
@@ -350,8 +335,8 @@ class TestRunner:
                 assertions, context, interview_id
             )
 
-            # Calculate cost (for real tests)
-            cost = await self._calculate_cost(interview_id, use_mock)
+            # Calculate cost (always 0.0 for mock tests)
+            cost = await self._calculate_cost(interview_id)
 
             # Collect metrics
             bot_metrics = context.get("bot_metrics", {})
@@ -553,71 +538,6 @@ class TestRunner:
             )
 
 
-    async def _run_real_scenario(
-        self, scenario_id: str, config: dict
-    ) -> tuple[UUID, str, dict[str, Any], dict[str, Any], None]:
-        """Run real scenario (full API flow).
-
-        Args:
-            config: Scenario config
-
-        Returns:
-            (interview_id, ws_url, context)
-        """
-        # Load CV fixture
-        cv_fixture = config["cv_fixture"]
-        cv_path = Path(__file__).parent / "fixtures" / "cvs" / cv_fixture
-
-        if not cv_path.exists():
-            raise FileNotFoundError(f"CV fixture not found: {cv_path}")
-
-        with open(cv_path) as f:
-            cv_data = json.load(f)
-
-        # Step 1: Create candidate
-        candidate_resp = await self.http_client.post(
-            "/api/ai/candidates",
-            json={"name": cv_data["name"], "email": cv_data["email"]},
-        )
-        candidate_resp.raise_for_status()
-        candidate_id = candidate_resp.json()["id"]
-
-        logger.info(f"Created candidate: {candidate_id}")
-
-        # Step 2: Upload CV (convert JSON to file-like format)
-        files = {"file": (cv_fixture, json.dumps(cv_data), "application/json")}
-        cv_resp = await self.http_client.post(
-            f"/api/ai/candidates/{candidate_id}/cv", files=files
-        )
-        cv_resp.raise_for_status()
-
-        logger.info(f"Uploaded CV: {cv_fixture}")
-
-        # Step 3: Plan interview
-        plan_resp = await self.http_client.post(
-            "/api/ai/interviews/plan",
-            json={
-                "candidate_id": candidate_id,
-                "question_count": config.get(
-                    "expected_questions", self.config.interview.default_expected_questions
-                ),
-            },
-        )
-        plan_resp.raise_for_status()
-        plan_data = plan_resp.json()
-
-        interview_id = UUID(plan_data["interview_id"])
-        ws_url = plan_data.get("ws_url") or f"{self.ws_base_url}/ws/interviews/{interview_id}"
-
-        logger.info(f"Planned interview: {interview_id}")
-
-        # Step 4: Run WebSocket QA phase
-        context = await self._run_websocket_qa(
-            scenario_id, interview_id, ws_url, config, {}
-        )
-
-        return interview_id, ws_url, context, {}, None
-
     async def _run_websocket_qa(
         self,
         scenario_id: str,
@@ -810,21 +730,15 @@ class TestRunner:
 
         return passed, failed
 
-    async def _calculate_cost(self, interview_id: UUID, use_mock: bool) -> float:
-        """Calculate cost for interview.
+    async def _calculate_cost(self, interview_id: UUID) -> float:
+        """Calculate cost for interview (always 0.0 for mock tests).
 
         Args:
             interview_id: Interview UUID
-            use_mock: Whether mock adapters used
 
         Returns:
-            Cost in USD
+            Cost in USD (always 0.0 for mock adapters)
         """
-        if use_mock:
-            return 0.0
-
-        # For MVP: Return 0.0 (cost tracking deferred)
-        # TODO: Implement tiktoken or LangSmith API integration
         return 0.0
 
     def _compare_to_baseline(
@@ -850,8 +764,8 @@ class TestRunner:
         with open(baseline_path) as f:
             baseline = json.load(f)
 
-        # Determine test type (mock or real)
-        test_type = "mock_tests" if "mock" in scenarios_file.name else "real_tests"
+        # Always use mock_tests (real tests removed)
+        test_type = "mock_tests"
         baseline_data = baseline.get(test_type, {})
 
         if not baseline_data:

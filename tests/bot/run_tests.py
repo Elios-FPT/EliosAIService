@@ -1,10 +1,9 @@
 """CLI entry point for running interview test bot.
 
 Usage:
-    python -m tests.bot.run_tests --scenarios all
-    python -m tests.bot.run_tests --scenarios mock
-    python -m tests.bot.run_tests --scenarios real
+    python -m tests.bot.run_tests
     python -m tests.bot.run_tests --scenario mock_001_basic_flow
+    python -m tests.bot.run_tests --base-url http://localhost:8010
 """
 
 import argparse
@@ -18,9 +17,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 import yaml
 
-from .config import BotConfig, reload_config
+from .config import BotConfig
 from .report_generator import ReportGenerator
-from .test_runner import TestRunner
+from .test_runner import TestRunner, TestResults
 
 # Check for test environment setup
 load_dotenv()
@@ -73,23 +72,9 @@ async def main():
     )
 
     parser.add_argument(
-        "--scenarios",
-        choices=["all", "mock", "real"],
-        default="all",
-        help="Which scenarios to run (default: all)",
-    )
-
-    parser.add_argument(
         "--scenario",
         type=str,
-        help="Run single scenario by ID (e.g., mock_001_basic_flow)",
-    )
-
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="tests/bot/reports",
-        help="Output directory for reports (default: tests/bot/reports)",
+        help="Run single scenario by ID (e.g., mock_001_basic_flow). If not specified, runs all scenarios.",
     )
 
     parser.add_argument(
@@ -99,22 +84,10 @@ async def main():
         help="API base URL (default: http://localhost:8000)",
     )
 
-    parser.add_argument(
-        "--no-baseline",
-        action="store_true",
-        help="Disable baseline comparison",
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to custom bot configuration YAML file",
-    )
-
     args = parser.parse_args()
 
-    # Load config (custom if provided, otherwise default)
-    config = reload_config(args.config) if args.config else BotConfig.load()
+    # Load default config
+    config = BotConfig.load()
 
     # Determine scenarios file(s)
     scenarios_dir = Path(__file__).parent / config.paths.scenarios_dir
@@ -133,14 +106,9 @@ async def main():
             return 1
         scenarios_files = [scenario_file]
         single_scenario_file = scenario_file
-    elif args.scenarios == "all":
-        scenarios_files = list(scenarios_dir.glob("*.yaml"))
-    elif args.scenarios == "mock":
-        scenarios_files = [scenarios_dir / "mock_scenarios.yaml"]
-    elif args.scenarios == "real":
-        scenarios_files = [scenarios_dir / "real_scenarios.yaml"]
     else:
-        scenarios_files = []
+        # Run all scenarios from mock_scenarios.yaml
+        scenarios_files = [scenarios_dir / "mock_scenarios.yaml"]
 
     if not scenarios_files:
         logger.error("No scenario files found")
@@ -151,7 +119,6 @@ async def main():
     # Create runner (CLI args override config values)
     runner = TestRunner(
         base_url=args.base_url if args.base_url != parser.get_default("base_url") else None,
-        output_dir=args.output if args.output != parser.get_default("output") else None,
         config=config,
     )
     output_dir = runner.output_dir
@@ -168,7 +135,6 @@ async def main():
         results = await runner.run_single_test(
             scenarios_file=single_scenario_file,
             scenario_id=args.scenario,
-            enable_baseline_comparison=not args.no_baseline,
         )
         all_results.append((single_scenario_file, results, args.scenario))
     else:
@@ -177,7 +143,6 @@ async def main():
 
             results = await runner.run_all_tests(
                 scenarios_file=scenarios_file,
-                enable_baseline_comparison=not args.no_baseline,
             )
 
             all_results.append((scenarios_file, results, None))
