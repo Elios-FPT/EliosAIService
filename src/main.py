@@ -95,6 +95,99 @@ if _log_config:
 # Get logger (now properly configured)
 logger = logging.getLogger(__name__)
 
+
+def configure_log_levels_from_settings(settings):
+    """Adjust log levels based on settings.debug and settings.log_level.
+
+    This should be called after settings are loaded to override
+    the hardcoded levels in logging.yaml.
+
+    Note: We need to set both logger level AND handler level for loggers
+    with propagate=False, since they won't inherit from parent loggers.
+    """
+    # Determine target log level
+    if settings.debug:
+        target_level = logging.DEBUG
+    else:
+        # Map log_level string to logging constant
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL,
+        }
+        target_level = level_map.get(settings.log_level.upper(), logging.INFO)
+
+    # Update all relevant loggers
+    loggers_to_update = [
+        'src.main',
+        'src.application',
+        'src.adapters',
+        'sqlalchemy.engine',
+    ]
+
+    for logger_name in loggers_to_update:
+        logger_obj = logging.getLogger(logger_name)
+        logger_obj.setLevel(target_level)
+
+        # CRITICAL: Also set handler levels for loggers with propagate=False
+        # These loggers won't inherit from root, so handler level matters
+        for handler in logger_obj.handlers:
+            handler.setLevel(target_level)
+
+        # Use print for configuration messages since logger level might not be set yet
+        print(f"[LOG CONFIG] Set {logger_name} logger and handlers to {logging.getLevelName(target_level)}")
+
+    # Update root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(target_level)
+
+    # Also update root logger handlers if any
+    for handler in root_logger.handlers:
+        handler.setLevel(target_level)
+
+    print(f"[LOG CONFIG] Set root logger and handlers to {logging.getLevelName(target_level)}")
+
+    # Special handling for sqlalchemy.engine - ensure it has a handler
+    # This is critical because it has propagate=False in YAML
+    sqlalchemy_engine_logger = logging.getLogger('sqlalchemy.engine')
+    if not sqlalchemy_engine_logger.handlers:
+        # If no handler, add console handler (shouldn't happen, but safety check)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(target_level)
+        # Use the same formatter as configured in YAML
+        try:
+            from colorlog import ColoredFormatter
+            formatter = ColoredFormatter(
+                "%(asctime)s %(log_color)s%(levelname)-8s%(reset)s %(cyan)s%(name)s%(reset)s %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+                log_colors={
+                    'DEBUG': 'cyan',
+                    'INFO': 'green',
+                    'WARNING': 'yellow',
+                    'ERROR': 'red',
+                    'CRITICAL': 'bold_red',
+                }
+            )
+            console_handler.setFormatter(formatter)
+        except ImportError:
+            # Fallback to standard formatter if colorlog not available
+            formatter = logging.Formatter(
+                "%(asctime)s %(levelname)-8s %(name)s %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            console_handler.setFormatter(formatter)
+        sqlalchemy_engine_logger.addHandler(console_handler)
+        print(f"[LOG CONFIG] Added console handler to sqlalchemy.engine logger")
+
+    # Double-check sqlalchemy.engine level and handler level
+    sqlalchemy_engine_logger.setLevel(target_level)
+    for handler in sqlalchemy_engine_logger.handlers:
+        handler.setLevel(target_level)
+    print(f"[LOG CONFIG] Verified sqlalchemy.engine logger: level={logging.getLevelName(sqlalchemy_engine_logger.level)}, handlers={len(sqlalchemy_engine_logger.handlers)}")
+
+
 # TEMPORARILY DISABLED: Event loop policy setting at module level
 # This was causing hangs during import. We'll set it in the main block instead.
 # On Windows, configure event loop policy to use SelectorEventLoop
@@ -117,18 +210,22 @@ async def lifespan(app: FastAPI):
     debug_print("lifespan startup started")
     settings = get_settings()
     debug_print(f"Got settings: {settings.app_name}")
+
+    # Configure log levels based on settings (override YAML defaults)
+    configure_log_levels_from_settings(settings)
+
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.environment}")
     logger.info(f"Debug mode: {settings.debug}")
+    logger.debug("=== DEBUG LOGGING TEST ===")
+    logger.debug("If you see this message, debug logging is working correctly!")
 
     # Initialize database
     debug_print("About to initialize database...")
     logger.info("Initializing database connection...")
 
-    # Configure SQLAlchemy logging level based on debug mode
-    # Since we disabled echo in engine config, we control logging via logger level
-    sqlalchemy_engine_logger = logging.getLogger('sqlalchemy.engine')
-    sqlalchemy_engine_logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+    # NOTE: SQLAlchemy logging is now configured in configure_log_levels_from_settings()
+    # No need to set it here again
 
     debug_print("About to call init_db()...")
     await init_db()
