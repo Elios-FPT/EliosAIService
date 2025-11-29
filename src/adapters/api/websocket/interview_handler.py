@@ -206,9 +206,36 @@ async def _handle_with_workflow(
                             "interview_id": str(interview_id),
                             "status": result.get("final_status"),
                             "detailed_feedback": result.get("summary"),
-                            "feedback_url": f"/api/interviews/{interview_id}/summary",
+                            "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
                         },
                     )
+
+                    # Log WebSocket address (ConnectionManager also logs, but this adds handler context)
+                    try:
+                        client_host = websocket.client.host if websocket.client else "unknown"
+                        client_port = websocket.client.port if websocket.client else "unknown"
+                        ws_path = websocket.url.path if hasattr(websocket, "url") and websocket.url else "unknown"
+                        ws_url = f"ws://{client_host}:{client_port}{ws_path}"
+                        logger.info(
+                            f"Interview {interview_id} completed - feedback sent via WebSocket to {ws_url}",
+                            extra={
+                                "interview_id": str(interview_id),
+                                "websocket_url": ws_url,
+                                "websocket_host": client_host,
+                                "websocket_port": str(client_port),
+                                "delivery_method": "websocket",
+                                "status": result.get("final_status"),
+                            },
+                        )
+                    except Exception as e:
+                        logger.info(
+                            f"Interview {interview_id} completed - feedback sent via WebSocket (address unavailable: {e})",
+                            extra={
+                                "interview_id": str(interview_id),
+                                "delivery_method": "websocket",
+                                "status": result.get("final_status"),
+                            },
+                        )
                     break
 
                 # Send next question (either follow-up or main question)
@@ -481,6 +508,8 @@ async def _stream_transcription(
 
                 # Check if complete
                 if workflow_result.get("complete"):
+                    # Get WebSocket client address for logging
+                    # Note: websocket is not directly available here, but ConnectionManager will log it
                     await manager.send_message(
                         interview_id,
                         {
@@ -488,7 +517,17 @@ async def _stream_transcription(
                             "interview_id": str(interview_id),
                             "status": workflow_result.get("final_status"),
                             "detailed_feedback": workflow_result.get("summary"),
-                            "feedback_url": f"/api/interviews/{interview_id}/summary",
+                            "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
+                        },
+                    )
+
+                    logger.info(
+                        f"Interview {interview_id} completed (voice answer) - feedback sent via WebSocket",
+                        extra={
+                            "interview_id": str(interview_id),
+                            "delivery_method": "websocket",
+                            "answer_type": "voice",
+                            "status": workflow_result.get("final_status"),
                         },
                     )
                     return

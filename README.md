@@ -80,7 +80,7 @@ Manage LLM prompt templates with version control, A/B testing, rollback, and ana
 import httpx
 
 # Create initial prompt
-response = await client.post("/api/prompts", json={
+response = await client.post("/api/ai/prompts", json={
     "prompt_name": "answer_evaluation",
     "system_prompt": "You are an expert interviewer...",
     "user_template": "Evaluate this answer: {answer}",
@@ -95,7 +95,7 @@ response = await client.post("/api/prompts", json={
 prompt = response.json()
 
 # Activate for production
-await client.patch(f"/api/prompts/{prompt['id']}/activate", json={
+await client.patch(f"/api/ai/prompts/{prompt['id']}/activate", json={
     "changed_by": "admin",
     "reason": "Deploy v1 to production",
     "traffic_percentage": 100

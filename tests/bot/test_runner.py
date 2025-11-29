@@ -576,7 +576,7 @@ class TestRunner:
 
         # Step 1: Create candidate
         candidate_resp = await self.http_client.post(
-            "/api/candidates",
+            "/api/ai/candidates",
             json={"name": cv_data["name"], "email": cv_data["email"]},
         )
         candidate_resp.raise_for_status()
@@ -587,7 +587,7 @@ class TestRunner:
         # Step 2: Upload CV (convert JSON to file-like format)
         files = {"file": (cv_fixture, json.dumps(cv_data), "application/json")}
         cv_resp = await self.http_client.post(
-            f"/api/candidates/{candidate_id}/cv", files=files
+            f"/api/ai/candidates/{candidate_id}/cv", files=files
         )
         cv_resp.raise_for_status()
 
@@ -595,7 +595,7 @@ class TestRunner:
 
         # Step 3: Plan interview
         plan_resp = await self.http_client.post(
-            "/api/interviews/plan",
+            "/api/ai/interviews/plan",
             json={
                 "candidate_id": candidate_id,
                 "question_count": config.get(
