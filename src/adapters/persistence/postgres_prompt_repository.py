@@ -1,11 +1,13 @@
 """PostgreSQL implementation of PromptRepositoryPort."""
 
+import json
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from deepdiff import DeepDiff
+from deepdiff.helper import SetOrdered
 from sqlalchemy import func, select
 
 from src.domain.models.prompt_execution import PromptExecution
@@ -24,6 +26,51 @@ from .models import (
     PromptTemplateModel,
 )
 from .session_provider import SessionProvider
+
+
+def _make_diff_serializable(diff_dict: dict) -> dict:
+    """Convert DeepDiff result to fully JSON-serializable format.
+
+    DeepDiff.to_dict() can contain non-serializable types like SetOrdered.
+    This function recursively converts them to plain Python types.
+
+    Args:
+        diff_dict: Dictionary from DeepDiff.to_dict()
+
+    Returns:
+        Fully serializable dictionary
+    """
+    if not diff_dict:
+        return {}
+
+    def convert_value(value: Any) -> Any:
+        """Recursively convert non-serializable types to plain Python types."""
+        # Explicitly handle SetOrdered first (before other iterable checks)
+        if isinstance(value, SetOrdered):
+            return [convert_value(item) for item in value]
+        # Handle dict
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        # Handle list, tuple, set
+        elif isinstance(value, (list, tuple, set)):
+            return [convert_value(item) for item in value]
+        elif hasattr(value, '__iter__') and not isinstance(value, (str, bytes)):
+            # Handle other iterable types (but not strings/bytes)
+            try:
+                return [convert_value(item) for item in value]
+            except (TypeError, ValueError):
+                return str(value)
+        else:
+            # For primitive types, try to serialize
+            try:
+                # Test if it's JSON serializable
+                json.dumps(value)
+                return value
+            except (TypeError, ValueError):
+                # Convert to string as last resort
+                return str(value)
+
+    return convert_value(diff_dict)
 
 
 class PostgreSQLPromptRepository(PromptRepositoryPort):
@@ -335,7 +382,8 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                         version.template_json,
                         ignore_order=True,
                     )
-                    entry["diff"] = diff.to_dict() if diff else {}
+                    diff_dict = diff.to_dict() if diff else {}
+                    entry["diff"] = _make_diff_serializable(diff_dict)
 
                 history.append(entry)
                 prev_version = version

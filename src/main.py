@@ -29,10 +29,14 @@ debug_print("stdlib imports done")
 import yaml
 debug_print("yaml imported")
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
+from fastapi.responses import JSONResponse
 debug_print("FastAPI imported")
 
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 debug_print("CORS middleware imported")
 
 debug_print("About to import local modules...")
@@ -209,6 +213,41 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Exception logging middleware (must be first to catch all exceptions)
+    class ExceptionLoggingMiddleware(BaseHTTPMiddleware):
+        """Middleware to catch and log all exceptions at ASGI level."""
+        async def dispatch(self, request: StarletteRequest, call_next):
+            try:
+                response = await call_next(request)
+                return response
+            except Exception as exc:
+                import traceback
+
+                # Log the full exception with traceback
+                logger.error(
+                    f"ASGI-level exception: {type(exc).__name__}: {exc}",
+                    exc_info=True,
+                    extra={
+                        "path": str(request.url.path),
+                        "method": request.method,
+                        "query_params": str(request.query_params),
+                    }
+                )
+
+                # Print to stderr for immediate visibility (useful in Docker logs)
+                print(f"\n{'='*80}", file=sys.stderr, flush=True)
+                print(f"ASGI ERROR: Exception in {request.method} {request.url.path}", file=sys.stderr, flush=True)
+                print(f"Exception type: {type(exc).__name__}", file=sys.stderr, flush=True)
+                print(f"Exception message: {exc}", file=sys.stderr, flush=True)
+                print(f"\nFull traceback:", file=sys.stderr, flush=True)
+                traceback.print_exc(file=sys.stderr)
+                print(f"{'='*80}\n", file=sys.stderr, flush=True)
+
+                # Re-raise to let FastAPI's exception handler process it
+                raise
+
+    app.add_middleware(ExceptionLoggingMiddleware)
+
     # CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -235,6 +274,41 @@ def create_app() -> FastAPI:
     ):
         """WebSocket endpoint for real-time interview communication."""
         await handle_interview_websocket(websocket, interview_id)
+
+    # Global exception handler to catch and log all unhandled exceptions
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        """Catch all unhandled exceptions and log them with full context."""
+        import traceback
+
+        # Log the full exception with traceback
+        logger.error(
+            f"Unhandled exception in ASGI application: {type(exc).__name__}: {exc}",
+            exc_info=True,
+            extra={
+                "path": str(request.url.path),
+                "method": request.method,
+                "query_params": str(request.query_params),
+            }
+        )
+
+        # Print to stderr for immediate visibility (useful in Docker logs)
+        print(f"\n{'='*80}", file=sys.stderr, flush=True)
+        print(f"ERROR: Unhandled exception in {request.method} {request.url.path}", file=sys.stderr, flush=True)
+        print(f"Exception type: {type(exc).__name__}", file=sys.stderr, flush=True)
+        print(f"Exception message: {exc}", file=sys.stderr, flush=True)
+        print(f"\nFull traceback:", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        print(f"{'='*80}\n", file=sys.stderr, flush=True)
+
+        # Return a generic error response (don't expose internal details in production)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error",
+                "error_type": type(exc).__name__,
+            }
+        )
 
     # TODO: Add more routers as they are implemented
     # app.include_router(cv_routes.router, prefix=settings.api_prefix, tags=["CV"])
