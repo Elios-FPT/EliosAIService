@@ -119,12 +119,14 @@ class InterviewTestBot:
         self,
         question_id: UUID,
         answer_text: str,
+        allow_empty: bool = False,
     ) -> None:
         """Send text answer for a question.
 
         Args:
             question_id: Question UUID
             answer_text: Answer text content
+            allow_empty: Allow empty answers (for error testing scenarios)
 
         Raises:
             ValueError: If not connected or answer is empty
@@ -132,7 +134,7 @@ class InterviewTestBot:
         if not self.connected or not self.ws:
             raise ValueError("Not connected to WebSocket")
 
-        if not answer_text.strip():
+        if not allow_empty and not answer_text.strip():
             raise ValueError("Answer text cannot be empty")
 
         message = {

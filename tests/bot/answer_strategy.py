@@ -45,12 +45,20 @@ class AnswerStrategyEngine:
             case "ideal":
                 return self._require_ideal_answer(question_id)
             case "degraded":
-                ideal = self._require_ideal_answer(question_id)
+                # For follow-up questions (no ideal_answer), use default factory
+                ideal = self._get_ideal_answer_or_none(question_id)
+                if ideal is None:
+                    return default_factory()
                 return self._degrade_answer(question_id, ideal)
             case "scripted":
                 return self._script_answer(question_id)
             case _:
                 return default_factory()
+
+    def _get_ideal_answer_or_none(self, question_id: UUID) -> str | None:
+        """Get ideal answer if available, or None for dynamic questions (follow-ups)."""
+        key = str(question_id)
+        return self._ideal_answers.get(key)
 
     def _require_ideal_answer(self, question_id: UUID) -> str:
         key = str(question_id)

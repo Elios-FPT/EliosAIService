@@ -735,8 +735,9 @@ class TestRunner:
                         default_answer,
                     )
 
-                    # Send answer
-                    await bot.send_text_answer(question_id, answer_text)
+                    # Send answer (allow empty for error testing scenarios)
+                    allow_empty = config.get("expect_error", False)
+                    await bot.send_text_answer(question_id, answer_text, allow_empty=allow_empty)
 
                     context["answers"].append(
                         {
