@@ -112,7 +112,7 @@ async def execute_sql_fixture(engine: AsyncEngine, sql_path: Path) -> SQLFixture
 
 def _ensure_test_environment() -> None:
     """Prevent SQL fixtures from running outside test environment."""
-    environment = os.getenv("ENVIRONMENT", "").lower()
+    environment = os.getenv("ENVIRONMENT", "").lower().strip()
     if environment != "test":
         raise RuntimeError(
             "SQL fixtures can only run with ENVIRONMENT=test "
