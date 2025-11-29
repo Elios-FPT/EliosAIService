@@ -818,7 +818,7 @@ def get_container() -> Container:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Client Request                            │
-│                  POST /api/cv/upload                          │
+│                  POST /api/ai/cv/upload                          │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ↓
@@ -959,7 +959,7 @@ problem-solving approaches that can be explained verbally.
 
 ```
 1. User Uploads CV
-   ├─→ POST /api/cv/upload
+   ├─→ POST /api/ai/cv/upload
    │   ├─ file: CV document (PDF/DOC)
    │   └─ candidate_id: UUID
 
@@ -987,7 +987,7 @@ problem-solving approaches that can be explained verbally.
    └─ Status 201 Created
 
 5. Start Interview Flow (separate request)
-   ├─→ POST /api/interviews
+   ├─→ POST /api/ai/interviews
    │   ├─ candidate_id: UUID
    │   └─ cv_analysis_id: UUID
    │
@@ -1006,7 +1006,7 @@ problem-solving approaches that can be explained verbally.
 
 ```
 1. Candidate Submits Answer
-   ├─→ POST /api/interviews/{id}/answers
+   ├─→ POST /api/ai/interviews/{id}/answers
    │   ├─ question_id: UUID
    │   └─ answer_text: string
 
@@ -1957,7 +1957,7 @@ create_async_engine(
 
 ### REST API Design
 
-**Base URL**: `/api`
+**Base URL**: `/api/ai`
 
 **Endpoints**:
 
@@ -1966,51 +1966,51 @@ create_async_engine(
 GET  /health                                      # Health check ✅
 
 # Interviews ✅
-POST   /api/interviews/plan                       # Plan interview with adaptive questions ✅
-GET    /api/interviews/{id}/plan                  # Get planning status (includes ws_url) ✅
-GET    /api/interviews/{id}                       # Get interview details ✅
-PUT    /api/interviews/{id}/start                 # Start interview ✅
-GET    /api/interviews/{id}/questions/current     # Get current question ✅
+POST   /api/ai/interviews/plan                       # Plan interview with adaptive questions ✅
+GET    /api/ai/interviews/{id}/plan                  # Get planning status (includes ws_url) ✅
+GET    /api/ai/interviews/{id}                       # Get interview details ✅
+PUT    /api/ai/interviews/{id}/start                 # Start interview ✅
+GET    /api/ai/interviews/{id}/questions/current     # Get current question ✅
 
 # Planned
 # Candidates
-POST   /api/candidates                            # Create candidate ⏳
-GET    /api/candidates/{id}                       # Get candidate ⏳
-PUT    /api/candidates/{id}                       # Update candidate ⏳
-DELETE /api/candidates/{id}                       # Delete candidate ⏳
+POST   /api/ai/candidates                            # Create candidate ⏳
+GET    /api/ai/candidates/{id}                       # Get candidate ⏳
+PUT    /api/ai/candidates/{id}                       # Update candidate ⏳
+DELETE /api/ai/candidates/{id}                       # Delete candidate ⏳
 
 # CV Analysis
-POST /api/cv/upload                               # Upload and analyze CV ⏳
-GET  /api/cv/{id}                                 # Get CV analysis ⏳
+POST /api/ai/cv/upload                               # Upload and analyze CV ⏳
+GET  /api/ai/cv/{id}                                 # Get CV analysis ⏳
 
 # Answers
-POST /api/interviews/{id}/answers                 # Submit answer ⏳
-GET  /api/interviews/{id}/answers                 # Get all answers ⏳
+POST /api/ai/interviews/{id}/answers                 # Submit answer ⏳
+GET  /api/ai/interviews/{id}/answers                 # Get all answers ⏳
 
 # Questions (Admin)
-POST   /api/questions                             # Create question ⏳
-GET    /api/questions                             # List questions ⏳
-GET    /api/questions/{id}                        # Get question ⏳
-PUT    /api/questions/{id}                        # Update question ⏳
-DELETE /api/questions/{id}                        # Delete question ⏳
+POST   /api/ai/questions                             # Create question ⏳
+GET    /api/ai/questions                             # List questions ⏳
+GET    /api/ai/questions/{id}                        # Get question ⏳
+PUT    /api/ai/questions/{id}                        # Update question ⏳
+DELETE /api/ai/questions/{id}                        # Delete question ⏳
 
 # Feedback
-GET /api/interviews/{id}/feedback                 # Get comprehensive feedback ⏳
+GET /api/ai/interviews/{id}/feedback                 # Get comprehensive feedback ⏳
 
 # Prompt Management ✅
-POST   /api/prompts                               # Create initial prompt (v1) ✅
-POST   /api/prompts/{name}/versions               # Create new version from parent ✅
-POST   /api/prompts/{name}/rollback               # Rollback to target version ✅
-GET    /api/prompts/{name}/versions               # Get version history with diffs ✅
-GET    /api/prompts/{name}/versions/{version}     # Get specific version ✅
-GET    /api/prompts/{prompt_id}                   # Get prompt by UUID ✅
-PATCH  /api/prompts/{prompt_id}/activate          # Activate version (A/B testing) ✅
-PATCH  /api/prompts/{prompt_id}/traffic           # Adjust A/B traffic percentage ✅
-GET    /api/prompts/{name}/active                 # Get active prompt (weighted selection) ✅
-GET    /api/prompts/{name}/analytics              # Get analytics summary ✅
-GET    /api/prompts/{name}/audit-trail            # Get audit trail ✅
-GET    /api/prompts                               # List all prompts (paginated) ✅
-DELETE /api/prompts/{prompt_id}                   # Soft delete prompt ✅
+POST   /api/ai/prompts                               # Create initial prompt (v1) ✅
+POST   /api/ai/prompts/{name}/versions               # Create new version from parent ✅
+POST   /api/ai/prompts/{name}/rollback               # Rollback to target version ✅
+GET    /api/ai/prompts/{name}/versions               # Get version history with diffs ✅
+GET    /api/ai/prompts/{name}/versions/{version}     # Get specific version ✅
+GET    /api/ai/prompts/{prompt_id}                   # Get prompt by UUID ✅
+PATCH  /api/ai/prompts/{prompt_id}/activate          # Activate version (A/B testing) ✅
+PATCH  /api/ai/prompts/{prompt_id}/traffic           # Adjust A/B traffic percentage ✅
+GET    /api/ai/prompts/{name}/active                 # Get active prompt (weighted selection) ✅
+GET    /api/ai/prompts/{name}/analytics              # Get analytics summary ✅
+GET    /api/ai/prompts/{name}/audit-trail            # Get audit trail ✅
+GET    /api/ai/prompts                               # List all prompts (paginated) ✅
+DELETE /api/ai/prompts/{prompt_id}                   # Soft delete prompt ✅
 ```
 
 ### Prompt Management API ✅
@@ -2039,8 +2039,8 @@ Increase traffic (50% → 75% → 100%) OR Rollback to v1
 1. Create v2 from v1 with improved prompt
 2. Activate v2 with `traffic_percentage=20` (gradual rollout)
 3. Monitor analytics: success_rate, avg_latency, cost
-4. Adjust traffic: PATCH /api/prompts/{id}/traffic (increase to 50%, 75%, 100%)
-5. If v2 underperforms: POST /api/prompts/{name}/rollback (creates v3 with v1 content)
+4. Adjust traffic: PATCH /api/ai/prompts/{id}/traffic (increase to 50%, 75%, 100%)
+5. If v2 underperforms: POST /api/ai/prompts/{name}/rollback (creates v3 with v1 content)
 
 **Architecture Integration**:
 ```
@@ -2075,7 +2075,7 @@ LangChainAdapter (LLMPort)
 **Endpoint**: `/ws/interviews/{interview_id}`
 
 **Connection Flow**:
-1. Client calls POST /api/interviews/plan → Receives ws_url in response
+1. Client calls POST /api/ai/interviews/plan → Receives ws_url in response
 2. Client connects to ws_url for real-time interview session
 3. WebSocket handles question delivery, answer evaluation, follow-ups
 
@@ -2147,7 +2147,7 @@ LangChainAdapter (LLMPort)
   "interview_id": "uuid",
   "overall_score": 78.5,
   "total_questions": 5,
-  "feedback_url": "/api/interviews/{id}/feedback"
+  "feedback_url": "/api/ai/interviews/{id}/feedback"
 }
 
 // Server → Client: Error
@@ -2701,7 +2701,7 @@ def planning_workflow(self, session: AsyncSession) -> PlanningWorkflow:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    API Endpoint                          │
-│         POST /api/interviews/plan                        │
+│         POST /api/ai/interviews/plan                        │
 └────────────────────────┬────────────────────────────────┘
                          │
                          ↓

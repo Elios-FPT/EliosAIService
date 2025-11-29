@@ -571,10 +571,10 @@ langsmith = "^0.2.3"  # For cost tracking + observability
 
 5. **REST API Endpoints** (100%)
    - ✅ GET /health - Health check
-   - ✅ POST /api/interviews - Create interview session
-   - ✅ GET /api/interviews/{id} - Get interview details
-   - ✅ PUT /api/interviews/{id}/start - Start interview
-   - ✅ GET /api/interviews/{id}/questions/current - Get current question
+   - ✅ POST /api/ai/interviews - Create interview session
+   - ✅ GET /api/ai/interviews/{id} - Get interview details
+   - ✅ PUT /api/ai/interviews/{id}/start - Start interview
+   - ✅ GET /api/ai/interviews/{id}/questions/current - Get current question
 
 6. **WebSocket Implementation** (100%)
    - ✅ Real-time interview communication protocol

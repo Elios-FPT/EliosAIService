@@ -407,7 +407,7 @@ from pydantic import BaseModel, Field
 from typing import List
 from decimal import Decimal
 
-router = APIRouter(prefix="/api/prompts", tags=["prompts"])
+router = APIRouter(prefix="/api/ai/prompts", tags=["prompts"])
 
 class PromptTemplateEditRequest(BaseModel):
     """Request model for editing prompt template"""

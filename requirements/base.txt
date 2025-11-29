@@ -19,6 +19,7 @@ numpy>=1.24.0
 # Database
 sqlalchemy[asyncio]>=2.0.0
 asyncpg>=0.30.0
+psycopg[binary]>=3.1.0
 alembic>=1.17.0
 
 # NLP & Document Processing
@@ -44,3 +45,9 @@ colorlog>=6.10.0
 pyyaml>=6.0.0
 python-dotenv>=1.0.0
 deepdiff>=6.7.0
+
+# Background Jobs
+apscheduler>=3.10.0
+
+# Messaging
+aiokafka>=0.10.0

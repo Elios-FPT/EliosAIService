@@ -13,14 +13,72 @@ services:
       DEBUG: true
       API_HOST: 0.0.0.0
       API_PORT: 8010
-      API_PREFIX: /api
+      API_PREFIX: /api/ai
       CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
-      DATABASE_URL: "postgresql://neondb_owner:npg_nKoh8mjGQ9gS@ep-bold-snow-a1y91g0b.ap-southeast-1.aws.neon.tech/AIService?sslmode=require&channel_binding=require"
+      # Sensitive: Database credentials
+      DATABASE_URL: "postgresql://neondb_owner:npg_nKoh8mjGQ9gS@ep-tiny-queen-a1grmcm0-pooler.ap-southeast-1.aws.neon.tech/AIService?sslmode=require&channel_binding=require"
+      # Sensitive: Azure OpenAI API Key
+      AZURE_OPENAI_API_KEY: "sk-of9ih3zl1tJI0lvU37arFQ"
+      # Sensitive: Pinecone API Key
+      PINECONE_API_KEY: "pcsk_3ebE3k_9RQXC9SYUpTfgAfmkEfsksipxrp73j5Gj8PC2bnnyTYJpDoMZMSToomZTGZYPfB"
+      # Sensitive: Azure Speech Key
+      AZURE_SPEECH_KEY: "nqEgp1cRRTWIbG7GD7gvNlxaFActZT8wMCXx9JBaETEb1kEhCiziJQQJ99BKAC3pKaRXJ3w3AAAYACOG02dV"
+      # Kafka Configuration
+      # Option 1: Use Kafka service in this docker-compose (current)
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      # Option 2: Use external Kafka - change to your Kafka server address
+      # KAFKA_BOOTSTRAP_SERVERS: "your-kafka-host:9092"
+      KAFKA_INTERVIEW_TOPIC: "interview-user-interview"
+    depends_on:
+      - kafka
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    volumes:
+      # Persist uploads directory
+      - ./uploads:/app/uploads
     restart: unless-stopped
+    networks:
+      - elios-network
+
+  # Kafka Service (optional - remove if using external Kafka)
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: elios-kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    depends_on:
+      - zookeeper
+    restart: unless-stopped
+    networks:
+      - elios-network
+
+  # Zookeeper Service (required for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: elios-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    restart: unless-stopped
+    networks:
+      - elios-network
+
+networks:
+  elios-network:
+    driver: bridge
 

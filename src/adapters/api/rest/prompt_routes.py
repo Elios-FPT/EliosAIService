@@ -21,7 +21,7 @@ from ....application.dto.prompt_dto import (
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
 
-router = APIRouter(prefix="/ai/prompts", tags=["Prompt Management"])
+router = APIRouter(prefix="/prompts", tags=["Prompt Management"])
 
 
 

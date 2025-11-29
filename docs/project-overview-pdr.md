@@ -913,9 +913,9 @@ Interview WebSocket flows use a workflow execution guard that auto-retries psyco
 
 ### Appendix B: API Endpoint Summary
 - `/health` - Health check
-- `/api/cv/upload` - Upload and analyze CV
-- `/api/interviews` - Interview CRUD
-- `/api/questions` - Question management
+- `/api/ai/cv/upload` - Upload and analyze CV
+- `/api/ai/interviews` - Interview CRUD
+- `/api/ai/questions` - Question management
 - `/api/ws/interviews/{id}` - WebSocket chat
 
 ### Appendix C: Development Setup Summary

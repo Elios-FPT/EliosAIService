@@ -104,7 +104,7 @@ DEBUG=true
 ```bash
 API_HOST="0.0.0.0"
 API_PORT=8000
-API_PREFIX="/api"
+API_PREFIX="/api/ai"
 ```
 
 ### Database Settings

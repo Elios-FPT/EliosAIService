@@ -1,11 +1,14 @@
 """Interview REST API endpoints."""
 
+import logging
 import os
 import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from ....application.dto.interview_dto import (
     InterviewResponse,
@@ -38,22 +41,47 @@ async def upload_cv(
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a PDF")
 
+    file_path = None
     try:
         # Generate a unique filename
         setting = get_settings()
         UPLOAD_DIR = setting.upload_dir
+        logger.info(f"Upload directory configured as: {UPLOAD_DIR}")
+
         file_extension = os.path.splitext(file.filename)[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+        # Create directory if it doesn't exist
+        try:
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            logger.info(f"Upload directory created/verified: {UPLOAD_DIR}")
+        except OSError as e:
+            logger.error(f"Failed to create upload directory {UPLOAD_DIR}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Cannot create upload directory: {str(e)}",
+            ) from e
+
         file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        logger.info(f"Saving file to: {file_path}")
 
         # Save the uploaded file
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        try:
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            logger.info(f"File saved successfully: {file_path} ({len(content)} bytes)")
+        except IOError as e:
+            logger.error(f"Failed to write file to {file_path}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Cannot write file: {str(e)}",
+            ) from e
 
         # TODO: replace with data from User Service
         candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
+        logger.info(f"Starting CV analysis for candidate: {candidate_id}")
+
         container = get_container()
         cv_analyzer = container.cv_analyzer_port()
 
@@ -64,12 +92,21 @@ async def upload_cv(
             cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
         )
         cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
+        logger.info(f"CV analysis completed: {cv_analysis.id}")
         return cv_analysis
 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        logger.error(f"Error uploading CV file: {e}", exc_info=True)
         # Clean up the file if there was an error
-        if "file_path" in locals() and os.path.exists(file_path):
-            os.remove(file_path)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up file: {file_path}")
+            except OSError as cleanup_error:
+                logger.warning(f"Failed to cleanup file {file_path}: {cleanup_error}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
