@@ -4,27 +4,17 @@ The interview test bot now supports flexible configuration through YAML files an
 
 ## Quick Start
 
-### Using Default Configuration
-
 The bot uses `bot_config.yaml` by default:
 
 ```bash
-python -m tests.bot.run_tests --scenarios all
-```
+# Run all mock scenarios
+python -m tests.bot.run_tests
 
-### Using Custom Configuration
+# Run single scenario
+python -m tests.bot.run_tests --scenario mock_001_basic_flow
 
-Create a custom config file and pass it via `--config` flag:
-
-```bash
-# Create custom config
-cp tests/bot/bot_config.custom.example.yaml tests/bot/my_config.yaml
-
-# Edit my_config.yaml with your values
-# ...
-
-# Run tests with custom config
-python -m tests.bot.run_tests --scenarios all --config tests/bot/my_config.yaml
+# Override API base URL
+python -m tests.bot.run_tests --base-url http://localhost:8010
 ```
 
 ## Configuration Structure
@@ -153,68 +143,28 @@ config:
 
 The configuration system uses the following precedence (highest to lowest):
 
-1. **Command-line arguments** (e.g., `--base-url`, `--output`)
-2. **Custom config file** (via `--config` flag)
-3. **Default config file** (`bot_config.yaml`)
-4. **Hardcoded defaults** (defined in `config.py`)
+1. **Command-line arguments** (e.g., `--base-url`)
+2. **Default config file** (`bot_config.yaml`)
+3. **Hardcoded defaults** (defined in `config.py`)
 
 ## Usage Examples
 
-### Example 1: Testing Against Staging Environment
+### Example 1: Testing Against Different API URL
 
-Create `staging_config.yaml`:
+Override the API base URL via command line:
+
+```bash
+python -m tests.bot.run_tests --base-url http://localhost:8010
+```
+
+Or modify `bot_config.yaml`:
 
 ```yaml
 api:
-  base_url: "https://staging.example.com"
-  timeout_sec: 60.0
-
-paths:
-  output_dir: "reports/staging/"
+  base_url: "http://localhost:8010"
 ```
 
-Run tests:
-
-```bash
-python -m tests.bot.run_tests --scenarios all --config staging_config.yaml
-```
-
-### Example 2: Fast CI/CD Pipeline Tests
-
-Create `ci_config.yaml`:
-
-```yaml
-timeouts:
-  question_timeout_sec: 2.0
-  follow_up_timeout_sec: 2.0
-  completion_timeout_sec: 2.0
-  evaluation_timeout_sec: 5.0
-  interview_timeout_sec: 15.0
-
-interview:
-  default_expected_questions: 2  # Fewer questions for faster tests
-  qa_loop_buffer: 5
-```
-
-Run tests:
-
-```bash
-python -m tests.bot.run_tests --scenarios mock --config ci_config.yaml
-```
-
-### Example 3: Override Single Value
-
-You only need to specify values you want to override:
-
-```yaml
-# production_config.yaml
-api:
-  base_url: "https://api.production.com"
-```
-
-All other values will use defaults from `bot_config.yaml`.
-
-### Example 4: Using Environment Variables
+### Example 2: Using Environment Variables
 
 Set environment variables with `BOT_` prefix:
 
@@ -224,7 +174,7 @@ export BOT_API__BASE_URL="http://localhost:9000"
 export BOT_TIMEOUTS__QUESTION_TIMEOUT_SEC=10.0
 
 # Run tests (environment variables take precedence)
-python -m tests.bot.run_tests --scenarios all
+python -m tests.bot.run_tests
 ```
 
 Environment variable format:
@@ -292,10 +242,10 @@ If you get a Pydantic validation error:
 ### Configuration Not Applied
 
 If changes don't seem to apply:
-1. Verify you're using `--config` flag correctly
-2. Check that command-line args don't override your config
-3. Ensure config file is valid YAML
-4. Check logs for config loading messages
+1. Check that command-line args don't override your config
+2. Ensure config file is valid YAML
+3. Check logs for config loading messages
+4. Verify `bot_config.yaml` is in the correct location
 
 ## Migration from Hardcoded Values
 
@@ -319,12 +269,11 @@ All hardcoded values are now in `bot_config.yaml` with sensible defaults.
 
 ## Best Practices
 
-1. **Don't modify `bot_config.yaml` directly** - Create custom config files instead
-2. **Use version control** for custom configs used in CI/CD
-3. **Document custom configs** - Add comments explaining why values were changed
-4. **Test config changes** - Run with `--scenarios mock` first to validate
-5. **Keep configs minimal** - Only override values you need to change
-6. **Use meaningful names** - Name config files by environment (e.g., `staging_config.yaml`)
+1. **Modify `bot_config.yaml` directly** - This is the primary configuration file
+2. **Use version control** - Track changes to `bot_config.yaml`
+3. **Document changes** - Add comments explaining why values were changed
+4. **Test config changes** - Run tests to validate changes
+5. **Use `--base-url` for quick overrides** - Override API URL without modifying config file
 
 ## Contributing
 

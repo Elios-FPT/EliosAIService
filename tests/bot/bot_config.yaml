@@ -1,6 +1,5 @@
 # Test Bot Configuration
 # This file contains default configuration for the interview test bot.
-# You can override these values by creating a custom config file and passing it via --config flag.
 
 # CV Analysis Configuration
 cv_analysis:
