@@ -219,3 +219,4 @@ repomix-output.xml
 tests/reports/*
 
 reports/*
+logs/*
