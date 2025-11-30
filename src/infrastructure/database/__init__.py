@@ -11,6 +11,9 @@ from .session import (
     session_scope,
 )
 
+# Phase 2: Import monitoring to register event listeners
+from . import monitoring  # noqa: F401
+
 __all__ = [
     "get_async_session",
     "init_db",
@@ -20,4 +23,5 @@ __all__ = [
     "get_session_factory",
     "session_scope",
     "Base",
+    "monitoring",
 ]
