@@ -106,10 +106,11 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     postgres_db: str = "elios_interviews"
     database_url: str | None = None  # Full DATABASE_URL from environment
-    db_pool_size: int = 5
+    db_pool_size: int = 12  # Increased from 5 (Phase 2 optimization: 4 workers × 2 + 3 checkpointer)
     db_max_overflow: int = 5
     db_pool_timeout: int = 30
     db_pool_recycle_seconds: int = 240
+    db_pool_pre_ping: bool = True  # Verify connection health before use (Phase 2)
 
     @property
     def async_database_url(self) -> str:
@@ -248,7 +249,6 @@ class Settings(BaseSettings):
     use_langgraph_adaptive_interrupt: bool = (
         False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
     )
-
 
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations

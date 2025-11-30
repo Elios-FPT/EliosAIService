@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
 from ...domain.models.interview_question import InterviewQuestion
@@ -151,6 +152,10 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
     async def get_interview_questions(self, interview_id: UUID) -> list[InterviewQuestion]:
         """Get all questions for an interview, ordered by sequence.
 
+        Phase 2 Optimization: Uses selectinload() to prevent N+1 queries.
+        Before: 1 parent query + N lazy loads (1+N queries total)
+        After: 1 parent query + 1 eager load with IN clause (2 queries total)
+
         Args:
             interview_id: UUID of the interview
 
@@ -160,6 +165,7 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         async with self._session_provider() as session:
             result = await session.execute(
                 select(InterviewQuestionModel)
+                .options(selectinload(InterviewQuestionModel.question))  # Phase 2: Eager load
                 .where(InterviewQuestionModel.interview_id == interview_id)
                 .order_by(InterviewQuestionModel.sequence_order)
             )
@@ -205,6 +211,8 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
     async def get_current_question(self, interview_id: UUID) -> InterviewQuestion | None:
         """Get the current question for an interview based on current_question_index.
 
+        Phase 2 Optimization: Uses selectinload() to prevent N+1 queries.
+
         Args:
             interview_id: UUID of the interview
 
@@ -223,6 +231,7 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
 
             result = await session.execute(
                 select(InterviewQuestionModel)
+                .options(selectinload(InterviewQuestionModel.question))  # Phase 2: Eager load
                 .where(InterviewQuestionModel.interview_id == interview_id)
                 .where(
                     InterviewQuestionModel.sequence_order

@@ -8,12 +8,12 @@ Connection Pool Management:
     Neon / Serverless Considerations:
     - Neon free tier closes idle connections after ~5 minutes.
     - We mitigate by enabling pool_pre_ping and recycling connections before 4 minutes.
-    - Keep pool sizes conservative (defaults: 5 base + 5 overflow) to stay within Neon limits.
+    - Pool sizes optimized for performance (Phase 2 optimization: 12 base + 5 overflow).
 
-    Total Database Connections (default production config):
-    - SQLAlchemy pool (this module): up to 10 connections (5 base + 5 overflow)
+    Total Database Connections (optimized config as of 251130):
+    - SQLAlchemy pool (this module): up to 17 connections (12 base + 5 overflow)
     - AsyncPostgresSaver pool (langgraph_checkpointer.py): ~5-10 connections
-    - Total: ~15-20 connections
+    - Total: ~22-27 connections (within Neon free tier 100 limit)
 
     Recommendations:
     - Monitor active connections to avoid exceeding Neon quotas.
@@ -59,9 +59,10 @@ def create_engine() -> AsyncEngine:
     # Base engine configuration
     # Set echo=False to prevent SQLAlchemy from adding its own handler
     # SQL logging will be handled by the logging configuration instead
+    # PERFORMANCE TESTING: Echo enabled temporarily for query analysis
     engine_config = {
         "url": settings.async_database_url,
-        "echo": False,  # Disable echo to prevent duplicate handlers
+        "echo": True,  # Enable for performance analysis
         "poolclass": poolclass,
     }
 
@@ -71,14 +72,14 @@ def create_engine() -> AsyncEngine:
             "pool_size": settings.db_pool_size,
             "max_overflow": settings.db_max_overflow,
             "pool_timeout": settings.db_pool_timeout,
-            "pool_pre_ping": True,  # Verify connections before using
+            "pool_pre_ping": settings.db_pool_pre_ping,  # Phase 2: Use configurable setting
             # Recycle connections before Neon idle timeout (~5 minutes)
             "pool_recycle": settings.db_pool_recycle_seconds,
         })
     else:
         # Even without pooling, pre-ping protects long-lived single connections
         engine_config.update({
-            "pool_pre_ping": True,
+            "pool_pre_ping": settings.db_pool_pre_ping,  # Phase 2: Use configurable setting
         })
 
     engine = create_async_engine(**engine_config)
