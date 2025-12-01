@@ -492,8 +492,7 @@ class Container:
                 self._tts_port = GoogleChirp3TTSAdapter(
                     project_id=self.settings.google_cloud_project_id,
                     credentials_path=self.settings.google_application_credentials,
-                    voice_type=self.settings.google_tts_voice_type,
-                    default_voice=self.settings.google_tts_default_voice,
+                    voice_name=self.settings.google_tts_voice_name,
                 )
 
         return self._tts_port

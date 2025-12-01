@@ -56,30 +56,24 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
     Notes:
     - Audio format: 16kHz mono LINEAR16 (WAV-compatible) to match existing pipeline.
     - Speed: Directly mapped to Google's ``speaking_rate`` (0.25-4.0).
-    - Voices:
-        - Default type: WaveNet (cost-effective, high quality)
-        - Optional premium: Chirp3HD (higher quality, higher cost)
     """
 
     def __init__(
         self,
         project_id: str,
         credentials_path: str | None = None,
-        voice_type: str = "WaveNet",
-        default_voice: str = "en-US-Wavenet-D",
+        voice_name: str = "",
     ):
         """Initialize Google TTS adapter.
 
         Args:
             project_id: Google Cloud project ID (logged for observability)
             credentials_path: Optional path to service account JSON
-            voice_type: Preferred voice family ("WaveNet" or "Chirp3HD")
-            default_voice: Default full voice name, e.g. "en-US-Wavenet-D"
+            voice_name: Full voice name, e.g. "en-US-Wavenet-D" or "en-US-Chirp3-HD-Charon"
         """
         self.project_id = project_id
         self.credentials_path = credentials_path
-        self.voice_type = voice_type
-        self.default_voice = default_voice
+        self.voice_name = voice_name
 
         # For TTS we require an explicit credentials_path from settings to avoid
         # surprises with differing working directories and relative env paths.
@@ -117,16 +111,14 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
 
         logger.info(
             "Initialized Google TTS adapter "
-            f"(project_id=%s, voice_type=%s, default_voice=%s)",
+            f"(project_id=%s, voice_name=%s)",
             project_id,
-            voice_type,
-            default_voice,
+            voice_name,
         )
 
     async def synthesize_speech(
         self,
         text: str,
-        voice: str = "Achird",
         speed: float = 1.0,
     ) -> bytes:
         """Convert text to speech audio using Google Text-to-Speech.
@@ -142,15 +134,9 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         if not text or not text.strip():
             raise ValueError("Text cannot be empty")
 
-        # Use configured default if caller passes empty/None
-        selected_voice = voice or self.default_voice
-
-        # Normalize voice name: if it's a short name, convert to full Google Cloud voice name
-        selected_voice = self._normalize_voice_name(selected_voice)
-
         request = self._build_synthesize_request(
             text=text,
-            voice_name=selected_voice,
+            voice_name=self.voice_name,
             speed=speed,
         )
 
@@ -160,7 +146,7 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
             logger.error(
                 "Invalid TTS request for voice '%s': %s. "
                 "Request voice params: name=%s, language_code=%s, model=%s",
-                selected_voice,
+                self.voice_name,
                 exc,
                 request.voice.name,
                 request.voice.language_code,
@@ -201,7 +187,7 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        audio_bytes = await self.synthesize_speech(text=text, voice=voice, speed=speed)
+        audio_bytes = await self.synthesize_speech(text=text, speed=speed)
 
         with open(output_path, "wb") as f:
             f.write(audio_bytes)
@@ -263,10 +249,9 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
             name=voice_name,
         )
         logger.debug(
-            "Using voice '%s' with language_code='%s' (voice_type=%s)",
+            "Using voice '%s' with language_code='%s'",
             voice_name,
             language_code,
-            self.voice_type,
         )
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
@@ -300,28 +285,11 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
             return f"{parts[0]}-{parts[1]}"
         return "en-US"
 
-    def _voice_prefix(self) -> str:
-        """Return prefix substring used to filter voices by type."""
-        if self.voice_type == "Chirp3HD":
-            return "Chirp3"
-        if self.voice_type == "WaveNet":
-            return "Wavenet"
-        # Unknown / any type -> no filtering
-        return ""
-
-    def _infer_voice_type(self, voice_name: str) -> str:
-        """Infer high-level voice type from Google voice name."""
-        if "Chirp3" in voice_name:
-            return "Chirp3HD"
-        if "Wavenet" in voice_name or "WaveNet" in voice_name:
-            return "WaveNet"
-        return "Standard"
-
     def _normalize_voice_name(self, voice_name: str) -> str:
         """Normalize voice name to full Google Cloud voice name format.
 
         If voice_name is a short name (doesn't contain language code pattern),
-        use the configured default_voice instead.
+        use the configured voice_name instead.
 
         Args:
             voice_name: Voice name (may be short like "Achird" or full like "en-US-Chirp3-HD-Achernar")
@@ -335,12 +303,12 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
             # Looks like a full name (e.g., "en-US-Chirp3-HD-Achernar")
             return voice_name
 
-        # Short name provided - use default_voice which should be a full name
+        # Short name provided - use voice_name which should be a full name
         logger.debug(
-            "Short voice name '%s' provided, using default_voice '%s'",
+            "Short voice name '%s' provided, using voice_name '%s'",
             voice_name,
-            self.default_voice,
+            self.voice_name,
         )
-        return self.default_voice
+        return self.voice_name
 
 

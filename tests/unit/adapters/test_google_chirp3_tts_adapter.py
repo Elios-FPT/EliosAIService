@@ -162,10 +162,4 @@ class TestGoogleChirp3TTSAdapter:
         assert adapter._language_from_voice("vi-VN-Chirp3-HD-A") == "vi-VN"
         assert adapter._language_from_voice("invalid") == "en-US"
 
-    def test_infer_voice_type(self, adapter: GoogleChirp3TTSAdapter) -> None:
-        """_infer_voice_type should detect WaveNet vs Chirp3HD."""
-        assert adapter._infer_voice_type("en-US-Wavenet-D") == "WaveNet"
-        assert adapter._infer_voice_type("en-US-Chirp3-HD-Charon") == "Chirp3HD"
-        assert adapter._infer_voice_type("en-US-Standard-A") == "Standard"
-
 
