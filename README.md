@@ -336,6 +336,7 @@ docker-compose up -d --build
 - PostgreSQL database (or Neon account)
 - OpenAI API key
 - Pinecone API key
+- Google Cloud account with Speech API enabled (or use mock adapters)
 
 #### Installation
 
@@ -391,6 +392,12 @@ docker-compose up -d --build
    VECTOR_DB_PROVIDER=pinecone
    PINECONE_API_KEY=your-pinecone-api-key
    PINECONE_INDEX_NAME=elios-questions
+
+   # Google Cloud Speech (Chirp 3) - NEW v0.4.1
+   GOOGLE_CLOUD_PROJECT_ID=your-project-id
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+   GOOGLE_STT_MODEL=chirp_3
+   GOOGLE_TTS_DEFAULT_VOICE=en-US-Chirp3-HD-Charon
    ```
 
 5. **Run database migrations**
