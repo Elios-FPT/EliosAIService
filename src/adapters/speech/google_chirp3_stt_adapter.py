@@ -12,7 +12,9 @@ Features:
 
 import asyncio
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from google.api_core import exceptions as google_exceptions
@@ -22,6 +24,36 @@ from google.cloud import speech_v2
 from ...domain.ports.speech_to_text_port import SpeechToTextPort
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_credentials_path(path: str) -> str:
+    """Resolve relative credentials path to absolute path.
+
+    If path is relative, resolve it relative to the project root (where pyproject.toml exists).
+    If path is already absolute, return as-is.
+
+    Args:
+        path: Credentials file path (relative or absolute)
+
+    Returns:
+        Absolute path to credentials file
+    """
+    if os.path.isabs(path):
+        return path
+
+    # Find project root (directory containing pyproject.toml)
+    current = Path(__file__).resolve()
+    while current.parent != current:
+        if (current / "pyproject.toml").exists():
+            project_root = current
+            break
+        current = current.parent
+    else:
+        # Fallback: use current working directory
+        project_root = Path.cwd()
+
+    resolved = (project_root / path).resolve()
+    return str(resolved)
 
 
 class GoogleChirp3STTAdapter(SpeechToTextPort):
@@ -64,8 +96,16 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
         if credentials_path:
             from google.oauth2 import service_account
 
+            # Resolve relative paths to absolute (handles PyCharm/IDE working directory differences)
+            resolved_path = _resolve_credentials_path(credentials_path)
+            if not os.path.exists(resolved_path):
+                raise FileNotFoundError(
+                    f"Google STT credentials file not found: {resolved_path} "
+                    f"(original path: {credentials_path})"
+                )
+
             credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
-                credentials_path
+                resolved_path
             )
             self.client = speech_v2.SpeechClient(credentials=credentials)
         else:
