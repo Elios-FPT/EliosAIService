@@ -111,7 +111,9 @@ async def test_llm_call_tracking() -> None:
     # Process CVs
     for cv_path in cvs:
         candidate_id = uuid4()
-        await adapter.analyze_cv(str(cv_path), candidate_id)
+        cv_bytes = Path(cv_path).read_bytes()
+        file_type = "txt" if str(cv_path).endswith(".txt") else "pdf"
+        await adapter.analyze_cv(cv_bytes, file_type, str(candidate_id))
 
     # Calculate cost
     cost = tracker.calculate_cost(cost_per_1k_tokens=0.001)

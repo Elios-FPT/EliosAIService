@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
+from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 
 
 class MockCVAnalyzerAdapter(CVAnalyzerPort):
@@ -48,26 +48,18 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
 
     SUPPORTED_EXTENSIONS = {".pdf", ".doc", ".docx"}
 
-    async def extract_text_from_file(self, file_path: str) -> str:
-        """Extract mock text from file.
+
+    async def extract_text_from_bytes(self, cv_bytes: bytes, file_type: FileType) -> str:
+        """Extract mock text from bytes.
 
         Args:
-            file_path: Path to CV file
+            cv_bytes: CV file content as bytes
+            file_type: File type ("pdf", "docx", "txt")
 
         Returns:
             Mock CV text content
-
-        Raises:
-            ValueError: If file extension not supported
         """
-        path = Path(file_path)
-        if path.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
-            raise ValueError(
-                f"Unsupported file format: {path.suffix}. "
-                f"Supported formats: {', '.join(self.SUPPORTED_EXTENSIONS)}"
-            )
-
-        # Return realistic mock CV text
+        # Return same mock text regardless of content
         return """
         John Doe
         Software Engineer
@@ -110,30 +102,35 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
 
     async def analyze_cv(
         self,
-        cv_file_path: str,
+        cv_content: bytes,
+        file_type: FileType,
         candidate_id: str,
     ) -> CVAnalysis:
-        """Analyze CV and extract structured information.
+        """Analyze CV from bytes and extract structured information.
 
         Args:
-            cv_file_path: Path to CV file
+            cv_content: CV file content as bytes
+            file_type: File type ("pdf", "docx", "txt")
             candidate_id: UUID of the candidate
 
         Returns:
             CVAnalysis with extracted skills and metadata
         """
-        # Extract text from file
-        extracted_text = await self.extract_text_from_file(cv_file_path)
+        # Extract text from bytes (mock)
+        extracted_text = await self.extract_text_from_bytes(cv_content, file_type)
 
-        # Detect experience level from filename
-        filename = Path(cv_file_path).stem.lower()
-        if "junior" in filename:
+        # Detect experience level from content or use default
+        # For mock, we'll use a simple heuristic based on content length or default to mid-level
+        # In real implementation, this would analyze the actual CV content
+        content_str = cv_content.decode('utf-8', errors='ignore').lower() if len(cv_content) < 1000 else ""
+
+        if "junior" in content_str:
             experience_level = "junior"
             skill_templates = self.JUNIOR_SKILLS[:3]  # 2-3 skills
             years = random.uniform(1.0, 2.0)
             difficulty = "easy"
             education = "Bachelor's"
-        elif "senior" in filename:
+        elif "senior" in content_str:
             experience_level = "senior"
             skill_templates = self.SENIOR_SKILLS[:6]  # 5-6 skills
             years = random.uniform(6.0, 10.0)
@@ -188,10 +185,5 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
             suggested_topics=suggested_topics[:5],  # Limit to 5 topics
             suggested_difficulty=difficulty,
             embedding=None,  # Mock doesn't generate embeddings
-            summary=f"Mock CV analysis: {experience_level.title()}-level candidate with {years:.1f} years of experience",
-            metadata={
-                "experience_level": experience_level,
-                "file_name": Path(cv_file_path).name if cv_file_path else "unknown",
-                "mock_adapter": True,
-            },
+            summary=f"Mock CV analysis: {experience_level.title()}-level candidate with {years:.1f} years of experience"
         )
