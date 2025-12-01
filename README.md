@@ -397,7 +397,7 @@ docker-compose up -d --build
    GOOGLE_CLOUD_PROJECT_ID=your-project-id
    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
    GOOGLE_STT_MODEL=chirp_3
-   GOOGLE_TTS_DEFAULT_VOICE=en-US-Chirp3-HD-Charon
+   GOOGLE_TTS_VOICE_NAME=en-US-Chirp3-HD-Charon
    ```
 
 5. **Run database migrations**

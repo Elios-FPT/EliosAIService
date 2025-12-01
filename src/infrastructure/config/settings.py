@@ -154,8 +154,7 @@ class Settings(BaseSettings):
     google_application_credentials: str | None = None
     google_stt_model: str = "chirp_3"  # chirp_3, short, long, latest_long
     google_stt_language: str = "en-US"
-    google_tts_voice_type: str = "Chirp3HD"  # WaveNet, Chirp3HD
-    google_tts_default_voice: str = "en-US-Chirp3-HD-Charon"
+    google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
 
     # ================================================
     # Azure Speech (DEPRECATED - for rollback only)

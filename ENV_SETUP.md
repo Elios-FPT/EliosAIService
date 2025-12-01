@@ -152,9 +152,24 @@ PINECONE_INDEX_NAME="elios-interviews"
 
 ### Speech Services Settings
 
+**Azure Speech (DEPRECATED - for rollback only)**
 ```bash
 AZURE_SPEECH_KEY="..."
 AZURE_SPEECH_REGION="eastus"
+```
+
+**Google Cloud Speech (Chirp 3)**
+```bash
+# Google Cloud Authentication
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+
+# Speech-to-Text (Chirp 3 model)
+GOOGLE_STT_MODEL=chirp_3  # chirp_3, short, long, latest_long
+GOOGLE_STT_LANGUAGE=en-US
+
+# Text-to-Speech
+GOOGLE_TTS_VOICE_NAME=en-US-Chirp3-HD-Charon  # Full voice name (e.g., en-US-Chirp3-HD-Charon, en-US-Wavenet-D)
 ```
 
 ### Mock Adapter Settings
