@@ -356,7 +356,6 @@ class CVProcessingAdapter(CVAnalyzerPort):
         return CVAnalysis(
             id=cv_analysis_id,
             candidate_id=candidate_id,
-            cv_file_path=cv_file_path,
             extracted_text=cv_text,
             skills=skills,
             work_experience_years=experience_years,

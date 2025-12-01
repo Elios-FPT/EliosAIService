@@ -92,7 +92,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         return self._map_to_cv_analysis(
             merged_results,
             cv_text,
-            cv_file_path,
             candidate_id,
         )
 
@@ -210,7 +209,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         self,
         merged_results: dict[str, Any],
         cv_text: str,
-        cv_file_path: str,
         candidate_id: UUID,
     ) -> CVAnalysis:
         from uuid import uuid4
