@@ -1,9 +1,9 @@
 # Elios AI Interview Service - Project Roadmap
 
-**Version**: 0.4.0
-**Last Updated**: 2025-11-26
-**Project Status**: Phase 1.6 - Schema Redesign (**100% COMPLETE** ✅)
-**Current Branch**: `feat/langchain-langgraph-integration`
+**Version**: 0.4.1
+**Last Updated**: 2025-12-01
+**Project Status**: Phase 1.6 - Schema Redesign (**100% COMPLETE** ✅) + Google Chirp 3 Migration Phase 01 (**COMPLETE** ✅)
+**Current Branch**: `feat/speech-service`
 
 ---
 
@@ -200,6 +200,51 @@ question.question_type = QuestionType.TECHNICAL  # ENUM validation
 - All data preserved during migration
 - Foreign key constraints enforced
 - CASCADE deletes configured
+
+### Phase 1.7: Google Chirp 3 Migration (v0.4.1) - Phase 01 **COMPLETE** ✅
+
+**Timeline**: 2025-12-01 → Ongoing (3-week project)
+**Status**: Phase 01 COMPLETE, Phases 02-07 PENDING
+**Progress**: 1/7 phases complete (14%)
+**Branch**: `feat/speech-service`
+
+#### Phase 01: Environment Setup & Dependencies (100%) ✅ COMPLETED 2025-12-01
+
+**Objective**: Set up Google Cloud infrastructure and prepare local development environment
+
+**Completed**:
+- ✅ Google Cloud project setup (manual - documented in plan)
+- ✅ Environment variables configuration (.env.example, .env.local, .gitignore)
+- ✅ Dependency installation (google-cloud-speech>=2.33.0, google-cloud-texttospeech>=2.19.0)
+- ✅ Settings configuration (added Google Cloud fields with validation)
+- ✅ Authentication validation script (scripts/test_google_auth.py)
+
+**Files Modified**:
+1. `.env.example` - Added Google Cloud Speech config template
+2. `.gitignore` - Added .secrets/ and *-service-account-key.json exclusions
+3. `pyproject.toml` - Added google-cloud-speech and google-cloud-texttospeech
+4. `src/infrastructure/config/settings.py` - Added Google Cloud fields + validator
+5. `scripts/test_google_auth.py` - New authentication test script (created)
+6. `.env.test` - Test environment variables
+
+**Code Review**: ✅ PASSED (0 critical issues)
+- Linting: PASS (auto-fixable issues resolved)
+- Type checking: PASS
+- Settings load correctly: ✅
+- Dependencies installed: ✅
+- All acceptance criteria met: ✅
+
+**Architecture Changes**: NONE (clean architecture preserved)
+- Domain layer: UNCHANGED
+- Port interfaces: UNCHANGED
+- DI container: NO CHANGES in Phase 01
+
+**Next Phase**: Phase 02 - Google Chirp 3 STT Adapter Implementation
+- Estimated duration: 3 days
+- Risk level: Medium (streaming latency concerns)
+- Acceptance criteria: Voice metrics accuracy, streaming latency <5s
+
+---
 
 ### Phase 1.5: LangChain/LangGraph Integration (v0.3.0) - **100% COMPLETE** ✅
 
@@ -1019,6 +1064,43 @@ langsmith = "^0.2.3"  # For cost tracking + observability
 
 ---
 
-**Last Updated**: 2025-11-26
-**Next Review**: 2025-11-27
-**Version**: 0.4.0 (Schema Redesign Phase)
+---
+
+## Google Chirp 3 Speech Migration Status (v0.4.1)
+
+**Plan Location**: `plans/251201-0213-google-chirp3-migration/plan.md`
+
+### Completion Summary
+- **Total Phases**: 7 (Environment, STT, TTS, DI, Mock Adapters, Testing, Cleanup)
+- **Completed**: Phase 01 (14%)
+- **In Progress**: None (Phase 02 ready to start)
+- **Pending**: Phases 02-07 (86%)
+
+### Phase 01 Deliverables
+- Google Cloud project setup instructions (manual verification required)
+- Environment configuration template (.env.example with Chirp 3 variables)
+- Dependencies installed (google-cloud-speech, google-cloud-texttospeech)
+- Settings validation for Google Cloud configuration
+- Authentication test script for local verification
+
+### Risk Assessment
+- **Phase 01**: LOW - Complete, all acceptance criteria met
+- **Phase 02**: MEDIUM - STT implementation with streaming latency validation critical
+- **Phase 03**: LOW - TTS simpler than STT
+- **Overall**: MEDIUM - Streaming latency is main blocker (must test Phase 02 early)
+
+### Business Impact
+- **Cost Reduction**: -28% to -50% on speech services
+- **Language Support**: 100+ languages enabled (vs Azure's 20+)
+- **Multilingual**: Full Chirp 3 support for global expansion
+
+### Rollback Window
+- Duration: 30 days (2025-12-01 → 2026-01-01)
+- Azure adapters archived in `src/adapters/speech/_archived_azure/`
+- Rollback procedure documented in plan
+
+---
+
+**Last Updated**: 2025-12-01 20:45
+**Next Review**: 2025-12-02 (Phase 02 kickoff)
+**Version**: 0.4.1 (Google Chirp 3 Migration Phase 01)

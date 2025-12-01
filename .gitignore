@@ -82,6 +82,10 @@ celerybeat-schedule
 .env.local
 .env.test
 
+# Google Cloud credentials
+.secrets/
+*-service-account-key.json
+
 # virtualenv
 venv/
 ENV/

@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -147,7 +147,19 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # Speech Services (Azure Speech SDK)
+    # ================================================
+    # Google Cloud Speech (NEW v0.4.1)
+    # ================================================
+    google_cloud_project_id: str | None = None
+    google_application_credentials: str | None = None
+    google_stt_model: str = "chirp_3"  # chirp_3, short, long, latest_long
+    google_stt_language: str = "en-US"
+    google_tts_voice_type: str = "Chirp3HD"  # WaveNet, Chirp3HD
+    google_tts_default_voice: str = "en-US-Chirp3-HD-Charon"
+
+    # ================================================
+    # Azure Speech (DEPRECATED - for rollback only)
+    # ================================================
     azure_speech_key: str | None = None
     azure_speech_region: str = "eastus"
     azure_speech_language: str = "en-US"
@@ -276,6 +288,18 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_speech_config(self) -> "Settings":
+        """Validate Google Cloud Speech configuration."""
+        if not self.use_mock_stt and not self.use_mock_tts:
+            if not self.google_cloud_project_id:
+                raise ValueError(
+                    "GOOGLE_CLOUD_PROJECT_ID required when not using mock adapters. "
+                    "Set USE_MOCK_STT=true or USE_MOCK_TTS=true for development, "
+                    "or provide Google Cloud credentials."
+                )
+        return self
 
     def print_loaded_env_file(self) -> None:
         """Print active environment (env file already loaded by _load_environment_config)."""

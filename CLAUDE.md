@@ -275,7 +275,7 @@ print(f"Avg tokens: {analytics['avg_tokens_used']}")
 ### External Services (via Adapters)
 - **LLM Providers**: OpenAI GPT-4, Anthropic Claude, Meta Llama 3
 - **Vector Database**: Pinecone (primary), Weaviate, ChromaDB (alternatives)
-- **Speech Services**: Azure Speech-to-Text, Microsoft Edge TTS
+- **Speech Services**: Google Cloud Speech (Chirp 3 STT, Chirp3HD TTS) - Azure Speech deprecated (30-day rollback window)
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **NLP**: spaCy, LangChain
 - **Document Processing**: PyPDF2, python-docx
@@ -298,9 +298,26 @@ Configuration is managed through environment variables and `.env` files:
 Key configuration areas:
 - LLM provider selection and API keys
 - Vector database connection
-- Speech service credentials
+- Speech service credentials (Google Cloud Speech with Chirp 3)
 - PostgreSQL connection string
 - Feature flags for adapter selection
+
+**Google Cloud Speech Configuration** (v0.4.1+):
+```env
+# Google Cloud Authentication
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+
+# Speech-to-Text (Chirp 3 model)
+GOOGLE_STT_MODEL=chirp_3
+GOOGLE_STT_LANGUAGE=en-US
+
+# Text-to-Speech (Chirp3HD premium voices)
+GOOGLE_TTS_VOICE_TYPE=Chirp3HD
+GOOGLE_TTS_DEFAULT_VOICE=en-US-Chirp3-HD-Charon
+```
+
+**Phase 01 Completed** (251201): Environment setup, dependencies installed (`google-cloud-speech`, `google-cloud-texttospeech`), configuration added, auth test script created (`scripts/test_google_auth.py`).
 
 ## Key Components
 
