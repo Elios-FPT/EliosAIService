@@ -59,10 +59,9 @@ def create_engine() -> AsyncEngine:
     # Base engine configuration
     # Set echo=False to prevent SQLAlchemy from adding its own handler
     # SQL logging will be handled by the logging configuration instead
-    # PERFORMANCE TESTING: Echo enabled temporarily for query analysis
     engine_config = {
         "url": settings.async_database_url,
-        "echo": True,  # Enable for performance analysis
+        "echo": False,  # Disable to prevent duplicate logging (handled by logging.yaml)
         "poolclass": poolclass,
     }
 

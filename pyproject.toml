@@ -55,6 +55,7 @@ dependencies = [
     "numpy>=1.24.0",
 
     # Speech Services
+    "google-cloud-core>=2.4.0",  # Required for google.api_core (used by STT/TTS adapters)
     "google-cloud-speech>=2.33.0",
     "google-cloud-texttospeech>=2.19.0",
     "azure-cognitiveservices-speech>=1.47.0",  # TODO: Remove after 2026-01-01 (30-day rollback)
