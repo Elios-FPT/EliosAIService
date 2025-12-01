@@ -4,14 +4,23 @@ This module wires up all dependencies and provides them to the application.
 It's the only place that knows about concrete implementations.
 """
 
+# ruff: noqa: E402, I001
+
+import asyncio
+import logging
+import re
 from datetime import datetime
 
 def debug_print(msg: str):
     """Helper function to print debug messages with timestamps."""
     print(f"DEBUG [{datetime.now().strftime('%H:%M:%S.%f')[:-3]}]: {msg}", flush=True)
 
+
+logger = logging.getLogger(__name__)
+
 debug_print("container.py: Starting imports...")
 
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +39,7 @@ debug_print("container.py: About to import mock adapters...")
 from ...adapters.mock import (
     MockAnalyticsAdapter,
     MockCVAnalyzerAdapter,
+    MockEventPublisher,
     MockLLMAdapter,
     MockSTTAdapter,
     MockTTSAdapter,
@@ -48,6 +58,7 @@ from ...adapters.persistence import (
     PostgreSQLInterviewRepository,
     PostgreSQLPromptRepository,
     PostgreSQLQuestionRepository,
+    SessionProvider,
 )
 debug_print("container.py: Persistence adapters imported")
 
@@ -62,6 +73,11 @@ from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
 debug_print("container.py: CVProcessingAdapter imported")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 debug_print("container.py: HybridCVAnalyzerAdapter imported")
+
+debug_print("container.py: About to import messaging adapters...")
+from ...adapters.messaging import KafkaEventPublisher
+debug_print("container.py: KafkaEventPublisher imported")
+
 debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
     AnalyticsPort,
@@ -70,6 +86,7 @@ from ...domain.ports import (
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
     EvaluationRepositoryPort,
+    EventPublisherPort,
     FollowUpQuestionRepositoryPort,
     InterviewRepositoryPort,
     LLMPort,
@@ -83,6 +100,11 @@ debug_print("container.py: Domain ports imported")
 
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
+from ...infrastructure.database import session_scope
+from ...infrastructure.background.checkpointer_heartbeat import (
+    HeartbeatHandle,
+    start_checkpointer_heartbeat,
+)
 debug_print("container.py: Settings imported")
 
 debug_print("container.py: All imports completed, defining Container class...")
@@ -108,13 +130,38 @@ class Container:
         self._stt_port: SpeechToTextPort | None = None
         self._tts_port: TextToSpeechPort | None = None
         self._checkpointer = None  # LangGraph checkpointer (lazy init)
+        self._checkpointer_heartbeat: HeartbeatHandle | None = None
+        self._event_publisher: EventPublisherPort | None = None
+        self._default_session_provider: SessionProvider | None = None
+
+    def _resolve_session_provider(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> SessionProvider:
+        """Return a session provider based on explicit provider or session."""
+        if session_provider is not None:
+            return session_provider
+        if session is not None:
+            @asynccontextmanager
+            async def _provider():
+                try:
+                    yield session
+                except Exception:
+                    await session.rollback()
+                    raise
+
+            return _provider
+        if self._default_session_provider is None:
+            self._default_session_provider = session_scope
+        return self._default_session_provider
 
     def llm_port(self, session: AsyncSession | None = None) -> LLMPort:
         """Get LLM port implementation.
 
         Args:
             session: Optional database session for injecting prompt repository.
-                    If provided and using LangChain adapter, prompt repository will be injected.
+                If provided and using LangChain adapter, prompt repository will be injected.
 
         Returns:
             Configured LLM port based on settings
@@ -122,17 +169,14 @@ class Container:
         Raises:
             ValueError: If LLM provider is not supported or not configured
         """
-        # If session is provided, create a new instance with repository (don't use cache)
+        # If a session is provided, build a fresh instance that can use a session-scoped prompt repo.
         if session is not None:
-            # Use mock adapter if configured
             if self.settings.use_mock_llm:
                 return MockLLMAdapter()
-            # Use LangChain adapter if feature flag enabled
-            elif self.settings.use_langchain:
-                prompt_repo = self.prompt_repository_port(session)
+            if self.settings.use_langchain:
+                prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
-            elif self.settings.llm_provider == "openai":
-                # Check if using Azure OpenAI
+            if self.settings.llm_provider == "openai":
                 if self.settings.use_azure_openai:
                     if not self.settings.azure_openai_api_key:
                         raise ValueError("Azure OpenAI API key not configured")
@@ -148,40 +192,31 @@ class Container:
                         deployment_name=self.settings.azure_openai_deployment_name,
                         temperature=self.settings.openai_temperature,
                     )
-                else:
-                    # Standard OpenAI
-                    if not self.settings.openai_api_key:
-                        raise ValueError("OpenAI API key not configured")
 
-                    return OpenAIAdapter(
-                        api_key=self.settings.openai_api_key,
-                        model=self.settings.openai_model,
-                        temperature=self.settings.openai_temperature,
-                    )
-            elif self.settings.llm_provider == "claude":
+                if not self.settings.openai_api_key:
+                    raise ValueError("OpenAI API key not configured")
+
+                return OpenAIAdapter(
+                    api_key=self.settings.openai_api_key,
+                    model=self.settings.openai_model,
+                    temperature=self.settings.openai_temperature,
+                )
+
+            if self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
-
-                # Import Claude adapter when implemented
-                # from ...adapters.llm.claude_adapter import ClaudeAdapter
-                # return ClaudeAdapter(
-                #     api_key=self.settings.anthropic_api_key,
-                #     model=self.settings.anthropic_model,
-                # )
                 raise NotImplementedError("Claude adapter not yet implemented")
-            else:
-                raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
-        # No session provided - use cached singleton instance
+            raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
+
+        # No session → use cached singleton instance.
         if self._llm_port is None:
-            # Use mock adapter if configured
             if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
-            # Use LangChain adapter if feature flag enabled
             elif self.settings.use_langchain:
-                self._llm_port = self._create_langchain_adapter()
+                prompt_repo = self.prompt_repository_port()
+                self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
             elif self.settings.llm_provider == "openai":
-                # Check if using Azure OpenAI
                 if self.settings.use_azure_openai:
                     if not self.settings.azure_openai_api_key:
                         raise ValueError("Azure OpenAI API key not configured")
@@ -198,7 +233,6 @@ class Container:
                         temperature=self.settings.openai_temperature,
                     )
                 else:
-                    # Standard OpenAI
                     if not self.settings.openai_api_key:
                         raise ValueError("OpenAI API key not configured")
 
@@ -210,13 +244,6 @@ class Container:
             elif self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
-
-                # Import Claude adapter when implemented
-                # from ...adapters.llm.claude_adapter import ClaudeAdapter
-                # self._llm_port = ClaudeAdapter(
-                #     api_key=self.settings.anthropic_api_key,
-                #     model=self.settings.anthropic_model,
-                # )
                 raise NotImplementedError("Claude adapter not yet implemented")
             else:
                 raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
@@ -263,7 +290,11 @@ class Container:
 
         return self._vector_search_port
 
-    def question_repository_port(self, session: AsyncSession) -> QuestionRepositoryPort:
+    def question_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> QuestionRepositoryPort:
         """Get question repository port implementation.
 
         Args:
@@ -272,10 +303,13 @@ class Container:
         Returns:
             Configured question repository
         """
-        return PostgreSQLQuestionRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLQuestionRepository(provider)
 
     def follow_up_question_repository(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> FollowUpQuestionRepositoryPort:
         """Get follow-up question repository port implementation.
 
@@ -285,9 +319,14 @@ class Container:
         Returns:
             Configured follow-up question repository
         """
-        return PostgreSQLFollowUpQuestionRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLFollowUpQuestionRepository(provider)
 
-    def candidate_repository_port(self, session: AsyncSession) -> CandidateRepositoryPort:
+    def candidate_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> CandidateRepositoryPort:
         """Get candidate repository port implementation.
 
         Args:
@@ -296,9 +335,14 @@ class Container:
         Returns:
             Configured candidate repository
         """
-        return PostgreSQLCandidateRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLCandidateRepository(provider)
 
-    def interview_repository_port(self, session: AsyncSession) -> InterviewRepositoryPort:
+    def interview_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> InterviewRepositoryPort:
         """Get interview repository port implementation.
 
         Args:
@@ -307,9 +351,14 @@ class Container:
         Returns:
             Configured interview repository
         """
-        return PostgreSQLInterviewRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLInterviewRepository(provider)
 
-    def answer_repository_port(self, session: AsyncSession) -> AnswerRepositoryPort:
+    def answer_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> AnswerRepositoryPort:
         """Get answer repository port implementation.
 
         Args:
@@ -318,10 +367,13 @@ class Container:
         Returns:
             Configured answer repository
         """
-        return PostgreSQLAnswerRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLAnswerRepository(provider)
 
     def evaluation_repository_port(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> EvaluationRepositoryPort:
         """Get evaluation repository port implementation.
 
@@ -331,9 +383,14 @@ class Container:
         Returns:
             Configured evaluation repository
         """
-        return PostgreSQLEvaluationRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLEvaluationRepository(provider)
 
-    def prompt_repository_port(self, session: AsyncSession) -> PromptRepositoryPort:
+    def prompt_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> PromptRepositoryPort:
         """Get prompt repository port implementation.
 
         Args:
@@ -342,10 +399,13 @@ class Container:
         Returns:
             Configured prompt repository
         """
-        return PostgreSQLPromptRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLPromptRepository(provider)
 
     def cv_analysis_repository_port(
-        self, session: AsyncSession
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
     ) -> CVAnalysisRepositoryPort:
         """Get CV analysis repository port implementation.
 
@@ -355,7 +415,8 @@ class Container:
         Returns:
             Configured CV analysis repository
         """
-        return PostgreSQLCVAnalysisRepository(session)
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgreSQLCVAnalysisRepository(provider)
 
     def cv_analyzer_port(self) -> CVAnalyzerPort:
         """Get CV analyzer port implementation.
@@ -388,25 +449,23 @@ class Container:
             Configured STT service
 
         Raises:
-            ValueError: If Azure Speech API key or region is not configured
+            ValueError: If Google Cloud Speech config is not configured
         """
         if self._stt_port is None:
             # Use mock adapter if configured
             if self.settings.use_mock_stt:
                 self._stt_port = MockSTTAdapter()
             else:
-                # Use Azure Speech SDK
-                from ...adapters.speech.azure_stt_adapter import AzureSpeechToTextAdapter
+                from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
 
-                if not self.settings.azure_speech_key:
-                    raise ValueError("Azure Speech API key not configured")
-                if not self.settings.azure_speech_region:
-                    raise ValueError("Azure Speech region not configured")
+                if not self.settings.google_cloud_project_id:
+                    raise ValueError("Google Cloud project ID not configured")
 
-                self._stt_port = AzureSpeechToTextAdapter(
-                    api_key=self.settings.azure_speech_key,
-                    region=self.settings.azure_speech_region,
-                    language=self.settings.azure_speech_language,
+                self._stt_port = GoogleChirp3STTAdapter(
+                    project_id=self.settings.google_cloud_project_id,
+                    credentials_path=self.settings.google_application_credentials,
+                    model=self.settings.google_stt_model,
+                    language=self.settings.google_stt_language,
                 )
 
         return self._stt_port
@@ -418,28 +477,72 @@ class Container:
             Configured TTS service
 
         Raises:
-            ValueError: If Azure Speech API key or region is not configured
+            ValueError: If Google Cloud Speech config is not configured
         """
         if self._tts_port is None:
             # Use mock adapter if configured
             if self.settings.use_mock_tts:
                 self._tts_port = MockTTSAdapter()
             else:
-                # Use Azure Speech SDK
-                from ...adapters.speech.azure_tts_adapter import AzureTTSAdapter
+                from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
 
-                if not self.settings.azure_speech_key:
-                    raise ValueError("Azure Speech API key not configured")
-                if not self.settings.azure_speech_region:
-                    raise ValueError("Azure Speech region not configured")
+                if not self.settings.google_cloud_project_id:
+                    raise ValueError("Google Cloud project ID not configured")
 
-                self._tts_port = AzureTTSAdapter(
-                    subscription_key=self.settings.azure_speech_key,
-                    region=self.settings.azure_speech_region,
-                    default_voice=self.settings.azure_speech_voice,
+                self._tts_port = GoogleChirp3TTSAdapter(
+                    project_id=self.settings.google_cloud_project_id,
+                    credentials_path=self.settings.google_application_credentials,
+                    voice_name=self.settings.google_tts_voice_name,
                 )
 
         return self._tts_port
+
+    def event_publisher_port(self) -> EventPublisherPort:
+        """Get event publisher port implementation.
+
+        Returns:
+            Configured event publisher (Kafka or Mock)
+
+        Note:
+            Kafka adapter must be started via start_event_publisher().
+            Mock adapter does not require start/stop.
+        """
+        if self._event_publisher is None:
+            if self.settings.use_mock_event_publisher:
+                self._event_publisher = MockEventPublisher()
+            else:
+                self._event_publisher = KafkaEventPublisher(
+                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                    interview_topic=self.settings.kafka_interview_topic,
+                )
+
+        return self._event_publisher
+
+    async def start_event_publisher(self) -> None:
+        """Start event publisher (call in FastAPI lifespan startup).
+
+        Only starts Kafka producer (Mock has no start/stop).
+
+        Raises:
+            Exception: If Kafka producer fails to start
+        """
+        publisher = self.event_publisher_port()
+
+        # Only Kafka adapter has start() method
+        if isinstance(publisher, KafkaEventPublisher):
+            await publisher.start()
+
+    async def stop_event_publisher(self) -> None:
+        """Stop event publisher (call in FastAPI lifespan shutdown).
+
+        Flushes pending Kafka messages before stopping.
+        """
+        if self._event_publisher is None:
+            return
+
+        # Only Kafka adapter has stop() method
+        if isinstance(self._event_publisher, KafkaEventPublisher):
+            await self._event_publisher.stop()
 
     def analytics_port(self) -> AnalyticsPort:
         """Get analytics port implementation.
@@ -583,87 +686,24 @@ class Container:
 
             # Create and setup checkpointer with configurable timeout
             self._checkpointer = await create_checkpointer(conn_string, timeout=timeout)
+            self._log_checkpointer_diagnostics(
+                conn_string,
+                getattr(self._checkpointer, "endpoint_type", "unknown"),
+            )
+            await self._start_checkpointer_heartbeat(self._checkpointer)
 
         return self._checkpointer
 
-    async def create_adaptive_eval_simple_workflow(self, session: AsyncSession):
-        """Create AdaptiveEvalSimpleWorkflow with all dependencies.
-
-        Args:
-            session: Async database session
-
-        Returns:
-            Configured AdaptiveEvalSimpleWorkflow instance
-
-        Note:
-            This is async due to checkpointer initialization.
-        """
-        from ...application.workflows.adaptive_eval_simple_workflow import AdaptiveEvalSimpleWorkflow
-
-        # Get checkpointer
-        checkpointer = await self.get_checkpointer()
-
-        # Get all required ports
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
-
-        # Create and return workflow
-        return AdaptiveEvalSimpleWorkflow(
-            checkpointer=checkpointer,
-            answer_repo=answer_repo,
-            evaluation_repo=evaluation_repo,
-            interview_repo=interview_repo,
-            question_repo=question_repo,
-            follow_up_repo=follow_up_repo,
-            llm=llm,
-        )
-
-    async def create_adaptive_eval_interrupt_workflow(self, session: AsyncSession):
-        """Create AdaptiveEvalInterruptWorkflow with all dependencies (Phase 3B).
-
-        Args:
-            session: Async database session
-
-        Returns:
-            Configured AdaptiveEvalInterruptWorkflow instance
-
-        Note:
-            This is async due to checkpointer initialization.
-            Phase 3B workflow includes WebSocket interrupts and loop-back logic.
-        """
-        from ...application.workflows.adaptive_eval_interrupt_workflow import AdaptiveEvalInterruptWorkflow
-
-        # Get checkpointer
-        checkpointer = await self.get_checkpointer()
-
-        # Get all required ports (same as Phase 3A)
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        follow_up_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
-
-        # Create and return workflow
-        return AdaptiveEvalInterruptWorkflow(
-            checkpointer=checkpointer,
-            answer_repo=answer_repo,
-            evaluation_repo=evaluation_repo,
-            interview_repo=interview_repo,
-            question_repo=question_repo,
-            follow_up_repo=follow_up_repo,
-            llm=llm,
-        )
-
-    async def create_interview_conversation_workflow(self, session: AsyncSession):
+    async def create_interview_conversation_workflow(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ):
         """Create InterviewConversationWorkflow with all dependencies.
 
         Args:
-            session: Async database session
+            session: Optional AsyncSession for request-scoped workflows
+            session_provider: Optional provider override
 
         Returns:
             Configured InterviewConversationWorkflow instance
@@ -678,12 +718,13 @@ class Container:
         checkpointer = await self.get_checkpointer()
 
         # Get all required ports
-        interview_repo = self.interview_repository_port(session)
-        question_repo = self.question_repository_port(session)
-        answer_repo = self.answer_repository_port(session)
-        evaluation_repo = self.evaluation_repository_port(session)
-        followup_repo = self.follow_up_question_repository(session)
-        llm = self.llm_port(session)
+        interview_repo = self.interview_repository_port(session=session, session_provider=session_provider)
+        question_repo = self.question_repository_port(session=session, session_provider=session_provider)
+        answer_repo = self.answer_repository_port(session=session, session_provider=session_provider)
+        evaluation_repo = self.evaluation_repository_port(session=session, session_provider=session_provider)
+        followup_repo = self.follow_up_question_repository(session=session, session_provider=session_provider)
+        llm = self.llm_port(session=session)
+        event_publisher = self.event_publisher_port()
 
         # Create and return workflow
         return InterviewConversationWorkflow(
@@ -694,7 +735,94 @@ class Container:
             evaluation_repo=evaluation_repo,
             followup_repo=followup_repo,
             llm=llm,
+            event_publisher=event_publisher,
         )
+
+    def _log_checkpointer_diagnostics(self, conn_string: str, endpoint_type: str) -> None:
+        """Log masked diagnostics for operators."""
+        masked_conn = re.sub(r":([^:@]+)@", ":***@", conn_string)
+        logger.info(
+            "LangGraph checkpointer diagnostics",
+            extra={
+                "event": "checkpointer_diagnostics",
+                "endpoint_type": endpoint_type,
+                "db_pool_recycle_seconds": self.settings.db_pool_recycle_seconds,
+                "db_pool_size": self.settings.db_pool_size,
+                "db_max_overflow": self.settings.db_max_overflow,
+                "connection_string": masked_conn,
+            },
+        )
+
+    async def _start_checkpointer_heartbeat(self, checkpointer) -> None:
+        """Start heartbeat loop if enabled."""
+        if not self.settings.langgraph_checkpointer_heartbeat_enabled:
+            return
+        if self._checkpointer_heartbeat:
+            return
+
+        async def ping():
+            # alist() requires config parameter with thread_id
+            # alist() returns async generator, consume one item to verify connection
+            config = {"configurable": {"thread_id": "__heartbeat__"}}
+            async for _ in checkpointer.alist(config, limit=1):
+                break  # Just need to verify connection works
+
+        interval = max(1, self.settings.langgraph_checkpointer_heartbeat_interval_seconds)
+        self._checkpointer_heartbeat = await start_checkpointer_heartbeat(ping, interval)
+        logger.info(
+            "LangGraph checkpointer heartbeat started",
+            extra={
+                "event": "checkpointer_heartbeat_started",
+                "interval_seconds": interval,
+            },
+        )
+
+    async def stop_checkpointer_heartbeat(self) -> None:
+        """Stop heartbeat loop if running."""
+        if self._checkpointer_heartbeat:
+            await self._checkpointer_heartbeat.stop()
+            self._checkpointer_heartbeat = None
+            logger.info("LangGraph checkpointer heartbeat stopped")
+
+    async def ensure_checkpointer_alive(self) -> None:
+        """Ensure checkpointer connection is alive before workflow execution."""
+        checkpointer = await self.get_checkpointer()
+        timeout = max(1.0, float(self.settings.langgraph_checkpointer_ensure_timeout_seconds))
+        max_attempts = 2
+        last_exc: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # alist() requires config parameter with thread_id
+                # alist() returns async generator, consume one item to verify connection
+                config = {"configurable": {"thread_id": "__health_check__"}}
+                async def consume_one():
+                    async for _ in checkpointer.alist(config, limit=1):
+                        break  # Just need to verify connection works
+                await asyncio.wait_for(consume_one(), timeout=timeout)
+                if attempt > 1:
+                    logger.info("Checkpointer ensure alive succeeded after retry")
+                return
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Checkpointer ensure alive attempt %s failed: %s",
+                    attempt,
+                    exc,
+                )
+                if attempt < max_attempts:
+                    await self._start_checkpointer_heartbeat(checkpointer)
+                    await asyncio.sleep(0)
+                    continue
+                break
+
+        if last_exc:
+            logger.error(
+                "Checkpointer ensure alive failed after retries: %s",
+                last_exc,
+                extra={"event": "checkpointer_ensure_failed"},
+            )
+            raise last_exc
 
 
 @lru_cache

@@ -15,12 +15,13 @@ from ....application.dto.prompt_dto import (
     PaginatedPromptsResponse,
     PromptTemplateResponse,
     RollbackRequest,
+    UpdateDraftPromptRequest,
     VersionHistoryResponse,
 )
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
 
-router = APIRouter(prefix="/ai/prompts", tags=["Prompt Management"])
+router = APIRouter(prefix="/prompts", tags=["Prompt Management"])
 
 
 
@@ -46,7 +47,7 @@ async def create_initial_prompt(
         HTTPException: 400 if prompt already exists or validation fails
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     try:
         prompt = await prompt_repo.create_initial_prompt(
@@ -96,7 +97,7 @@ async def create_new_version(
         HTTPException: 400 if parent version not found or validation fails
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     try:
         prompt = await prompt_repo.create_new_version(
@@ -124,6 +125,60 @@ async def create_new_version(
         ) from e
 
 
+@router.patch(
+    "/{prompt_id}/draft",
+    response_model=PromptTemplateResponse,
+)
+async def update_draft_prompt_version(
+    prompt_id: UUID,
+    request: UpdateDraftPromptRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> PromptTemplateResponse:
+    """Update the content of a draft prompt version.
+
+    Args:
+        prompt_id: Prompt version UUID
+        request: UpdateDraftPromptRequest with updated template content and params
+
+    Returns:
+        Updated PromptTemplateResponse
+
+    Raises:
+        HTTPException: 404 if prompt not found, 400 if version is not draft
+    """
+    container = get_container()
+    prompt_repo = container.prompt_repository_port(session=session)
+
+    try:
+        prompt = await prompt_repo.update_draft_prompt(
+            prompt_id=prompt_id,
+            updates={
+                "system_prompt": request.system_prompt,
+                "user_template": request.user_template,
+                "input_variables": request.input_variables,
+                "partial_variables": request.partial_variables or {},
+                "output_parser_type": request.output_parser_type,
+                "output_schema": request.output_schema or {},
+                "temperature": Decimal(str(request.temperature)),
+                "max_tokens": request.max_tokens,
+                "top_p": Decimal(str(request.top_p)),
+                "frequency_penalty": Decimal(str(request.frequency_penalty)),
+                "presence_penalty": Decimal(str(request.presence_penalty)),
+            },
+        )
+        return PromptTemplateResponse.from_domain(prompt)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
 @router.post(
     "/{name}/rollback",
     response_model=PromptTemplateResponse,
@@ -139,7 +194,6 @@ async def rollback_prompt(
     Args:
         name: Prompt name
         request: RollbackRequest with target version and reason
-        session: Database session
 
     Returns:
         Created PromptTemplateResponse (new version with target's content)
@@ -148,7 +202,7 @@ async def rollback_prompt(
         HTTPException: 400 if target version not found
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     try:
         prompt = await prompt_repo.rollback_to_version(
@@ -174,18 +228,18 @@ async def get_version_history(
 
     Args:
         name: Prompt name
-        session: Database session
 
     Returns:
         List of VersionHistoryResponse (empty list if prompt doesn't exist)
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     history = await prompt_repo.get_version_history(name)
 
     return [
         VersionHistoryResponse(
+            id=entry["id"],
             version=entry["version"],
             created_at=entry["created_at"],
             created_by=entry.get("created_by"),
@@ -213,7 +267,6 @@ async def get_specific_version(
     Args:
         name: Prompt name
         version: Version number
-        session: Database session
 
     Returns:
         PromptTemplateResponse
@@ -222,7 +275,7 @@ async def get_specific_version(
         HTTPException: 404 if version not found
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     prompt = await prompt_repo.get_version(name, version)
 
@@ -244,7 +297,6 @@ async def get_prompt_by_id(
 
     Args:
         prompt_id: Prompt UUID
-        session: Database session
 
     Returns:
         PromptTemplateResponse
@@ -253,7 +305,7 @@ async def get_prompt_by_id(
         HTTPException: 404 if prompt not found
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     prompt = await prompt_repo.get_by_id(prompt_id)
 
@@ -280,13 +332,12 @@ async def activate_prompt_version(
     Args:
         prompt_id: Prompt version UUID to activate
         request: ActivatePromptRequest with activation details
-        session: Database session
 
     Raises:
         HTTPException: 404 if prompt not found, 400 if validation fails
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     # Verify prompt exists
     prompt = await prompt_repo.get_by_id(prompt_id)
@@ -318,7 +369,6 @@ async def get_active_prompt(
 
     Args:
         name: Prompt name
-        session: Database session
 
     Returns:
         PromptTemplateResponse (active version)
@@ -327,7 +377,7 @@ async def get_active_prompt(
         HTTPException: 404 if no active version exists
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     prompt = await prompt_repo.get_active_prompt(name)
 
@@ -362,7 +412,7 @@ async def publish_draft_prompt(
         HTTPException: 404 if prompt not found, 400 if not a draft or validation fails
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     # Get prompt
     prompt = await prompt_repo.get_by_id(prompt_id)
@@ -414,7 +464,7 @@ async def get_analytics_summary(
         HTTPException: 404 if prompt never executed (no analytics data)
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     summary = await prompt_repo.get_analytics_summary(name)
 
@@ -451,7 +501,7 @@ async def get_audit_trail(
         List of AuditTrailResponse (empty list if no changes)
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     trail = await prompt_repo.get_audit_trail(name)
 
@@ -488,7 +538,7 @@ async def list_prompts(
         PaginatedPromptsResponse with prompts and pagination metadata
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     offset = (page - 1) * page_size
     prompts, total = await prompt_repo.list_prompts(
@@ -528,7 +578,7 @@ async def soft_delete_prompt(
         HTTPException: 404 if prompt not found, 400 if already deleted
     """
     container = get_container()
-    prompt_repo = container.prompt_repository_port(session)
+    prompt_repo = container.prompt_repository_port(session=session)
 
     prompt = await prompt_repo.get_by_id(prompt_id)
 

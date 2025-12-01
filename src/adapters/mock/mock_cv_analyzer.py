@@ -181,7 +181,6 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
         return CVAnalysis(
             id=cv_analysis_id,
             candidate_id=UUID(candidate_id),
-            cv_file_path=cv_file_path,
             extracted_text=extracted_text,
             skills=skills,
             work_experience_years=round(years, 1),
@@ -192,7 +191,7 @@ class MockCVAnalyzerAdapter(CVAnalyzerPort):
             summary=f"Mock CV analysis: {experience_level.title()}-level candidate with {years:.1f} years of experience",
             metadata={
                 "experience_level": experience_level,
-                "file_name": Path(cv_file_path).name,
+                "file_name": Path(cv_file_path).name if cv_file_path else "unknown",
                 "mock_adapter": True,
             },
         )

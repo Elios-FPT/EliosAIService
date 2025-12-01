@@ -1,0 +1,67 @@
+{
+  "name": "java-backend-beginner",
+  "interview": {
+    "id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+    "status": "IDLE",
+    "cv_analysis_id": "206a91e8-27f4-4bb7-a4f3-ca894e75e88c",
+    "current_question_index": 0,
+    "started_at": "2025-11-23 04:55:38.55251",
+    "completed_at": null,
+    "created_at": "2025-11-24 08:06:54.995327",
+    "updated_at": "2025-11-23 04:55:38.55251",
+    "plan_metadata": {},
+    "adaptive_follow_ups": [],
+    "current_parent_question_id": null,
+    "current_followup_count": 0
+  },
+  "interview_questions": [
+    {
+      "id": "7809a338-2606-442f-ad5a-b50f0bd2d710",
+      "interview_id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+      "question_id": "453523fb-8ac5-43d9-8aa8-856803fa950d",
+      "sequence_order": 0,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 08:12:01.067213"
+    },
+    {
+      "id": "3c99a977-e84a-43d0-a561-e201d6d0a5b0",
+      "interview_id": "b323c6a1-4749-4922-876f-72b6c426b2a6",
+      "question_id": "f405aaad-3e97-401f-bd5c-d68c62bb1445",
+      "sequence_order": 1,
+      "asked_at": null,
+      "skipped": false,
+      "skip_reason": null,
+      "created_at": "2025-11-24 08:12:01.067213"
+    }
+  ],
+  "questions": [
+    {
+      "id": "f405aaad-3e97-401f-bd5c-d68c62bb1445",
+      "text": "Can you describe what Spring Boot is and how it facilitates the development of Spring applications?",
+      "skills": [
+        "Spring Boot"
+      ],
+      "version": 1,
+      "created_at": "2025-11-24 09:18:22.761836",
+      "ideal_answer": "Spring Boot is an extension of the Spring Framework that simplifies the process of building Spring applications by providing a set of conventions and out-of-the-box configurations. It eliminates much of the boilerplate code and configuration that is typically required when setting up a new Spring application, making it easier for developers to start building applications rapidly. With Spring Boot, developers can create stand-alone, production-grade applications that can be run with minimal configuration. One of its standout features is the embedded web server support, allowing developers to run applications as Java applications without needing to deploy them to an external server. Spring Boot also includes a comprehensive set of starter dependencies that simplify dependency management, enabling developers to add necessary libraries with ease. Additionally, it offers features like auto-configuration, which intelligently configures beans based on the libraries on the classpath, and Spring Boot Actuator, which provides production-ready features such as health checks and metrics. For instance, when developing a microservice, Spring Boot can quickly set up a REST API with the necessary configurations, allowing the developer to focus more on business logic rather than infrastructure setup. Overall, Spring Boot enhances productivity and accelerates the development lifecycle.",
+      "rationale": "This question tests the candidate\u2019s understanding of Spring Boot, which is increasingly popular for developing microservices and web applications. Proficiency in Spring Boot indicates a developer's ability to efficiently build and deploy applications, which is crucial for modern software development.",
+      "question_type": "technical",
+      "difficulty": "easy"
+    },
+    {
+      "id": "453523fb-8ac5-43d9-8aa8-856803fa950d",
+      "text": "Can you explain the concept of Java's garbage collection and how it impacts performance?",
+      "skills": [
+        "Java"
+      ],
+      "version": 1,
+      "created_at": "2025-11-24 09:32:14.099725",
+      "ideal_answer": "Java's garbage collection (GC) is an automatic memory management process that identifies and discards objects that are no longer in use, freeing up memory resources. Java uses various algorithms for garbage collection, including the Mark and Sweep, which marks reachable objects and sweeps away the unmarked ones, and the Generational Garbage Collection, which categorizes objects by their lifespan. This impacts performance greatly; while GC helps prevent memory leaks, it can also introduce latency during the collection process, especially if it occurs at an inopportune time, such as during peak application load. For instance, if an application allocates and deallocates many short-lived objects, frequent GC cycles may lead to application pauses. To mitigate this, developers can optimize their code by minimizing unnecessary object creation and choosing appropriate GC settings based on application needs. A practical example is using the G1 Garbage Collector for applications needing predictable pause times as it divides the heap into regions and can focus on collecting the most garbage while maintaining application responsiveness.",
+      "rationale": "This question assesses the candidate's understanding of Java's memory management and performance implications. It tests their knowledge of key concepts related to garbage collection, which is crucial for efficient Java application development, particularly in backend systems where resource optimization is critical.",
+      "question_type": "technical",
+      "difficulty": "medium"
+    }
+  ]
+}

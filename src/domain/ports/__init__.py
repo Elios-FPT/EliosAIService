@@ -6,6 +6,7 @@ from .candidate_repository_port import CandidateRepositoryPort
 from .cv_analysis_repository_port import CVAnalysisRepositoryPort
 from .cv_analyzer_port import CVAnalyzerPort
 from .evaluation_repository_port import EvaluationRepositoryPort
+from .event_publisher_port import EventPublisherPort
 from .follow_up_question_repository_port import FollowUpQuestionRepositoryPort
 from .interview_repository_port import InterviewRepositoryPort
 from .llm_port import LLMPort
@@ -30,4 +31,5 @@ __all__ = [
     "TextToSpeechPort",
     "AnalyticsPort",
     "PromptRepositoryPort",
+    "EventPublisherPort",
 ]

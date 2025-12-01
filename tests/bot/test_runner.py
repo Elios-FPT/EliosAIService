@@ -13,11 +13,20 @@ from uuid import UUID
 
 import httpx
 import yaml
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from .answer_generator import AnswerGenerator
+from .answer_strategy import AnswerStrategyEngine
 from .assertion_validator import AssertionValidator
 from .config import BotConfig, get_config
 from .metrics_collector import MetricsCollector
+from .sql_loader import (
+    DataSeedConfig,
+    build_data_seed_config,
+    execute_sql_fixture,
+)
 from .test_bot_client import InterviewTestBot
 
 logger = logging.getLogger(__name__)
@@ -44,6 +53,31 @@ class LogCaptureHandler(logging.Handler):
         self.logs.clear()
 
 
+class AttrDict(dict):
+    """Dictionary with attribute access (used in assertions)."""
+
+    def __getattr__(self, item: str):
+        try:
+            value = self[item]
+        except KeyError as exc:
+            raise AttributeError(item) from exc
+
+        if isinstance(value, dict):
+            return AttrDict(value)
+        if isinstance(value, list):
+            return [_as_attr_dict(v) for v in value]
+        return value
+
+
+def _as_attr_dict(value: Any):
+    """Recursively convert dicts to AttrDict for attribute access."""
+    if isinstance(value, dict):
+        return AttrDict({k: _as_attr_dict(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return [_as_attr_dict(item) for item in value]
+    return value
+
+
 @dataclass
 class ScenarioResult:
     """Result of single test scenario."""
@@ -58,6 +92,7 @@ class ScenarioResult:
     errors: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,21 +116,19 @@ class TestRunner:
     def __init__(
         self,
         base_url: str | None = None,
-        output_dir: str | None = None,
         config: BotConfig | None = None,
     ):
         """Initialize test runner.
 
         Args:
             base_url: API base URL (overrides config if provided)
-            output_dir: Report output directory (overrides config if provided)
             config: Bot configuration (uses global config if not provided)
         """
         self.config = config or get_config()
 
         # Use explicit params if provided, otherwise use config
         self.base_url = base_url or self.config.api.base_url
-        self.output_dir = Path(output_dir or self.config.paths.output_dir)
+        self.output_dir = Path(self.config.paths.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.ws_base_url = self.base_url.replace("http://", "ws://").replace(
@@ -107,17 +140,16 @@ class TestRunner:
         self.assertion_validator = AssertionValidator()
 
         self.http_client: httpx.AsyncClient | None = None
+        self._bot_root = Path(__file__).parent
 
     async def run_all_tests(
         self,
         scenarios_file: Path,
-        enable_baseline_comparison: bool = True,
     ) -> TestResults:
         """Run all scenarios in file.
 
         Args:
             scenarios_file: Path to YAML scenarios file
-            enable_baseline_comparison: Compare to baseline metrics
 
         Returns:
             Aggregate test results
@@ -184,10 +216,62 @@ class TestRunner:
             metrics=self.metrics_collector.get_summary(),
         )
 
-        if enable_baseline_comparison:
-            test_results.baseline_comparison = self._compare_to_baseline(
-                test_results, scenarios_file
+        test_results.baseline_comparison = self._compare_to_baseline(
+            test_results, scenarios_file
+        )
+
+        return test_results
+
+    async def run_single_test(
+        self,
+        scenarios_file: Path,
+        scenario_id: str,
+    ) -> TestResults:
+        """Run a single scenario from file without iterating through others."""
+        logger.info(
+            f"Loading single scenario '{scenario_id}' from {scenarios_file}"
+        )
+        with open(scenarios_file) as f:
+            data = yaml.safe_load(f)
+
+        scenarios = data.get("scenarios", [])
+        scenario = next(
+            (s for s in scenarios if s.get("id") == scenario_id), None
+        )
+        if not scenario:
+            msg = (
+                f"Scenario '{scenario_id}' not found in {scenarios_file}"
             )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.http_client = httpx.AsyncClient(
+            base_url=self.base_url, timeout=self.config.api.timeout_sec
+        )
+
+        start_time = time.time()
+        try:
+            result = await self.run_scenario(scenario)
+        finally:
+            await self.http_client.aclose()
+
+        total_duration = time.time() - start_time
+
+        test_results = TestResults(
+            total=1,
+            passed=1 if result.status == "passed" else 0,
+            failed=1 if result.status == "failed" else 0,
+            skipped=1 if result.status == "skipped" else 0,
+            total_duration_sec=total_duration,
+            total_cost_usd=result.cost_usd,
+            scenarios=[result],
+            metrics=self.metrics_collector.get_summary(),
+        )
+
+        # Always compare to baseline
+        test_results.baseline_comparison = self._compare_to_baseline(
+            test_results, scenarios_file
+        )
 
         return test_results
 
@@ -222,26 +306,37 @@ class TestRunner:
         assertions_passed = 0
         assertions_failed = 0
         cost = 0.0
+        scenario_metadata: dict[str, Any] = {}
 
         try:
-            use_mock = config.get("use_mock", True)
-            os.environ["USE_MOCK_ADAPTERS"] = "true" if use_mock else "false"
+            # Always use mock adapters
+            os.environ["USE_MOCK_ADAPTERS"] = "true"
 
-            # Execute based on test type
-            if use_mock:
-                # Mock test: Use DB helper to insert data, skip API calls
-                interview_id, ws_url, context = await self._run_mock_scenario(config)
-            else:
-                # Real test: Full API flow (CV upload → plan → WebSocket QA)
-                interview_id, ws_url, context = await self._run_real_scenario(config)
+            # Execute mock scenario
+            (
+                interview_id,
+                ws_url,
+                context,
+                metadata,
+                question_map,
+            ) = await self._run_mock_scenario(scenario_id, config)
+
+            scenario_metadata.update(metadata)
+
+            # Log expected vs actual responses/states for easier debugging
+            self._log_expectations(
+                scenario_id=scenario_id,
+                config=config,
+                context=context,
+            )
 
             # Validate assertions
             assertions_passed, assertions_failed = await self._validate_assertions(
                 assertions, context, interview_id
             )
 
-            # Calculate cost (for real tests)
-            cost = await self._calculate_cost(interview_id, use_mock)
+            # Calculate cost (always 0.0 for mock tests)
+            cost = await self._calculate_cost(interview_id)
 
             # Collect metrics
             bot_metrics = context.get("bot_metrics", {})
@@ -280,11 +375,14 @@ class TestRunner:
             errors=errors,
             metrics=bot_metrics,
             logs=captured_logs,
+            metadata=scenario_metadata,
         )
 
     async def _run_mock_scenario(
-        self, config: dict
-    ) -> tuple[UUID, str, dict[str, Any]]:
+        self, scenario_id: str, config: dict
+    ) -> tuple[
+        UUID, str, dict[str, Any], dict[str, Any], dict[UUID, UUID] | None
+    ]:
         """Run mock scenario (DB insert + WebSocket QA only).
 
         Args:
@@ -299,98 +397,155 @@ class TestRunner:
         from .db_helper import DatabaseHelper
 
         settings = get_settings()
+        metadata: dict[str, Any] = {}
 
-        # Create DB session
+        # Create DB session/engine
         engine = create_async_engine(settings.async_database_url, echo=False)
-        async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async_session = sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
 
         try:
-            async with async_session() as session:
-                db_helper = DatabaseHelper(session, self.config)
+            data_seed_config = build_data_seed_config(
+                config.get("data_seed"),
+                self._bot_root,
+            )
 
-                # Insert pre-defined data
-                candidate_id, interview_id, question_ids = await db_helper.insert_mock_interview_data(
-                    cv_fixture=config["cv_fixture"],
-                    expected_questions=config["expected_questions"],
+            if data_seed_config:
+                fixture_result = await execute_sql_fixture(
+                    engine, data_seed_config.sql_path
                 )
+                metadata["data_seed"] = {
+                    "sql_file": str(data_seed_config.sql_path.relative_to(self._bot_root)),
+                    "checksum": fixture_result.checksum,
+                    "statements": fixture_result.statements_executed,
+                    "duration_ms": fixture_result.duration_ms,
+                }
 
-            # Construct WebSocket URL
+                async with async_session() as session:
+                    await self._verify_seeded_data(session, data_seed_config)
+
+                interview_id = data_seed_config.interview_id
+                question_map = None
+            else:
+                async with async_session() as session:
+                    db_helper = DatabaseHelper(session, self.config)
+
+                    (
+                        _candidate_id,
+                        interview_id,
+                        _question_ids,
+                        question_map,
+                    ) = await db_helper.insert_mock_interview_data(
+                        cv_fixture=config["cv_fixture"],
+                        expected_questions=config["expected_questions"],
+                        question_fixture=config.get("question_fixture"),
+                    )
+
             ws_url = f"{self.ws_base_url}/ws/interviews/{interview_id}"
 
-            # Run WebSocket QA phase only
-            context = await self._run_websocket_qa(interview_id, ws_url, config)
+            ideal_answer_map = self._load_ideal_answers(
+                config.get("question_fixture"), question_map
+            )
 
-            return interview_id, ws_url, context
+            # Run WebSocket QA phase only
+            context = await self._run_websocket_qa(
+                scenario_id,
+                interview_id,
+                ws_url,
+                config,
+                ideal_answer_map,
+                question_map,
+            )
+
+            return interview_id, ws_url, context, metadata, question_map
 
         finally:
             # Cleanup engine
             await engine.dispose()
 
-    async def _run_real_scenario(
-        self, config: dict
-    ) -> tuple[UUID, str, dict[str, Any]]:
-        """Run real scenario (full API flow).
+    def _load_ideal_answers(
+        self,
+        fixture_name: str | None,
+        question_map: dict[UUID, UUID] | None = None,
+    ) -> dict[str, str]:
+        """Load ideal answers from question fixture (if provided)."""
+        if not fixture_name:
+            return {}
 
-        Args:
-            config: Scenario config
+        fixtures_dir = Path(__file__).parent / "fixtures" / "questions"
+        fixture_path = fixtures_dir / fixture_name
 
-        Returns:
-            (interview_id, ws_url, context)
-        """
-        # Load CV fixture
-        cv_fixture = config["cv_fixture"]
-        cv_path = Path(__file__).parent / "fixtures" / "cvs" / cv_fixture
+        if not fixture_path.exists():
+            logger.warning("Question fixture not found for ideal answers: %s", fixture_path)
+            return {}
 
-        if not cv_path.exists():
-            raise FileNotFoundError(f"CV fixture not found: {cv_path}")
+        try:
+            with open(fixture_path) as f:
+                data = json.load(f)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read question fixture %s: %s", fixture_path, exc
+            )
+            return {}
 
-        with open(cv_path) as f:
-            cv_data = json.load(f)
+        ideal_map: dict[str, str] = {}
+        for payload in data.get("questions", []):
+            question_id = payload.get("id")
+            ideal_answer = payload.get("ideal_answer")
+            if question_id and ideal_answer:
+                actual_question_id = question_id
+                if question_map:
+                    try:
+                        original_uuid = UUID(str(question_id))
+                    except (ValueError, TypeError):
+                        original_uuid = None
 
-        # Step 1: Create candidate
-        candidate_resp = await self.http_client.post(
-            "/api/candidates",
-            json={"name": cv_data["name"], "email": cv_data["email"]},
+                    if original_uuid and original_uuid in question_map:
+                        actual_question_id = question_map[original_uuid]
+
+                ideal_map[str(actual_question_id)] = ideal_answer
+
+        return ideal_map
+
+    async def _verify_seeded_data(
+        self,
+        session: AsyncSession,
+        data_seed: DataSeedConfig,
+    ) -> None:
+        """Ensure SQL fixtures inserted the expected records."""
+        interview_exists = await session.execute(
+            text("SELECT 1 FROM interviews WHERE id = :id"),
+            {"id": data_seed.interview_id},
         )
-        candidate_resp.raise_for_status()
-        candidate_id = candidate_resp.json()["id"]
+        if interview_exists.scalar_one_or_none() is None:
+            raise ValueError(
+                f"SQL fixture did not insert interview {data_seed.interview_id}"
+            )
 
-        logger.info(f"Created candidate: {candidate_id}")
+        missing_questions: list[str] = []
+        for question_id in data_seed.question_ids:
+            question_exists = await session.execute(
+                text("SELECT 1 FROM questions WHERE id = :id"),
+                {"id": question_id},
+            )
+            if question_exists.scalar_one_or_none() is None:
+                missing_questions.append(str(question_id))
 
-        # Step 2: Upload CV (convert JSON to file-like format)
-        files = {"file": (cv_fixture, json.dumps(cv_data), "application/json")}
-        cv_resp = await self.http_client.post(
-            f"/api/candidates/{candidate_id}/cv", files=files
-        )
-        cv_resp.raise_for_status()
+        if missing_questions:
+            raise ValueError(
+                "SQL fixture missing question IDs: " + ", ".join(missing_questions)
+            )
 
-        logger.info(f"Uploaded CV: {cv_fixture}")
-
-        # Step 3: Plan interview
-        plan_resp = await self.http_client.post(
-            "/api/interviews/plan",
-            json={
-                "candidate_id": candidate_id,
-                "question_count": config.get(
-                    "expected_questions", self.config.interview.default_expected_questions
-                ),
-            },
-        )
-        plan_resp.raise_for_status()
-        plan_data = plan_resp.json()
-
-        interview_id = UUID(plan_data["interview_id"])
-        ws_url = plan_data.get("ws_url") or f"{self.ws_base_url}/ws/interviews/{interview_id}"
-
-        logger.info(f"Planned interview: {interview_id}")
-
-        # Step 4: Run WebSocket QA phase
-        context = await self._run_websocket_qa(interview_id, ws_url, config)
-
-        return interview_id, ws_url, context
 
     async def _run_websocket_qa(
-        self, interview_id: UUID, ws_url: str, config: dict
+        self,
+        scenario_id: str,
+        interview_id: UUID,
+        ws_url: str,
+        config: dict,
+        ideal_answer_map: dict[str, str] | None = None,
+        question_map: dict[UUID, UUID] | None = None,
     ) -> dict[str, Any]:
         """Run WebSocket QA phase (common for both mock and real tests).
 
@@ -398,6 +553,7 @@ class TestRunner:
             interview_id: Interview UUID
             ws_url: WebSocket URL
             config: Scenario config
+            ideal_answer_map: Optional mapping of question_id -> ideal answer text
 
         Returns:
             Context dict with questions, answers, evaluations, etc.
@@ -409,6 +565,13 @@ class TestRunner:
             "follow_ups": [],
             "summary": None,
         }
+
+        strategy_engine = AnswerStrategyEngine(
+            scenario_id=scenario_id,
+            strategy_config=config.get("answer_strategy"),
+            ideal_answers=ideal_answer_map or {},
+            question_map=question_map,
+        )
 
         # Create bot
         bot = InterviewTestBot(
@@ -422,13 +585,11 @@ class TestRunner:
             await bot.connect(ws_url)
 
             # Run QA loop
-            answer_quality = config.get(
-                "answer_quality", self.config.interview.default_answer_quality
-            )
             expected_questions = config.get(
                 "expected_questions", self.config.interview.default_expected_questions
             )
 
+            loop_start_time = time.time()
             for i in range(
                 expected_questions + self.config.interview.qa_loop_buffer
             ):  # Buffer for follow-ups
@@ -437,6 +598,7 @@ class TestRunner:
                     message = None
                     message_type = None
 
+                    iteration_start = time.time()
                     try:
                         message_type, message = await bot.wait_for_next_question(
                             timeout=self.config.timeouts.question_timeout_sec
@@ -450,7 +612,14 @@ class TestRunner:
 
                     except TimeoutError:
                         # Timeout without completion message - interview may have ended
-                        logger.warning(f"Timeout after {i} iterations - interview may be incomplete")
+                        elapsed = time.time() - loop_start_time
+                        waited = time.time() - iteration_start
+                        logger.warning(
+                            "Timeout after %s iterations (waited %.1fs, total %.1fs) - interview may be incomplete",
+                            i,
+                            waited,
+                            elapsed,
+                        )
                         break
 
                     if not message:
@@ -463,23 +632,46 @@ class TestRunner:
                         context["follow_ups"].append(message)
 
                     # Generate answer
-                    question_text = message["text"]
-                    answer_text = self.answer_generator.generate(question_text, answer_quality)
+                    question_id_str = message["question_id"]
+                    question_id = UUID(question_id_str)
 
-                    # Send answer
-                    question_id = UUID(message["question_id"])
-                    await bot.send_text_answer(question_id, answer_text)
+                    def default_answer() -> str:
+                        if config.get("answer_text") is not None:
+                            return config["answer_text"]
+                        answer_quality = config.get(
+                            "answer_quality",
+                            self.config.interview.default_answer_quality,
+                        )
+                        length_target = config.get("answer_text_length")
+                        return self.answer_generator.generate(
+                            message["text"],
+                            answer_quality,
+                            length_target=length_target,
+                        )
 
-                    context["answers"].append({
-                        "question_id": str(question_id),
-                        "text": answer_text,
-                    })
+                    answer_text = strategy_engine.get_answer(
+                        question_id,
+                        message["text"],
+                        default_answer,
+                    )
+
+                    # Send answer (allow empty for error testing scenarios)
+                    allow_empty = config.get("expect_error", False)
+                    await bot.send_text_answer(question_id, answer_text, allow_empty=allow_empty)
+
+                    context["answers"].append(
+                        {
+                            "type": "text_answer",
+                            "question_id": str(question_id),
+                            "answer_text": answer_text,
+                        }
+                    )
 
                     # Wait for evaluation
                     evaluation = await bot.wait_for_evaluation(
                         timeout=self.config.timeouts.evaluation_timeout_sec
                     )
-                    context["evaluations"].append(evaluation)
+                    context["evaluations"].append(_as_attr_dict(evaluation))
 
                 except Exception as e:
                     logger.error(f"Error in QA loop: {e}")
@@ -538,21 +730,15 @@ class TestRunner:
 
         return passed, failed
 
-    async def _calculate_cost(self, interview_id: UUID, use_mock: bool) -> float:
-        """Calculate cost for interview.
+    async def _calculate_cost(self, interview_id: UUID) -> float:
+        """Calculate cost for interview (always 0.0 for mock tests).
 
         Args:
             interview_id: Interview UUID
-            use_mock: Whether mock adapters used
 
         Returns:
-            Cost in USD
+            Cost in USD (always 0.0 for mock adapters)
         """
-        if use_mock:
-            return 0.0
-
-        # For MVP: Return 0.0 (cost tracking deferred)
-        # TODO: Implement tiktoken or LangSmith API integration
         return 0.0
 
     def _compare_to_baseline(
@@ -578,8 +764,8 @@ class TestRunner:
         with open(baseline_path) as f:
             baseline = json.load(f)
 
-        # Determine test type (mock or real)
-        test_type = "mock_tests" if "mock" in scenarios_file.name else "real_tests"
+        # Always use mock_tests (real tests removed)
+        test_type = "mock_tests"
         baseline_data = baseline.get(test_type, {})
 
         if not baseline_data:
@@ -618,3 +804,92 @@ class TestRunner:
                 },
             },
         }
+
+    def _log_expectations(
+        self,
+        scenario_id: str,
+        config: dict[str, Any],
+        context: dict[str, Any],
+    ) -> None:
+        """Log expected vs actual interview responses/states."""
+
+        def log_pair(label: str, expected: Any, actual: Any) -> None:
+            logger.info(
+                "[%s] %s expected=%s actual=%s",
+                scenario_id,
+                label,
+                expected,
+                actual,
+            )
+
+        questions = context.get("questions", [])
+        evaluations = context.get("evaluations", [])
+        follow_ups = context.get("follow_ups", [])
+        summary = context.get("summary") or {}
+        metrics = context.get("bot_metrics") or {}
+        metrics_summary = metrics.get("summary") or {}
+
+        expected_questions = config.get("expected_questions")
+        if expected_questions is not None:
+            actual_questions = len(questions)
+            actual_answers = len(context.get("answers", []))
+            actual_evaluations = len(evaluations)
+            log_pair("questions_received", expected_questions, actual_questions)
+            log_pair("answers_sent", expected_questions, actual_answers)
+            log_pair("evaluations_received", expected_questions, actual_evaluations)
+
+        expected_follow_ups = config.get("expected_follow_ups")
+        if expected_follow_ups is not None:
+            log_pair("follow_ups_received", expected_follow_ups, len(follow_ups))
+
+        if "expected_follow_ups" in config or metrics_summary:
+            summary_counts = {
+                "questions": metrics_summary.get("questions_received"),
+                "answers": metrics_summary.get("answers_sent"),
+                "evaluations": metrics_summary.get("evaluations_received"),
+                "follow_ups": metrics_summary.get("follow_ups_received"),
+            }
+            logger.info(
+                "[%s] bot_metrics.summary=%s",
+                scenario_id,
+                summary_counts,
+            )
+
+        expected_error = config.get("expect_error")
+        if expected_error is not None:
+            bot_errors = metrics.get("errors") or []
+            summary_status = summary.get("status")
+            actual_error = bool(bot_errors) or (summary_status == "ERROR")
+            log_pair("error_state", bool(expected_error), actual_error)
+
+        expected_state = config.get("expected_final_state")
+        if expected_state is None:
+            expected_state = "ERROR" if expected_error else "COMPLETE"
+
+        actual_state = (
+            summary.get("status")
+            or summary.get("interview_status")
+            or summary.get("state")
+            or "UNKNOWN"
+        )
+        log_pair("final_state", expected_state, actual_state)
+
+        if summary:
+            summary_snapshot = {
+                key: summary.get(key)
+                for key in ["status", "overall_score", "total_questions", "ended_at"]
+                if key in summary
+            }
+            logger.info(
+                "[%s] completion_summary=%s",
+                scenario_id,
+                summary_snapshot or summary,
+            )
+
+        if config.get("track_transitions"):
+            states = [entry.get("state") for entry in metrics.get("states", [])]
+            logger.info(
+                "[%s] state_transitions expected=tracked actual=%s",
+                scenario_id,
+                states or [],
+            )

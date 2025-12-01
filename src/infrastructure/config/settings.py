@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # API Configuration
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    api_prefix: str = "/api"
+    api_prefix: str = "/api/ai"
 
     # LLM Provider Selection
     llm_provider: str = "openai"  # openai, claude, llama
@@ -106,6 +106,11 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     postgres_db: str = "elios_interviews"
     database_url: str | None = None  # Full DATABASE_URL from environment
+    db_pool_size: int = 12  # Increased from 5 (Phase 2 optimization: 4 workers × 2 + 3 checkpointer)
+    db_max_overflow: int = 5
+    db_pool_timeout: int = 30
+    db_pool_recycle_seconds: int = 240
+    db_pool_pre_ping: bool = True  # Verify connection health before use (Phase 2)
 
     @property
     def async_database_url(self) -> str:
@@ -123,16 +128,16 @@ class Settings(BaseSettings):
 
         if db_url:
             # Convert postgresql:// to postgresql+asyncpg://
-            db_url = re.sub(r'^postgresql:', 'postgresql+asyncpg:', db_url)
+            db_url = re.sub(r"^postgresql:", "postgresql+asyncpg:", db_url)
 
             # Strip out SSL parameters that asyncpg doesn't support in URL format
             # asyncpg handles SSL automatically for cloud providers like Neon
-            db_url = re.sub(r'\?sslmode=[^&]*', '', db_url)  # Remove sslmode param
-            db_url = re.sub(r'&sslmode=[^&]*', '', db_url)   # Remove if not first param
-            db_url = re.sub(r'\?channel_binding=[^&]*', '', db_url)  # Remove channel_binding
-            db_url = re.sub(r'&channel_binding=[^&]*', '', db_url)   # Remove if not first param
-            db_url = re.sub(r'\?&', '?', db_url)  # Clean up malformed query string
-            db_url = re.sub(r'\?$', '', db_url)   # Remove trailing ?
+            db_url = re.sub(r"\?sslmode=[^&]*", "", db_url)  # Remove sslmode param
+            db_url = re.sub(r"&sslmode=[^&]*", "", db_url)  # Remove if not first param
+            db_url = re.sub(r"\?channel_binding=[^&]*", "", db_url)  # Remove channel_binding
+            db_url = re.sub(r"&channel_binding=[^&]*", "", db_url)  # Remove if not first param
+            db_url = re.sub(r"\?&", "?", db_url)  # Clean up malformed query string
+            db_url = re.sub(r"\?$", "", db_url)  # Remove trailing ?
 
             return db_url
 
@@ -142,7 +147,18 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    # Speech Services (Azure Speech SDK)
+    # ================================================
+    # Google Cloud Speech (NEW v0.4.1)
+    # ================================================
+    google_cloud_project_id: str | None = None
+    google_application_credentials: str | None = None
+    google_stt_model: str = "chirp_3"  # chirp_3, short, long, latest_long
+    google_stt_language: str = "en-US"
+    google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
+
+    # ================================================
+    # Azure Speech (DEPRECATED - for rollback only)
+    # ================================================
     azure_speech_key: str | None = None
     azure_speech_region: str = "eastus"
     azure_speech_language: str = "en-US"
@@ -158,6 +174,10 @@ class Settings(BaseSettings):
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
+
+    # Kafka Configuration (Event Publishing)
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_interview_topic: str = "interview-user-interview"
 
     # Logging
     log_level: str = "INFO"
@@ -186,7 +206,9 @@ class Settings(BaseSettings):
             return origins
         elif isinstance(v, list):
             # Already a list, just strip whitespace from each item
-            return [origin.strip() if isinstance(origin, str) else str(origin).strip() for origin in v]
+            return [
+                origin.strip() if isinstance(origin, str) else str(origin).strip() for origin in v
+            ]
         return v
 
     # WebSocket Configuration
@@ -212,23 +234,32 @@ class Settings(BaseSettings):
     langsmith_max_trace_size_kb: int = 1024  # Max trace size in KB (prevent large traces)
 
     # LangGraph Planning Workflow (Phase 2)
-    use_langgraph_planning: bool = False  # Feature flag for LangGraph planning workflow
+    # DEPRECATED: This flag will be removed in v0.5.0 - LangGraph is now the default implementation
+    use_langgraph_planning: bool = True  # Feature flag for LangGraph planning workflow (deprecated)
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
     langgraph_checkpointer_pool_size: int = 5  # Connection pool size for AsyncPostgresSaver
     # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
     # support pool configuration via API. The checkpointer creates its own internal pool (~5-10 connections).
     # Total connections: SQLAlchemy (10-30) + AsyncPostgresSaver (~5-10) = ~35-40 connections.
-    langgraph_checkpointer_init_on_startup: bool = True  # Initialize checkpointer at startup (prevents first-request timeout)
-    langgraph_checkpointer_setup_timeout: float = 20.0  # Timeout in seconds for checkpointer setup (default: 120s)
+    langgraph_checkpointer_init_on_startup: bool = (
+        True  # Initialize checkpointer at startup (prevents first-request timeout)
+    )
+    langgraph_checkpointer_setup_timeout: float = (
+        20.0  # Timeout in seconds for checkpointer setup (default: 120s)
+    )
+    langgraph_checkpointer_heartbeat_enabled: bool = True
+    langgraph_checkpointer_heartbeat_interval_seconds: int = 240
+    langgraph_checkpointer_ensure_timeout_seconds: float = 10.0
 
     # LangGraph Adaptive Evaluation Workflow (Phase 3A)
-    use_langgraph_adaptive_simple: bool = False  # Feature flag for adaptive evaluation workflow (no interrupts)
+    use_langgraph_adaptive_simple: bool = (
+        False  # Feature flag for adaptive evaluation workflow (no interrupts)
+    )
 
     # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
-    use_langgraph_adaptive_interrupt: bool = False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
-
-    # LangGraph Interview Conversation Workflow (replaces session_orchestrator)
-    use_langgraph_conversation: bool = True  # Feature flag for conversation workflow with memory and checkpointing
+    use_langgraph_adaptive_interrupt: bool = (
+        False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
+    )
 
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations
@@ -238,6 +269,7 @@ class Settings(BaseSettings):
     use_mock_stt: bool = True
     use_mock_tts: bool = True
     use_mock_analytics: bool = True
+    use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
     # Hybrid CV Analyzer Configuration
     use_hybrid_cv_analyzer: bool = False  # Feature flag (default: legacy)
@@ -255,6 +287,18 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_speech_config(self) -> "Settings":
+        """Validate Google Cloud Speech configuration."""
+        if not self.use_mock_stt and not self.use_mock_tts:
+            if not self.google_cloud_project_id:
+                raise ValueError(
+                    "GOOGLE_CLOUD_PROJECT_ID required when not using mock adapters. "
+                    "Set USE_MOCK_STT=true or USE_MOCK_TTS=true for development, "
+                    "or provide Google Cloud credentials."
+                )
+        return self
 
     def print_loaded_env_file(self) -> None:
         """Print active environment (env file already loaded by _load_environment_config)."""

@@ -1,11 +1,14 @@
 """Interview REST API endpoints."""
 
+import logging
 import os
 import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from ....application.dto.interview_dto import (
     InterviewResponse,
@@ -16,7 +19,6 @@ from ....application.dto.interview_dto import (
 )
 from ....application.use_cases.analyze_cv import AnalyzeCVUseCase
 from ....application.use_cases.get_next_question import GetNextQuestionUseCase
-from ....application.use_cases.plan_interview import PlanInterviewUseCase
 from ....domain.models.interview import InterviewStatus
 from ....infrastructure.config.settings import get_settings
 from ....infrastructure.database.session import get_async_session
@@ -39,42 +41,77 @@ async def upload_cv(
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a PDF")
 
+    file_path = None
     try:
         # Generate a unique filename
         setting = get_settings()
         UPLOAD_DIR = setting.upload_dir
+        logger.info(f"Upload directory configured as: {UPLOAD_DIR}")
+
         file_extension = os.path.splitext(file.filename)[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+        # Create directory if it doesn't exist
+        try:
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            logger.info(f"Upload directory created/verified: {UPLOAD_DIR}")
+        except OSError as e:
+            logger.error(f"Failed to create upload directory {UPLOAD_DIR}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Cannot create upload directory: {str(e)}",
+            ) from e
+
         file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        logger.info(f"Saving file to: {file_path}")
 
         # Save the uploaded file
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        try:
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            logger.info(f"File saved successfully: {file_path} ({len(content)} bytes)")
+        except IOError as e:
+            logger.error(f"Failed to write file to {file_path}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Cannot write file: {str(e)}",
+            ) from e
 
-        candidate_id = uuid.uuid4()
+        # TODO: replace with data from User Service
+        candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
+        logger.info(f"Starting CV analysis for candidate: {candidate_id}")
+
         container = get_container()
         cv_analyzer = container.cv_analyzer_port()
 
         cv_analysis_use_case = AnalyzeCVUseCase(
             cv_analyzer=cv_analyzer,
             vector_search=container.vector_search_port(),
-            candidate_repository_port=container.candidate_repository_port(session),
-            cv_analysis_repository_port=container.cv_analysis_repository_port(session),
+            candidate_repository_port=container.candidate_repository_port(session=session),
+            cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
         )
         cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
+        logger.info(f"CV analysis completed: {cv_analysis.id}")
         return cv_analysis
 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        logger.error(f"Error uploading CV file: {e}", exc_info=True)
         # Clean up the file if there was an error
-        if "file_path" in locals() and os.path.exists(file_path):
-            os.remove(file_path)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up file: {file_path}")
+            except OSError as cleanup_error:
+                logger.warning(f"Failed to cleanup file {file_path}: {cleanup_error}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error uploading file: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(
@@ -101,7 +138,7 @@ async def get_interview(
     container = get_container()
     settings = get_settings()
 
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -141,7 +178,7 @@ async def start_interview(
     container = get_container()
     settings = get_settings()
 
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -187,8 +224,8 @@ async def get_current_question(
     container = get_container()
 
     use_case = GetNextQuestionUseCase(
-        interview_repository=container.interview_repository_port(session),
-        question_repository=container.question_repository_port(session),
+        interview_repository=container.interview_repository_port(session=session),
+        question_repository=container.question_repository_port(session=session),
     )
 
     try:
@@ -200,7 +237,7 @@ async def get_current_question(
             )
 
         # Get interview for context
-        interview_repo = container.interview_repository_port(session)
+        interview_repo = container.interview_repository_port(session=session)
         interview = await interview_repo.get_by_id(interview_id)
 
         if not interview:
@@ -235,12 +272,13 @@ async def plan_interview(
     request: PlanInterviewRequest,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Plan interview by generating n questions with ideal answers.
+    """Plan interview using LangGraph workflow.
 
     This endpoint triggers the pre-planning phase:
     1. Calculates n based on skill diversity (max 5)
-    2. Generates n questions with ideal_answer + rationale
-    3. Returns interview with status=PREPARING (async process)
+    2. Generates n questions with ideal_answer + rationale (parallel execution)
+    3. Returns interview with status=IDLE
+    4. Uses PostgreSQL checkpointing for crash recovery
 
     Args:
         request: Planning request with cv_analysis_id and candidate_id
@@ -250,13 +288,13 @@ async def plan_interview(
         Planning status with interview_id
 
     Raises:
-        HTTPException: If CV analysis not found
+        HTTPException: If CV analysis not found or workflow fails
     """
     try:
         container = get_container()
 
         # Validate CV analysis exists
-        cv_analysis_repo = container.cv_analysis_repository_port(session)
+        cv_analysis_repo = container.cv_analysis_repository_port(session=session)
         cv_analysis = await cv_analysis_repo.get_by_id(request.cv_analysis_id)
         if not cv_analysis:
             raise HTTPException(
@@ -264,54 +302,36 @@ async def plan_interview(
                 detail=f"CV analysis {request.cv_analysis_id} not found",
             )
 
-        # Get settings to check feature flag
+        # Get settings for WebSocket URL
         settings = get_settings()
 
-        # Route handler decides between workflow and use case based on feature flag
-        if settings.use_langgraph_planning:
-            # Use LangGraph workflow (Phase 2)
-            from ....application.workflows.planning_workflow import PlanningWorkflow
+        # Use LangGraph workflow for interview planning
+        from ....application.workflows.planning_workflow import PlanningWorkflow
 
-            # Get checkpointer (async)
-            checkpointer = await container.get_checkpointer()
+        # Get checkpointer (async)
+        checkpointer = await container.get_checkpointer()
 
-            # Create workflow with dependencies from container
-            workflow = PlanningWorkflow(
-                checkpointer=checkpointer,
-                llm_port=container.llm_port(),
-                cv_repo=cv_analysis_repo,
-                question_repo=container.question_repository_port(session),
-                interview_repo=container.interview_repository_port(session),
-                vector_search=container.vector_search_port(),
-            )
+        # Create workflow with dependencies from container
+        workflow = PlanningWorkflow(
+            checkpointer=checkpointer,
+            llm_port=container.llm_port(session=session),
+            cv_repo=cv_analysis_repo,
+            question_repo=container.question_repository_port(session=session),
+            interview_repo=container.interview_repository_port(session=session),
+            vector_search=container.vector_search_port(),
+        )
 
-            # Execute workflow
-            result = await workflow.execute(
-                cv_analysis_id=request.cv_analysis_id,
-                candidate_id=request.candidate_id,
-            )
-            interview = result.get("interview")
+        # Execute workflow
+        result = await workflow.execute(
+            cv_analysis_id=request.cv_analysis_id,
+            candidate_id=request.candidate_id,
+        )
+        interview = result.get("interview")
 
-            # Check if workflow failed (interview is None)
-            if interview is None:
-                errors = result.get("errors", ["Unknown error occurred during interview planning"])
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to plan interview: {errors}"
-                )
-        else:
-            # Use case (manual implementation)
-            use_case = PlanInterviewUseCase(
-                llm=container.llm_port(),
-                cv_analysis_repo=cv_analysis_repo,
-                interview_repo=container.interview_repository_port(session),
-                question_repo=container.question_repository_port(session),
-            )
-
-            interview = await use_case.execute(
-                cv_analysis_id=request.cv_analysis_id,
-                candidate_id=request.candidate_id,
-            )
+        # Check if workflow failed (interview is None)
+        if interview is None:
+            errors = result.get("errors", ["Unknown error occurred during interview planning"])
+            raise HTTPException(status_code=500, detail=f"Failed to plan interview: {errors}")
 
         # Construct WebSocket URL for interview session
         ws_url = f"{settings.ws_base_url}/ws/interviews/{interview.id}"
@@ -351,7 +371,7 @@ async def get_planning_status(
         HTTPException: If interview not found
     """
     container = get_container()
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:
@@ -415,7 +435,7 @@ async def get_interview_summary(
             - 404: Summary not generated
     """
     container = get_container()
-    interview_repo = container.interview_repository_port(session)
+    interview_repo = container.interview_repository_port(session=session)
     interview = await interview_repo.get_by_id(interview_id)
 
     if not interview:

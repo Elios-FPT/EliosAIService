@@ -119,12 +119,14 @@ class InterviewTestBot:
         self,
         question_id: UUID,
         answer_text: str,
+        allow_empty: bool = False,
     ) -> None:
         """Send text answer for a question.
 
         Args:
             question_id: Question UUID
             answer_text: Answer text content
+            allow_empty: Allow empty answers (for error testing scenarios)
 
         Raises:
             ValueError: If not connected or answer is empty
@@ -132,7 +134,7 @@ class InterviewTestBot:
         if not self.connected or not self.ws:
             raise ValueError("Not connected to WebSocket")
 
-        if not answer_text.strip():
+        if not allow_empty and not answer_text.strip():
             raise ValueError("Answer text cannot be empty")
 
         message = {
@@ -147,7 +149,7 @@ class InterviewTestBot:
 
         self.answers_sent += 1
         self._track_metric("latency", "send_answer", latency)
-        logger.info(f"Sent answer (question={question_id}, len={len(answer_text)})")
+        logger.info(f"Sent answer: {answer_text})")
 
     async def send_audio_chunk(
         self,
@@ -213,7 +215,7 @@ class InterviewTestBot:
         self._track_state("QUESTIONING")
 
         logger.info(
-            f"Received question #{message['index']}/{message['total']}: "
+            f"Received question #{message['question_id']}: "
             f"{message['text'][:80]}..."
         )
 
@@ -357,8 +359,8 @@ class InterviewTestBot:
                 self.current_question_text = message["text"]
 
                 logger.info(
-                    f"Received question #{self.questions_received - 1}/"
-                    f"{message.get('total_questions', '?')}: {message['text'][:50]}..."
+                    f"Received question #{message['question_id']}: "
+                    f"{message['text'][:80]}..."
                 )
 
                 # Track latency

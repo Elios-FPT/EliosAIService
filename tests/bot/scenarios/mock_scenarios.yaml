@@ -4,22 +4,30 @@
 scenarios:
   # Scenario 1: Basic happy path
   - id: mock_001_basic_flow
-    name: "Basic interview flow (3 questions, no follow-ups)"
-    description: "Verify happy path: 3 questions answered with good quality, no follow-ups triggered"
+    name: "Basic interview flow (2 questions, no follow-ups)"
+    description: "Verify happy path: 2 questions answered with good quality, no follow-ups triggered"
 
     config:
       use_mock: true
-      cv_fixture: python_senior.json
-      expected_questions: 3
-      answer_quality: good
+      cv_fixture: java-backend-beginner.json
+      question_fixture: java-backend-beginner.json
+      expected_questions: 2
       expected_follow_ups: 0
-      timeout: 10.0
+      timeout: 60.0
+      data_seed:
+        sql_file: fixtures/sql/java-backend-beginner.sql
+        interview_id: b323c6a1-4749-4922-876f-72b6c426b2a6
+        question_ids:
+          - 453523fb-8ac5-43d9-8aa8-856803fa950d
+          - f405aaad-3e97-401f-bd5c-d68c62bb1445
+      answer_strategy:
+        type: ideal
 
     assertions:
       - expression: "interview.status == 'COMPLETE'"
         message: "Interview should complete successfully"
-      - expression: "len(answers) == 3"
-        message: "Should answer all 3 questions"
+      - expression: "len(answers) == 2"
+        message: "Should answer all 2 questions"
       - expression: "all(eval.score >= 80 for eval in evaluations)"
         message: "Good answers should score >=80"
       - expression: "len(follow_ups) == 0"
@@ -32,11 +40,16 @@ scenarios:
 
     config:
       use_mock: true
-      cv_fixture: fullstack_mid.json
-      expected_questions: 2
-      answer_quality: weak
-      expected_follow_ups: 1
-      timeout: 15.0
+      cv_fixture: backend_junior.json
+      question_fixture: backend_junior.json
+      expected_questions: 8
+      expected_follow_ups: 6
+      timeout: 60.0
+      answer_strategy:
+        type: degraded
+        degrade_profile:
+          keep_ratio: 0.3
+          min_sentences: 1
 
     assertions:
       - expression: "interview.status == 'COMPLETE'"
@@ -51,10 +64,15 @@ scenarios:
     config:
       use_mock: true
       cv_fixture: backend_junior.json
+      question_fixture: java-backend-beginner.json
       expected_questions: 3
-      answer_quality: average
       track_transitions: true
-      timeout: 12.0
+      timeout: 60.0
+      answer_strategy:
+        type: degraded
+        degrade_profile:
+          keep_ratio: 0.6
+          min_sentences: 2
 
     assertions:
       - expression: "len(state_transitions) > 0"
@@ -72,11 +90,16 @@ scenarios:
     config:
       use_mock: true
       cv_fixture: devops_senior.json
+      question_fixture: devops_senior.json
       expected_questions: 1
-      answer_quality: weak
       force_follow_ups: 3
       expected_follow_ups: 3
-      timeout: 20.0
+      timeout: 60.0
+      answer_strategy:
+        type: degraded
+        degrade_profile:
+          keep_ratio: 0.2
+          min_sentences: 1
 
     assertions:
       - expression: "len(follow_ups) == 3"
@@ -90,10 +113,14 @@ scenarios:
     config:
       use_mock: true
       cv_fixture: python_senior.json
+      question_fixture: python_senior.json
       expected_questions: 1
-      answer_text: "   "
       expect_error: true
-      timeout: 5.0
+      timeout: 60.0
+      answer_strategy:
+        type: scripted
+        scripted_answers:
+          e2cb66cb-2a4f-4c62-9955-9aa1bb476988: EMPTY
 
     assertions:
       - expression: "error_occurred == true"
@@ -107,13 +134,16 @@ scenarios:
     config:
       use_mock: true
       cv_fixture: fullstack_mid.json
+      question_fixture: fullstack_mid.json
       expected_questions: 1
-      answer_text_length: 2500
-      answer_quality: good
-      timeout: 10.0
+      timeout: 60.0
+      answer_strategy:
+        type: scripted
+        scripted_answers:
+          7f9bf40e-3970-4c91-8c4f-8f9a2b5f9c02: LONG_2500
 
     assertions:
-      - expression: "len(answers[0].text) == 2500"
+      - expression: "len(answers[0].answer_text) == 2500"
         message: "Long answer not truncated"
 
   # Scenario 7: Concurrent interviews
@@ -127,9 +157,11 @@ scenarios:
       cv_fixtures:
         - python_senior.json
         - devops_senior.json
+      question_fixture: devops_senior.json
       expected_questions: 2
-      answer_quality: good
-      timeout: 15.0
+      timeout: 60.0
+      answer_strategy:
+        type: ideal
 
     assertions:
       - expression: "len(completed_interviews) == 2"
@@ -145,10 +177,15 @@ scenarios:
     config:
       use_mock: true
       cv_fixture: frontend_mid.json
+      question_fixture: frontend_mid.json
       expected_questions: 3
-      answer_quality: average
       enable_metrics: true
-      timeout: 12.0
+      timeout: 60.0
+      answer_strategy:
+        type: degraded
+        degrade_profile:
+          keep_ratio: 0.6
+          min_sentences: 2
 
     assertions:
       - expression: "metrics.latency['connect'] > 0"

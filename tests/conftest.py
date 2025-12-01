@@ -272,6 +272,22 @@ class MockInterviewRepository:
     async def get_by_id(self, interview_id: UUID) -> Interview | None:
         return self.interviews.get(interview_id)
 
+    async def add_question(
+        self,
+        interview_id: UUID,
+        question_id: UUID,
+        sequence_order: int,
+    ) -> None:
+        """Attach question to interview, mirroring junction table insert."""
+        interview = self.interviews.get(interview_id)
+        if not interview:
+            raise ValueError(f"Interview {interview_id} not found")
+
+        question_ids = list(interview.__dict__.get("question_ids", []))
+        question_ids.append(question_id)
+        interview.__dict__["question_ids"] = question_ids
+        interview.plan_metadata["n"] = len(question_ids)
+
 
 class MockAnswerRepository:
     """Mock answer repository for testing."""
@@ -433,6 +449,19 @@ class MockLLM:
             base += f" [with {len(exemplars)} exemplars]"
         return base
 
+    async def generate_questions_batch(
+        self,
+        question_specs: list[dict[str, Any]],
+        context: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Return mock batch questions matching LangChain aggregated prompt shape."""
+        questions: list[str] = []
+        for spec in question_specs:
+            questions.append(
+                f"Mock question about {spec.get('skill', 'general knowledge')} at {spec.get('difficulty', 'medium')} level"
+            )
+        return questions
+
     async def generate_ideal_answer(
         self, question_text: str, context: dict[str, Any]
     ) -> str:
@@ -444,6 +473,24 @@ class MockLLM:
     ) -> str:
         """Return mock rationale."""
         return "Mock rationale explaining why this is an ideal answer"
+
+    async def generate_ideal_answers_batch(
+        self,
+        question_texts: list[str],
+        context: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Return mock ideal answers for batch generation."""
+        return [f"Mock ideal answer for: {question[:50]}..." for question in question_texts]
+
+    async def generate_rationales_batch(
+        self,
+        question_ideal_pairs: list[tuple[str, str]],
+    ) -> list[str]:
+        """Return mock rationales for batch generation."""
+        return [
+            "Mock rationale explaining why this is an ideal answer"
+            for _question, _ideal in question_ideal_pairs
+        ]
 
     async def detect_concept_gaps(
         self,

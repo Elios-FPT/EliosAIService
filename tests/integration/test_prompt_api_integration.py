@@ -14,7 +14,7 @@ async def test_create_and_get_prompt_workflow(async_session):
     """Test complete workflow: create prompt, get by ID."""
     # Create initial prompt
     response = client.post(
-        "/api/prompts",
+        "/api/ai/prompts",
         json={
             "prompt_name": "integration_test_prompt",
             "system_prompt": "You are a helpful assistant",
@@ -34,7 +34,7 @@ async def test_create_and_get_prompt_workflow(async_session):
     prompt_id = prompt_data["id"]
 
     # Get prompt by ID
-    response = client.get(f"/api/prompts/{prompt_id}")
+    response = client.get(f"/api/ai/prompts/{prompt_id}")
     assert response.status_code == 200
     assert response.json()["prompt_name"] == "integration_test_prompt"
 
@@ -44,7 +44,7 @@ async def test_version_management_workflow(async_session):
     """Test version management: create, create version, get history."""
     # Create initial
     response = client.post(
-        "/api/prompts",
+        "/api/ai/prompts",
         json={
             "prompt_name": "version_test",
             "system_prompt": "System v1",
@@ -61,7 +61,7 @@ async def test_version_management_workflow(async_session):
 
     # Create version 2
     response = client.post(
-        "/api/prompts/version_test/versions",
+        "/api/ai/prompts/version_test/versions",
         json={
             "parent_version": 1,
             "system_prompt": "System v2",
@@ -79,7 +79,7 @@ async def test_version_management_workflow(async_session):
     assert response.json()["version"] == 2
 
     # Get version history
-    response = client.get("/api/prompts/version_test/versions")
+    response = client.get("/api/ai/prompts/version_test/versions")
     assert response.status_code == 200
     history = response.json()
     assert len(history) == 2

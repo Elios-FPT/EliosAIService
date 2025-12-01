@@ -1,10 +1,9 @@
 """CLI entry point for running interview test bot.
 
 Usage:
-    python -m tests.bot.run_tests --scenarios all
-    python -m tests.bot.run_tests --scenarios mock
-    python -m tests.bot.run_tests --scenarios real
+    python -m tests.bot.run_tests
     python -m tests.bot.run_tests --scenario mock_001_basic_flow
+    python -m tests.bot.run_tests --base-url http://localhost:8010
 """
 
 import argparse
@@ -12,14 +11,15 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+import yaml
 
-from .config import BotConfig, reload_config
+from .config import BotConfig
 from .report_generator import ReportGenerator
-from .test_runner import TestRunner
+from .test_runner import TestRunner, TestResults
 
 # Check for test environment setup
 load_dotenv()
@@ -42,6 +42,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _find_scenario_file(scenarios_dir: Path, scenario_id: str) -> Path | None:
+    """Locate the YAML file containing the requested scenario."""
+    for scenario_file in scenarios_dir.glob("*.yaml"):
+        try:
+            with open(scenario_file) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse %s while searching for scenario '%s': %s",
+                scenario_file,
+                scenario_id,
+                exc,
+            )
+            continue
+
+        scenarios = data.get("scenarios", [])
+        for scenario in scenarios:
+            if scenario.get("id") == scenario_id:
+                return scenario_file
+
+    return None
+
+
 async def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -49,23 +72,9 @@ async def main():
     )
 
     parser.add_argument(
-        "--scenarios",
-        choices=["all", "mock", "real"],
-        default="all",
-        help="Which scenarios to run (default: all)",
-    )
-
-    parser.add_argument(
         "--scenario",
         type=str,
-        help="Run single scenario by ID (e.g., mock_001_basic_flow)",
-    )
-
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="reports/",
-        help="Output directory for reports (default: reports/)",
+        help="Run single scenario by ID (e.g., mock_001_basic_flow). If not specified, runs all scenarios.",
     )
 
     parser.add_argument(
@@ -75,78 +84,85 @@ async def main():
         help="API base URL (default: http://localhost:8000)",
     )
 
-    parser.add_argument(
-        "--no-baseline",
-        action="store_true",
-        help="Disable baseline comparison",
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to custom bot configuration YAML file",
-    )
-
     args = parser.parse_args()
 
-    # Load config (custom if provided, otherwise default)
-    config = reload_config(args.config) if args.config else BotConfig.load()
+    # Load default config
+    config = BotConfig.load()
 
     # Determine scenarios file(s)
     scenarios_dir = Path(__file__).parent / config.paths.scenarios_dir
-    scenarios_files = []
 
+    single_scenario_file: Path | None = None
     if args.scenario:
-        # Run single scenario (need to find which file it's in)
-        for scenario_file in scenarios_dir.glob("*.yaml"):
-            scenarios_files.append(scenario_file)
-    elif args.scenarios == "all":
-        scenarios_files = list(scenarios_dir.glob("*.yaml"))
-    elif args.scenarios == "mock":
+        scenario_file = _find_scenario_file(
+            scenarios_dir=scenarios_dir, scenario_id=args.scenario
+        )
+        if not scenario_file:
+            logger.error(
+                "Scenario '%s' not found under %s",
+                args.scenario,
+                scenarios_dir,
+            )
+            return 1
+        scenarios_files = [scenario_file]
+        single_scenario_file = scenario_file
+    else:
+        # Run all scenarios from mock_scenarios.yaml
         scenarios_files = [scenarios_dir / "mock_scenarios.yaml"]
-    elif args.scenarios == "real":
-        scenarios_files = [scenarios_dir / "real_scenarios.yaml"]
 
     if not scenarios_files:
         logger.error("No scenario files found")
-        sys.exit(1)
+        return 1
 
     logger.info(f"Running scenarios from {len(scenarios_files)} file(s)")
 
     # Create runner (CLI args override config values)
     runner = TestRunner(
         base_url=args.base_url if args.base_url != parser.get_default("base_url") else None,
-        output_dir=args.output if args.output != parser.get_default("output") else None,
         config=config,
     )
+    output_dir = runner.output_dir
 
     # Run tests
-    all_results = []
+    all_results: list[tuple[Path, TestResults, str | None]] = []
 
-    for scenarios_file in scenarios_files:
-        logger.info(f"\nRunning scenarios from: {scenarios_file}")
-
-        results = await runner.run_all_tests(
-            scenarios_file=scenarios_file,
-            enable_baseline_comparison=not args.no_baseline,
+    if args.scenario and single_scenario_file:
+        logger.info(
+            "\nRunning single scenario '%s' from: %s",
+            args.scenario,
+            single_scenario_file,
         )
+        results = await runner.run_single_test(
+            scenarios_file=single_scenario_file,
+            scenario_id=args.scenario,
+        )
+        all_results.append((single_scenario_file, results, args.scenario))
+    else:
+        for scenarios_file in scenarios_files:
+            logger.info(f"\nRunning scenarios from: {scenarios_file}")
 
-        all_results.append((scenarios_file, results))
+            results = await runner.run_all_tests(
+                scenarios_file=scenarios_file,
+            )
+
+            all_results.append((scenarios_file, results, None))
 
     # Generate reports
     report_gen = ReportGenerator()
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
-    for scenarios_file, results in all_results:
+    for scenarios_file, results, override_prefix in all_results:
+        report_prefix = override_prefix or scenarios_file.stem
+
         # Determine report prefix
-        file_prefix = scenarios_file.stem  # e.g., "mock_scenarios"
+        file_prefix = report_prefix
 
         # JSON report
-        json_path = Path(args.output) / f"{file_prefix}_{timestamp}.json"
+        json_path = output_dir / f"{file_prefix}_{timestamp}.json"
         report_gen.generate_json(results, json_path)
 
         # HTML report
-        html_path = Path(args.output) / f"{file_prefix}_{timestamp}.html"
+        html_path = output_dir / f"{file_prefix}_{timestamp}.html"
         report_gen.generate_html(results, html_path)
 
         # Console summary
@@ -154,14 +170,14 @@ async def main():
         print(console_summary)
 
     # Exit with error if any tests failed
-    total_failed = sum(r.failed for _, r in all_results)
+    total_failed = sum(results.failed for _, results, _ in all_results)
     if total_failed > 0:
         logger.error(f"FAILED: {total_failed} test(s) failed")
-        sys.exit(1)
-    else:
-        logger.info("SUCCESS: All tests passed")
-        sys.exit(0)
+        return 1
+
+    logger.info("SUCCESS: All tests passed")
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

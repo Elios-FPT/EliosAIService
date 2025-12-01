@@ -1,6 +1,5 @@
 # Test Bot Configuration
 # This file contains default configuration for the interview test bot.
-# You can override these values by creating a custom config file and passing it via --config flag.
 
 # CV Analysis Configuration
 cv_analysis:
@@ -22,7 +21,7 @@ difficulty_mapping:
 
 # API Configuration
 api:
-  base_url: "http://localhost:8000"  # API base URL for the interview service
+  base_url: "http://localhost:8010"  # API base URL for the interview service
   timeout_sec: 30.0                   # HTTP client timeout in seconds
 
 # Path Configuration
@@ -40,8 +39,8 @@ interview:
 
 # Timeout Configuration (all values in seconds)
 timeouts:
-  question_timeout_sec: 10.0      # Timeout for waiting for next question
-  follow_up_timeout_sec: 20.0     # Timeout for waiting for follow-up question
+  question_timeout_sec: 30.0      # Timeout for waiting for next question
+  follow_up_timeout_sec: 30.0     # Timeout for waiting for follow-up question
   completion_timeout_sec: 30.0    # Timeout for waiting for interview completion
   evaluation_timeout_sec: 30.0   # Timeout for waiting for answer evaluation
   interview_timeout_sec: 30.0    # Timeout for entire interview session

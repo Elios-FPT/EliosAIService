@@ -4,8 +4,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
-[![LangChain](https://img.shields.io/badge/LangChain-0.2+-orange.svg)](https://python.langchain.com/)
+[![LangChain](https://img.shields.io/badge/LangChain-0.3+-orange.svg)](https://python.langchain.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Test Coverage](https://img.shields.io/badge/Coverage-59%25-yellow.svg)]()
 
 ---
 
@@ -13,7 +14,8 @@
 
 Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions via vector search and LLMs, conducting real-time interviews through WebSocket, and providing comprehensive feedback with adaptive follow-up questions.
 
-**Branch**: `migration/db-redesign` (v0.4.0)
+**Version**: v0.4.0 (Database Schema Redesign)
+**Branch**: `feat/langchain-langgraph-integration`
 
 ### Key Features
 
@@ -26,20 +28,25 @@ Elios AI Interview Service delivers intelligent mock interview experiences by an
 - **Comprehensive Reports**: Aggregate metrics, gap progression, LLM recommendations
 - **Prompt Version Control**: Database-driven prompts with version history, A/B testing, and rollback support
 
-**NEW - LangChain/LangGraph Integration** (v0.3.0):
-- **LCEL Chains**: Structured outputs with Pydantic models (12 chains)
-- **Workflow Orchestration**: Planning, adaptive evaluation (simple & interrupt patterns)
+**NEW - v0.4.0 Schema Redesign**:
+- **Normalized Skills**: cv_skills table replaces JSONB array
+- **Junction Tables**: interview_questions replaces question_ids array
+- **PostgreSQL ENUMs**: QuestionType, Difficulty, ProficiencyLevel for type safety
+- **Decomposed Prompts**: prompt_templates split for A/B testing & versioning
+
+**LangChain/LangGraph Integration** (v0.3.0):
+- **LCEL Chains**: Structured outputs with Pydantic models
+- **Workflow Orchestration**: Planning, adaptive evaluation
 - **PostgreSQL Checkpointing**: Stateful workflows with recovery
-- **LangSmith Observability**: PII-filtered tracing, cost tracking, token usage analysis
+- **LangSmith Observability**: PII-filtered tracing, cost tracking
 
 ### Technology Stack
 
 - **Backend**: Python 3.11+, FastAPI, Pydantic
 - **AI/ML**: LangChain/LangGraph, OpenAI GPT-4, Pinecone Vector DB
 - **Database**: PostgreSQL (Neon), SQLAlchemy 2.0 (async)
-- **Observability**: LangSmith tracing, cost tracking
 - **Architecture**: Clean Architecture (Hexagonal/Ports & Adapters)
-- **Testing**: pytest, pytest-asyncio (200+ tests, 85%+ coverage)
+- **Testing**: pytest, pytest-asyncio (354/601 tests passing, 59% coverage)
 
 ## Prompt Management API
 
@@ -49,7 +56,8 @@ Manage LLM prompt templates with version control, A/B testing, rollback, and ana
 
 **Version Management:**
 - `POST /api/prompts` - Create initial prompt (v1)
-- `POST /api/prompts/{name}/versions` - Create new version from parent
+- `POST /api/prompts/{name}/versions` - Create new version (optional `parent_version` for lineage)
+- `PATCH /api/prompts/{prompt_id}/draft` - Update draft prompt version content
 - `POST /api/prompts/{name}/rollback` - Rollback to target version
 - `GET /api/prompts/{name}/versions` - Get version history with diffs
 - `GET /api/prompts/{name}/versions/{version}` - Get specific version
@@ -72,7 +80,7 @@ Manage LLM prompt templates with version control, A/B testing, rollback, and ana
 import httpx
 
 # Create initial prompt
-response = await client.post("/api/prompts", json={
+response = await client.post("/api/ai/prompts", json={
     "prompt_name": "answer_evaluation",
     "system_prompt": "You are an expert interviewer...",
     "user_template": "Evaluate this answer: {answer}",
@@ -87,7 +95,7 @@ response = await client.post("/api/prompts", json={
 prompt = response.json()
 
 # Activate for production
-await client.patch(f"/api/prompts/{prompt['id']}/activate", json={
+await client.patch(f"/api/ai/prompts/{prompt['id']}/activate", json={
     "changed_by": "admin",
     "reason": "Deploy v1 to production",
     "traffic_percentage": 100
@@ -328,6 +336,7 @@ docker-compose up -d --build
 - PostgreSQL database (or Neon account)
 - OpenAI API key
 - Pinecone API key
+- Google Cloud account with Speech API enabled (or use mock adapters)
 
 #### Installation
 
@@ -383,6 +392,12 @@ docker-compose up -d --build
    VECTOR_DB_PROVIDER=pinecone
    PINECONE_API_KEY=your-pinecone-api-key
    PINECONE_INDEX_NAME=elios-questions
+
+   # Google Cloud Speech (Chirp 3) - NEW v0.4.1
+   GOOGLE_CLOUD_PROJECT_ID=your-project-id
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+   GOOGLE_STT_MODEL=chirp_3
+   GOOGLE_TTS_VOICE_NAME=en-US-Chirp3-HD-Charon
    ```
 
 5. **Run database migrations**
@@ -615,9 +630,9 @@ async with httpx.AsyncClient() as client:
         }
     )
     interview = response.json()
-    # Note: v0.4.0+ uses junction table instead of question_ids array
-    # See docs/migrations/0015-schema-redesign.md for details
-    print(f"Interview ready with {interview['question_count']} questions")
+    # v0.4.0: Uses junction table interview_questions (not question_ids array)
+    # Access questions via /api/interviews/{id}/questions endpoint
+    print(f"Interview created: {interview['id']}")
 ```
 
 ### 4. Submit Answer
@@ -649,16 +664,40 @@ async with httpx.AsyncClient() as client:
 ```
 EliosAIService/
 ├── src/
-│   ├── domain/              # Core business logic (11 models, 11 ports)
-│   ├── application/         # Use cases (8 total)
-│   ├── adapters/            # External service implementations (20+)
-│   └── infrastructure/      # Config, DI, database
-├── alembic/                 # Database migrations
-├── docs/                    # Documentation
-└── tests/                   # Test suites
+│   ├── domain/              # Core business logic (11 models, 13 ports)
+│   ├── application/         # Use cases & workflows (8 use cases, 3 workflows)
+│   ├── adapters/            # External service implementations (20+ adapters)
+│   └── infrastructure/      # Config, DI, database, observability
+├── alembic/                 # Database migrations (15 migrations)
+├── docs/                    # Documentation (8 comprehensive guides)
+└── tests/                   # Test suites (354/601 passing, 59% coverage)
 ```
 
 📚 **[Complete Structure →](docs/codebase-summary.md)**
+
+## ✨ What's New in v0.4.0
+
+### Database Schema Redesign
+
+**Normalized Tables**:
+- `cv_skills` table with proficiency_level, years_of_experience, is_primary fields
+- `interview_questions` junction table with sequence_order tracking
+- PostgreSQL ENUMs for type safety (QuestionType, Difficulty, ProficiencyLevel)
+
+**Breaking Changes**:
+```python
+# ❌ OLD (v0.3.0 and earlier)
+interview.question_ids  # JSONB array
+cv_analysis.skills      # JSONB array
+
+# ✅ NEW (v0.4.0+)
+await interview_repo.get_interview_questions(interview_id)  # Junction table
+await cv_analysis_repo.get_skills(cv_analysis_id)          # Normalized table
+```
+
+**Migration**: See `docs/migrations/0015-schema-redesign.md` for complete guide.
+
+📚 **[Full v0.4.0 Changes →](docs/migrations/0015-schema-redesign.md)**
 
 ---
 
@@ -679,6 +718,7 @@ Configuration is managed through environment variables with the following priori
 - **PostgreSQL**: Database connection and credentials
 - **Speech Services**: Azure STT, Edge TTS (planned)
 - **Interview Settings**: Question count, scoring, timeouts
+- **Database Pooling**: `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE_SECONDS` let you tune SQLAlchemy's connection pool for serverless Postgres providers (defaults keep Neon free tier under its 5-minute idle timeout). Sessions are now short-lived and acquired per request via `session_scope()` / FastAPI dependencies to avoid stale connections.
 
 See [ENV_SETUP.md](ENV_SETUP.md) for detailed configuration guide.
 
@@ -751,35 +791,33 @@ See [Project Overview & PDR](docs/project-overview-pdr.md) for detailed roadmap.
 
 ## 📊 Current Status
 
-**Version**: 0.4.0 (Foundation + Adaptive Interviews + Session Orchestration + Database Schema Redesign)
+**Version**: 0.4.0 (Database Schema Redesign Complete)
+**Test Coverage**: 59% (354/601 tests passing)
+**Branch**: `feat/langchain-langgraph-integration`
 
-**Implemented**:
-- ✅ Clean Architecture structure
-- ✅ Domain models (11 entities: Candidate, CVAnalysis, CVSkill, Interview, Question, Answer, Evaluation, InterviewFeedback, PromptTemplate, PromptExecution, ErrorCodes)
-- ✅ Repository ports (11 interfaces including EvaluationRepositoryPort)
-- ✅ PostgreSQL persistence (7 repositories)
-- ✅ OpenAI & Azure OpenAI LLM adapters
-- ✅ Pinecone & ChromaDB vector adapters
-- ✅ Azure Speech services (STT/TTS adapters)
-- ✅ Async SQLAlchemy 2.0 with Alembic
-- ✅ Configuration management
-- ✅ Dependency injection container
-- ✅ Use cases (8 total: AnalyzeCV, PlanInterview, ProcessAnswerAdaptive, FollowUpDecision, CombineEvaluation, GenerateSummary, CompleteInterview, GetNextQuestion)
-- ✅ REST API (5 interview endpoints) + WebSocket protocol
-- ✅ Domain-driven state management (Interview state machine)
-- ✅ Context-aware evaluation with follow-up questions
-- ✅ Session orchestrator (state machine pattern for WebSocket)
-- ✅ Comprehensive interview summary generation
+**Implemented** ✅:
+- Clean Architecture with Clean Code principles
+- v0.4.0 normalized schema (cv_skills, interview_questions tables, PostgreSQL ENUMs)
+- Domain models (11 entities) + Repository ports (13 interfaces)
+- LangChain LCEL adapter + LangGraph workflows (Planning, AdaptiveEvaluation)
+- PostgreSQL persistence with async SQLAlchemy 2.0
+- OpenAI GPT-4 + Azure OpenAI adapters
+- Pinecone vector search + ChromaDB local alternative
+- Mock adapters (6 total) for development
+- REST API (5 endpoints) + WebSocket real-time protocol
+- LangSmith observability with PII filtering
+- Prompt version control & A/B testing
+- Database migrations (15 total, Alembic)
 
-**In Progress**:
-- 🔄 CV processing adapters (spaCy, PyPDF2)
-- 🔄 Test coverage expansion (85%+ on core features)
+**In Progress** 🔄:
+- CV processing adapters (spaCy, PyPDF2) - 40%
+- Test coverage expansion (target: 80%) - 59%
 
-**Planned**:
-- ⏳ Authentication & authorization
-- ⏳ Rate limiting
-- ⏳ Docker deployment
-- ⏳ Production optimization
+**Planned** ⏳:
+- Authentication & authorization (OAuth 2.0, JWT)
+- Rate limiting & API quotas
+- Docker deployment + CI/CD
+- Production optimization & monitoring
 
 ---
 

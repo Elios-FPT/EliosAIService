@@ -4,7 +4,6 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
@@ -12,6 +11,7 @@ from ...domain.models.interview_question import InterviewQuestion
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from .mappers import InterviewMapper, InterviewQuestionMapper
 from .models import InterviewModel, InterviewQuestionModel
+from .session_provider import SessionProvider
 
 
 class PostgreSQLInterviewRepository(InterviewRepositoryPort):
@@ -21,29 +21,27 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
     using SQLAlchemy and PostgreSQL for persistence.
     """
 
-    def __init__(self, session: AsyncSession):
-        """Initialize repository with database session.
-
-        Args:
-            session: Async SQLAlchemy session
-        """
-        self.session = session
+    def __init__(self, session_provider: SessionProvider):
+        """Initialize repository with session provider."""
+        self._session_provider = session_provider
 
     async def save(self, interview: Interview) -> Interview:
         """Save a new interview to the database."""
-        db_model = InterviewMapper.to_db_model(interview)
-        self.session.add(db_model)
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return InterviewMapper.to_domain(db_model)
+        async with self._session_provider() as session:
+            db_model = InterviewMapper.to_db_model(interview)
+            session.add(db_model)
+            await session.commit()
+            await session.refresh(db_model)
+            return InterviewMapper.to_domain(db_model)
 
     async def get_by_id(self, interview_id: UUID) -> Interview | None:
         """Retrieve an interview by ID."""
-        result = await self.session.execute(
-            select(InterviewModel).where(InterviewModel.id == interview_id)
-        )
-        db_model = result.scalar_one_or_none()
-        return InterviewMapper.to_domain(db_model) if db_model else None
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel).where(InterviewModel.id == interview_id)
+            )
+            db_model = result.scalar_one_or_none()
+            return InterviewMapper.to_domain(db_model) if db_model else None
 
     async def get_by_candidate_id(
         self,
@@ -58,9 +56,10 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
 
         query = query.order_by(InterviewModel.created_at.desc())
 
-        result = await self.session.execute(query)
-        db_models = result.scalars().all()
-        return [InterviewMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            db_models = result.scalars().all()
+            return [InterviewMapper.to_domain(db_model) for db_model in db_models]
 
     async def get_active_by_candidate(self, candidate_id: UUID) -> Interview | None:
         """Retrieve the most recent active interview for a candidate.
@@ -74,19 +73,20 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         Returns:
             Most recent active interview if found, None otherwise
         """
-        result = await self.session.execute(
-            select(InterviewModel)
-            .where(InterviewModel.candidate_id == candidate_id)
-            .where(
-                InterviewModel.status.notin_(
-                    [InterviewStatus.COMPLETE.value, InterviewStatus.CANCELLED.value]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel)
+                .where(InterviewModel.candidate_id == candidate_id)
+                .where(
+                    InterviewModel.status.notin_(
+                        [InterviewStatus.COMPLETE.value, InterviewStatus.CANCELLED.value]
+                    )
                 )
+                .order_by(InterviewModel.created_at.desc())
+                .limit(1)
             )
-            .order_by(InterviewModel.created_at.desc())
-            .limit(1)
-        )
-        db_model = result.scalar_one_or_none()
-        return InterviewMapper.to_domain(db_model) if db_model else None
+            db_model = result.scalar_one_or_none()
+            return InterviewMapper.to_domain(db_model) if db_model else None
 
     async def get_by_status(
         self,
@@ -94,59 +94,67 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         limit: int = 100,
     ) -> list[Interview]:
         """Retrieve interviews by status."""
-        result = await self.session.execute(
-            select(InterviewModel)
-            .where(InterviewModel.status == status.value)
-            .order_by(InterviewModel.created_at.desc())
-            .limit(limit)
-        )
-        db_models = result.scalars().all()
-        return [InterviewMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel)
+                .where(InterviewModel.status == status.value)
+                .order_by(InterviewModel.created_at.desc())
+                .limit(limit)
+            )
+            db_models = result.scalars().all()
+            return [InterviewMapper.to_domain(db_model) for db_model in db_models]
 
     async def update(self, interview: Interview) -> Interview:
         """Update an existing interview."""
-        result = await self.session.execute(
-            select(InterviewModel).where(InterviewModel.id == interview.id)
-        )
-        db_model = result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel).where(InterviewModel.id == interview.id)
+            )
+            db_model = result.scalar_one_or_none()
 
-        if not db_model:
-            raise ValueError(f"Interview with id {interview.id} not found")
+            if not db_model:
+                raise ValueError(f"Interview with id {interview.id} not found")
 
-        InterviewMapper.update_db_model(db_model, interview)
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return InterviewMapper.to_domain(db_model)
+            InterviewMapper.update_db_model(db_model, interview)
+            await session.commit()
+            await session.refresh(db_model)
+            return InterviewMapper.to_domain(db_model)
 
     async def delete(self, interview_id: UUID) -> bool:
         """Delete an interview by ID."""
-        result = await self.session.execute(
-            select(InterviewModel).where(InterviewModel.id == interview_id)
-        )
-        db_model = result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel).where(InterviewModel.id == interview_id)
+            )
+            db_model = result.scalar_one_or_none()
 
-        if not db_model:
-            return False
+            if not db_model:
+                return False
 
-        await self.session.delete(db_model)
-        await self.session.commit()
-        return True
+            await session.delete(db_model)
+            await session.commit()
+            return True
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[Interview]:
         """List all interviews with pagination."""
-        result = await self.session.execute(
-            select(InterviewModel)
-            .order_by(InterviewModel.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        db_models = result.scalars().all()
-        return [InterviewMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewModel)
+                .order_by(InterviewModel.created_at.desc())
+                .offset(skip)
+                .limit(limit)
+            )
+            db_models = result.scalars().all()
+            return [InterviewMapper.to_domain(db_model) for db_model in db_models]
 
     # New methods for interview_questions junction table management
 
     async def get_interview_questions(self, interview_id: UUID) -> list[InterviewQuestion]:
         """Get all questions for an interview, ordered by sequence.
+
+        Phase 2 Optimization: Uses selectinload() to prevent N+1 queries.
+        Before: 1 parent query + N lazy loads (1+N queries total)
+        After: 1 parent query + 1 eager load with IN clause (2 queries total)
 
         Args:
             interview_id: UUID of the interview
@@ -154,13 +162,15 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         Returns:
             List of InterviewQuestion domain models ordered by sequence_order
         """
-        result = await self.session.execute(
-            select(InterviewQuestionModel)
-            .where(InterviewQuestionModel.interview_id == interview_id)
-            .order_by(InterviewQuestionModel.sequence_order)
-        )
-        db_models = result.scalars().all()
-        return [InterviewQuestionMapper.to_domain(db_model) for db_model in db_models]
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewQuestionModel)
+                .options(selectinload(InterviewQuestionModel.question))  # Phase 2: Eager load
+                .where(InterviewQuestionModel.interview_id == interview_id)
+                .order_by(InterviewQuestionModel.sequence_order)
+            )
+            db_models = result.scalars().all()
+            return [InterviewQuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def add_question(
         self,
@@ -191,14 +201,17 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             created_at=datetime.utcnow(),
         )
 
-        db_model = InterviewQuestionMapper.to_db_model(interview_question)
-        self.session.add(db_model)
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return InterviewQuestionMapper.to_domain(db_model)
+        async with self._session_provider() as session:
+            db_model = InterviewQuestionMapper.to_db_model(interview_question)
+            session.add(db_model)
+            await session.commit()
+            await session.refresh(db_model)
+            return InterviewQuestionMapper.to_domain(db_model)
 
     async def get_current_question(self, interview_id: UUID) -> InterviewQuestion | None:
         """Get the current question for an interview based on current_question_index.
+
+        Phase 2 Optimization: Uses selectinload() to prevent N+1 queries.
 
         Args:
             interview_id: UUID of the interview
@@ -207,22 +220,26 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             Current InterviewQuestion or None if interview complete or not found
         """
         # First get interview to find current_question_index
-        interview_result = await self.session.execute(
-            select(InterviewModel).where(InterviewModel.id == interview_id)
-        )
-        interview_model = interview_result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            interview_result = await session.execute(
+                select(InterviewModel).where(InterviewModel.id == interview_id)
+            )
+            interview_model = interview_result.scalar_one_or_none()
 
-        if not interview_model:
-            return None
+            if not interview_model:
+                return None
 
-        # Get question at current index
-        result = await self.session.execute(
-            select(InterviewQuestionModel)
-            .where(InterviewQuestionModel.interview_id == interview_id)
-            .where(InterviewQuestionModel.sequence_order == interview_model.current_question_index)
-        )
-        db_model = result.scalar_one_or_none()
-        return InterviewQuestionMapper.to_domain(db_model) if db_model else None
+            result = await session.execute(
+                select(InterviewQuestionModel)
+                .options(selectinload(InterviewQuestionModel.question))  # Phase 2: Eager load
+                .where(InterviewQuestionModel.interview_id == interview_id)
+                .where(
+                    InterviewQuestionModel.sequence_order
+                    == interview_model.current_question_index
+                )
+            )
+            db_model = result.scalar_one_or_none()
+            return InterviewQuestionMapper.to_domain(db_model) if db_model else None
 
     async def mark_question_asked(
         self,
@@ -241,18 +258,23 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         Raises:
             ValueError: If InterviewQuestion not found
         """
-        result = await self.session.execute(
-            select(InterviewQuestionModel).where(InterviewQuestionModel.id == interview_question_id)
-        )
-        db_model = result.scalar_one_or_none()
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(InterviewQuestionModel).where(
+                    InterviewQuestionModel.id == interview_question_id
+                )
+            )
+            db_model = result.scalar_one_or_none()
 
-        if not db_model:
-            raise ValueError(f"InterviewQuestion with id {interview_question_id} not found")
+            if not db_model:
+                raise ValueError(
+                    f"InterviewQuestion with id {interview_question_id} not found"
+                )
 
-        db_model.asked_at = asked_at or datetime.utcnow()
-        await self.session.commit()
-        await self.session.refresh(db_model)
-        return InterviewQuestionMapper.to_domain(db_model)
+            db_model.asked_at = asked_at or datetime.utcnow()
+            await session.commit()
+            await session.refresh(db_model)
+            return InterviewQuestionMapper.to_domain(db_model)
 
     async def count_interview_questions(self, interview_id: UUID) -> int:
         """Count total questions for an interview.
@@ -265,9 +287,10 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         """
         from sqlalchemy import func
 
-        result = await self.session.execute(
-            select(func.count(InterviewQuestionModel.id)).where(
-                InterviewQuestionModel.interview_id == interview_id
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(func.count(InterviewQuestionModel.id)).where(
+                    InterviewQuestionModel.interview_id == interview_id
+                )
             )
-        )
-        return result.scalar_one()
+            return result.scalar_one()

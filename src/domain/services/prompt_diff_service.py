@@ -1,6 +1,52 @@
 """JSON diff calculation service for prompt templates."""
 
+import json
+from typing import Any
+
 from deepdiff import DeepDiff
+from deepdiff.helper import SetOrdered
+
+
+def _make_diff_serializable(diff_dict: dict) -> dict:
+    """Convert DeepDiff result to fully JSON-serializable format.
+
+    DeepDiff.to_dict() can contain non-serializable types like SetOrdered.
+    This function recursively converts them to plain Python types.
+
+    Args:
+        diff_dict: Dictionary from DeepDiff.to_dict()
+
+    Returns:
+        Fully serializable dictionary
+    """
+    if not diff_dict:
+        return {}
+
+    # Use json.dumps/loads to convert all non-serializable types
+    # This handles SetOrdered, custom types, etc.
+    try:
+        json_str = json.dumps(diff_dict, default=str)
+        return json.loads(json_str)
+    except (TypeError, ValueError):
+        # Fallback: manually convert SetOrdered and other types
+        def convert_value(value: Any) -> Any:
+            # Explicitly handle SetOrdered first (before other iterable checks)
+            if isinstance(value, SetOrdered):
+                return [convert_value(item) for item in value]
+            elif isinstance(value, dict):
+                return {k: convert_value(v) for k, v in value.items()}
+            elif isinstance(value, (list, tuple, set)):
+                # Convert sets to lists
+                return [convert_value(item) for item in value]
+            else:
+                # Try to convert to string if not serializable
+                try:
+                    json.dumps(value)
+                    return value
+                except (TypeError, ValueError):
+                    return str(value)
+
+        return convert_value(diff_dict)
 
 
 class PromptDiffService:
@@ -27,7 +73,8 @@ class PromptDiffService:
             verbose_level=2,
         )
 
-        return diff.to_dict() if diff else {}
+        diff_dict = diff.to_dict() if diff else {}
+        return _make_diff_serializable(diff_dict)
 
     @staticmethod
     def get_human_readable_summary(diff: dict) -> str:

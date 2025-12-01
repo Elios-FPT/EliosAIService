@@ -5,21 +5,23 @@ Connection Pool Management:
     However, note that AsyncPostgresSaver (used by LangGraph workflows)
     creates its own separate connection pool.
 
-    Total Database Connections:
-    - SQLAlchemy pool (this module):
-      * Production: 10 base + 20 overflow = up to 30 connections
-      * Development/Testing: NullPool (no pooling)
-    - AsyncPostgresSaver pool (langgraph_checkpointer.py):
-      * ~5-10 connections (internal, not configurable via API)
-    - Total (production): ~35-40 connections
+    Neon / Serverless Considerations:
+    - Neon free tier closes idle connections after ~5 minutes.
+    - We mitigate by enabling pool_pre_ping and recycling connections before 4 minutes.
+    - Pool sizes optimized for performance (Phase 2 optimization: 12 base + 5 overflow).
+
+    Total Database Connections (optimized config as of 251130):
+    - SQLAlchemy pool (this module): up to 17 connections (12 base + 5 overflow)
+    - AsyncPostgresSaver pool (langgraph_checkpointer.py): ~5-10 connections
+    - Total: ~22-27 connections (within Neon free tier 100 limit)
 
     Recommendations:
-    - Configure PostgreSQL max_connections to at least 100
-    - Monitor active connections to avoid exceeding limits
-    - Consider reducing SQLAlchemy pool_size if connection limits are an issue
+    - Monitor active connections to avoid exceeding Neon quotas.
+    - Increase pool sizes only if Neon plan allows higher limits.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -34,6 +36,7 @@ from ..config.settings import get_settings
 # Global engine instance
 _async_engine: AsyncEngine | None = None
 AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def create_engine() -> AsyncEngine:
@@ -58,17 +61,24 @@ def create_engine() -> AsyncEngine:
     # SQL logging will be handled by the logging configuration instead
     engine_config = {
         "url": settings.async_database_url,
-        "echo": False,  # Disable echo to prevent duplicate handlers
+        "echo": False,  # Disable to prevent duplicate logging (handled by logging.yaml)
         "poolclass": poolclass,
     }
 
     # Add pool-specific parameters only when using QueuePool
     if is_prod:
         engine_config.update({
-            "pool_size": 10,
-            "max_overflow": 20,
-            "pool_pre_ping": True,  # Verify connections before using
-            "pool_recycle": 3600,  # Recycle connections after 1 hour
+            "pool_size": settings.db_pool_size,
+            "max_overflow": settings.db_max_overflow,
+            "pool_timeout": settings.db_pool_timeout,
+            "pool_pre_ping": settings.db_pool_pre_ping,  # Phase 2: Use configurable setting
+            # Recycle connections before Neon idle timeout (~5 minutes)
+            "pool_recycle": settings.db_pool_recycle_seconds,
+        })
+    else:
+        # Even without pooling, pre-ping protects long-lived single connections
+        engine_config.update({
+            "pool_pre_ping": settings.db_pool_pre_ping,  # Phase 2: Use configurable setting
         })
 
     engine = create_async_engine(**engine_config)
@@ -82,17 +92,18 @@ async def init_db() -> None:
     This should be called once during application startup.
     Creates the async engine and configures the session factory.
     """
-    global _async_engine, AsyncSessionLocal
+    global _async_engine, AsyncSessionLocal, _session_factory
 
     if _async_engine is None:
         _async_engine = create_engine()
-        AsyncSessionLocal = async_sessionmaker(
+        _session_factory = async_sessionmaker(
             bind=_async_engine,
             class_=AsyncSession,
             expire_on_commit=False,  # Don't expire objects after commit
             autocommit=False,
             autoflush=False,
         )
+        AsyncSessionLocal = _session_factory  # Backwards-compatible alias
 
 
 async def close_db() -> None:
@@ -101,12 +112,13 @@ async def close_db() -> None:
     This should be called during application shutdown.
     Disposes the engine and closes all connections.
     """
-    global _async_engine, AsyncSessionLocal
+    global _async_engine, AsyncSessionLocal, _session_factory
 
     if _async_engine is not None:
         await _async_engine.dispose()
         _async_engine = None
         AsyncSessionLocal = None
+        _session_factory = None
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -126,19 +138,32 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             return result.scalars().all()
         ```
     """
-    if AsyncSessionLocal is None:
+    async with session_scope() as session:
+        yield session
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the global async session factory."""
+    if _session_factory is None:
         raise RuntimeError(
             "Database not initialized. Call init_db() during application startup."
         )
+    return _session_factory
 
-    async with AsyncSessionLocal() as session:
+
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
+    """Yield a managed AsyncSession for background tasks or manual usage.
+
+    Ensures consistent rollback/cleanup semantics outside of FastAPI dependencies.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as session:
         try:
             yield session
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
 
 
 def get_engine() -> AsyncEngine:

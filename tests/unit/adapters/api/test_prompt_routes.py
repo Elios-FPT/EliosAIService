@@ -133,6 +133,86 @@ class TestCreateInitialPrompt:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+class TestUpdateDraftPrompt:
+    """Test PATCH /prompts/{prompt_id}/draft endpoint."""
+
+    @patch("src.adapters.api.rest.prompt_routes.get_container")
+    @patch("src.adapters.api.rest.prompt_routes.get_async_session")
+    def test_update_draft_success(self, mock_session, mock_get_container, sample_prompt, mock_container):
+        """Draft update returns updated prompt."""
+        container, mock_repo = mock_container
+        mock_get_container.return_value = container
+        mock_repo.update_draft_prompt.return_value = sample_prompt
+
+        response = client.patch(
+            f"/prompts/{sample_prompt.id}/draft",
+            json={
+                "system_prompt": "Updated system",
+                "user_template": "Updated template",
+                "input_variables": ["question"],
+                "partial_variables": {"topic": "ai"},
+                "output_parser_type": "json_output_parser",
+                "output_schema": {},
+                "temperature": 0.6,
+                "max_tokens": 1200,
+                "top_p": 0.9,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_repo.update_draft_prompt.assert_awaited()
+
+    @patch("src.adapters.api.rest.prompt_routes.get_container")
+    @patch("src.adapters.api.rest.prompt_routes.get_async_session")
+    def test_update_draft_not_found(self, mock_session, mock_get_container, sample_prompt, mock_container):
+        """Returns 404 when prompt missing."""
+        container, mock_repo = mock_container
+        mock_get_container.return_value = container
+        mock_repo.update_draft_prompt.side_effect = LookupError("Prompt not found")
+
+        response = client.patch(
+            f"/prompts/{sample_prompt.id}/draft",
+            json={
+                "system_prompt": "Updated system",
+                "user_template": "Updated template",
+                "input_variables": [],
+                "temperature": 0.6,
+                "max_tokens": 1200,
+                "top_p": 0.9,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("src.adapters.api.rest.prompt_routes.get_container")
+    @patch("src.adapters.api.rest.prompt_routes.get_async_session")
+    def test_update_draft_not_draft(self, mock_session, mock_get_container, sample_prompt, mock_container):
+        """Returns 400 when prompt isn't draft."""
+        container, mock_repo = mock_container
+        mock_get_container.return_value = container
+        mock_repo.update_draft_prompt.side_effect = ValueError("Only draft prompts can be updated")
+
+        response = client.patch(
+            f"/prompts/{sample_prompt.id}/draft",
+            json={
+                "system_prompt": "Updated system",
+                "user_template": "Updated template",
+                "input_variables": [],
+                "temperature": 0.6,
+                "max_tokens": 1200,
+                "top_p": 0.9,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestGetPromptById:
     """Test GET /prompts/{prompt_id} endpoint."""
 

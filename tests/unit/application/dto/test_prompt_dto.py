@@ -17,6 +17,7 @@ from src.application.dto.prompt_dto import (
     PaginatedPromptsResponse,
     PromptTemplateResponse,
     RollbackRequest,
+    UpdateDraftPromptRequest,
     VersionHistoryResponse,
 )
 from src.domain.models.prompt_template import PromptTemplate
@@ -126,6 +127,58 @@ class TestCreateVersionRequest:
         )
         assert request.parent_version == 1
         assert request.change_summary == "Improved clarity"
+
+    def test_parent_version_optional_defaults(self):
+        """Parent version can be omitted (handled server-side)."""
+        request = CreateVersionRequest(
+            system_prompt="Updated system prompt",
+            user_template="Updated template",
+            change_summary="Improved clarity",
+            temperature=0.8,
+            max_tokens=2000,
+            top_p=0.95,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+            created_by="admin",
+        )
+        assert request.parent_version is None
+
+
+class TestUpdateDraftPromptRequest:
+    """Test UpdateDraftPromptRequest DTO."""
+
+    def test_valid_request(self):
+        """Test full draft update payload."""
+        request = UpdateDraftPromptRequest(
+            system_prompt="Updated system",
+            user_template="Answer {question}",
+            input_variables=["question"],
+            partial_variables={"topic": "ai"},
+            output_parser_type="json_output_parser",
+            output_schema={"type": "object"},
+            temperature=0.6,
+            max_tokens=1500,
+            top_p=0.9,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+        )
+
+        assert request.system_prompt == "Updated system"
+        assert request.max_tokens == 1500
+
+    def test_temperature_validation(self):
+        """Temperature must be within allowed range."""
+        with pytest.raises(ValidationError):
+            UpdateDraftPromptRequest(
+                system_prompt="Updated",
+                user_template="Updated",
+                input_variables=[],
+                temperature=2.5,
+                max_tokens=1000,
+                top_p=0.9,
+                frequency_penalty=0.0,
+                presence_penalty=0.0,
+            )
 
 
 class TestRollbackRequest:
