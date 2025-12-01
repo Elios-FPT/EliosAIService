@@ -9,14 +9,45 @@ the domain layer.
 
 import logging
 import os
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any
 
 from google.api_core import exceptions as google_exceptions
-from google.cloud import texttospeech_v1
+from google.cloud import texttospeech
 
 from ...domain.ports.text_to_speech_port import TextToSpeechPort
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_credentials_path(path: str) -> str:
+    """Resolve relative credentials path to absolute path.
+
+    If path is relative, resolve it relative to the project root (where pyproject.toml exists).
+    If path is already absolute, return as-is.
+
+    Args:
+        path: Credentials file path (relative or absolute)
+
+    Returns:
+        Absolute path to credentials file
+    """
+    if os.path.isabs(path):
+        return path
+
+    # Find project root (directory containing pyproject.toml)
+    current = Path(__file__).resolve()
+    while current.parent != current:
+        if (current / "pyproject.toml").exists():
+            project_root = current
+            break
+        current = current.parent
+    else:
+        # Fallback: use current working directory
+        project_root = Path.cwd()
+
+    resolved = (project_root / path).resolve()
+    return str(resolved)
 
 
 class GoogleChirp3TTSAdapter(TextToSpeechPort):
@@ -33,6 +64,7 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
     def __init__(
         self,
         project_id: str,
+        credentials_path: str | None = None,
         voice_type: str = "WaveNet",
         default_voice: str = "en-US-Wavenet-D",
     ):
@@ -40,15 +72,48 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
 
         Args:
             project_id: Google Cloud project ID (logged for observability)
+            credentials_path: Optional path to service account JSON
             voice_type: Preferred voice family ("WaveNet" or "Chirp3HD")
             default_voice: Default full voice name, e.g. "en-US-Wavenet-D"
         """
         self.project_id = project_id
+        self.credentials_path = credentials_path
         self.voice_type = voice_type
         self.default_voice = default_voice
 
-        # Client uses ADC / service account env managed by infrastructure.
-        self.client = texttospeech_v1.TextToSpeechClient()
+        # For TTS we require an explicit credentials_path from settings to avoid
+        # surprises with differing working directories and relative env paths.
+        try:
+            if not credentials_path:
+                # Log env var for easier debugging if misconfigured
+                logger.error(
+                    "Google TTS credentials_path not provided. "
+                    "GOOGLE_APPLICATION_CREDENTIALS=%s",
+                    os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
+                )
+                raise FileNotFoundError(
+                    "Google TTS credentials_path is not configured. "
+                    "Set settings.google_application_credentials to an absolute "
+                    "path for the service account JSON."
+                )
+
+            from google.oauth2 import service_account
+
+            # Resolve relative paths to absolute (handles PyCharm/IDE working directory differences)
+            resolved_path = _resolve_credentials_path(credentials_path)
+            if not os.path.exists(resolved_path):
+                raise FileNotFoundError(
+                    f"Google TTS credentials file not found: {resolved_path} "
+                    f"(original path: {credentials_path})"
+                )
+
+            credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
+                resolved_path
+            )
+            self.client = texttospeech.TextToSpeechClient(credentials=credentials)
+        except Exception as exc:  # pragma: no cover - defensive guardrail
+            logger.error("Failed to initialize Google TTS client: %s", exc)
+            raise
 
         logger.info(
             "Initialized Google TTS adapter "
@@ -61,7 +126,7 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
     async def synthesize_speech(
         self,
         text: str,
-        voice: str = "en-US-AriaNeural",
+        voice: str = "Achird",
         speed: float = 1.0,
     ) -> bytes:
         """Convert text to speech audio using Google Text-to-Speech.
@@ -80,6 +145,9 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         # Use configured default if caller passes empty/None
         selected_voice = voice or self.default_voice
 
+        # Normalize voice name: if it's a short name, convert to full Google Cloud voice name
+        selected_voice = self._normalize_voice_name(selected_voice)
+
         request = self._build_synthesize_request(
             text=text,
             voice_name=selected_voice,
@@ -89,7 +157,15 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         try:
             response = await self._call_synthesize_async(request)
         except google_exceptions.InvalidArgument as exc:
-            logger.error("Invalid TTS request: %s", exc)
+            logger.error(
+                "Invalid TTS request for voice '%s': %s. "
+                "Request voice params: name=%s, language_code=%s, model=%s",
+                selected_voice,
+                exc,
+                request.voice.name,
+                request.voice.language_code,
+                getattr(request.voice, "model", "NOT SET"),
+            )
             raise ValueError(f"Invalid TTS request: {exc}") from exc
         except google_exceptions.ResourceExhausted as exc:
             logger.error("TTS quota exceeded: %s", exc)
@@ -152,7 +228,7 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
                 continue
 
             locale = voice.language_codes[0] if voice.language_codes else "en-US"
-            gender = texttospeech_v1.SsmlVoiceGender(voice.ssml_gender).name
+            gender = texttospeech.SsmlVoiceGender(voice.ssml_gender).name
             voice_type = self._infer_voice_type(name)
 
             voices.append(
@@ -171,25 +247,34 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         text: str,
         voice_name: str,
         speed: float,
-    ) -> texttospeech_v1.SynthesizeSpeechRequest:
+    ) -> texttospeech.SynthesizeSpeechRequest:
         """Build SynthesizeSpeechRequest with LINEAR16 config."""
         # Clamp speed to Google allowed range (0.25 - 4.0)
         speaking_rate = min(max(speed, 0.25), 4.0)
 
         language_code = self._language_from_voice(voice_name)
 
-        synthesis_input = texttospeech_v1.SynthesisInput(text=text)
-        voice_params = texttospeech_v1.VoiceSelectionParams(
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+
+        # Voice name already contains model information (e.g., "en-US-Chirp3-HD-Achernar")
+        # No separate model parameter needed - the model is part of the voice name
+        voice_params = texttospeech.VoiceSelectionParams(
             language_code=language_code,
             name=voice_name,
         )
-        audio_config = texttospeech_v1.AudioConfig(
-            audio_encoding=texttospeech_v1.AudioEncoding.LINEAR16,
+        logger.debug(
+            "Using voice '%s' with language_code='%s' (voice_type=%s)",
+            voice_name,
+            language_code,
+            self.voice_type,
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             sample_rate_hertz=16000,
             speaking_rate=speaking_rate,
         )
 
-        return texttospeech_v1.SynthesizeSpeechRequest(
+        return texttospeech.SynthesizeSpeechRequest(
             input=synthesis_input,
             voice=voice_params,
             audio_config=audio_config,
@@ -197,8 +282,8 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
 
     async def _call_synthesize_async(
         self,
-        request: texttospeech_v1.SynthesizeSpeechRequest,
-    ) -> texttospeech_v1.SynthesizeSpeechResponse:
+        request: texttospeech.SynthesizeSpeechRequest,
+    ) -> texttospeech.SynthesizeSpeechResponse:
         """Async wrapper around sync Google TTS client for compatibility."""
         import asyncio
 
@@ -231,5 +316,31 @@ class GoogleChirp3TTSAdapter(TextToSpeechPort):
         if "Wavenet" in voice_name or "WaveNet" in voice_name:
             return "WaveNet"
         return "Standard"
+
+    def _normalize_voice_name(self, voice_name: str) -> str:
+        """Normalize voice name to full Google Cloud voice name format.
+
+        If voice_name is a short name (doesn't contain language code pattern),
+        use the configured default_voice instead.
+
+        Args:
+            voice_name: Voice name (may be short like "Achird" or full like "en-US-Chirp3-HD-Achernar")
+
+        Returns:
+            Full Google Cloud voice name (e.g., "en-US-Chirp3-HD-Achernar")
+        """
+        # Check if voice_name looks like a full Google Cloud voice name
+        # Full names typically contain language code pattern like "en-US" or "xx-XX"
+        if "-" in voice_name and len(voice_name.split("-")) >= 3:
+            # Looks like a full name (e.g., "en-US-Chirp3-HD-Achernar")
+            return voice_name
+
+        # Short name provided - use default_voice which should be a full name
+        logger.debug(
+            "Short voice name '%s' provided, using default_voice '%s'",
+            voice_name,
+            self.default_voice,
+        )
+        return self.default_voice
 
 
