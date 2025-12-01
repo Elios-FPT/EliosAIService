@@ -449,25 +449,23 @@ class Container:
             Configured STT service
 
         Raises:
-            ValueError: If Azure Speech API key or region is not configured
+            ValueError: If Google Cloud Speech config is not configured
         """
         if self._stt_port is None:
             # Use mock adapter if configured
             if self.settings.use_mock_stt:
                 self._stt_port = MockSTTAdapter()
             else:
-                # Use Azure Speech SDK
-                from ...adapters.speech.azure_stt_adapter import AzureSpeechToTextAdapter
+                from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
 
-                if not self.settings.azure_speech_key:
-                    raise ValueError("Azure Speech API key not configured")
-                if not self.settings.azure_speech_region:
-                    raise ValueError("Azure Speech region not configured")
+                if not self.settings.google_cloud_project_id:
+                    raise ValueError("Google Cloud project ID not configured")
 
-                self._stt_port = AzureSpeechToTextAdapter(
-                    api_key=self.settings.azure_speech_key,
-                    region=self.settings.azure_speech_region,
-                    language=self.settings.azure_speech_language,
+                self._stt_port = GoogleChirp3STTAdapter(
+                    project_id=self.settings.google_cloud_project_id,
+                    credentials_path=self.settings.google_application_credentials,
+                    model=self.settings.google_stt_model,
+                    language=self.settings.google_stt_language,
                 )
 
         return self._stt_port
@@ -479,25 +477,22 @@ class Container:
             Configured TTS service
 
         Raises:
-            ValueError: If Azure Speech API key or region is not configured
+            ValueError: If Google Cloud Speech config is not configured
         """
         if self._tts_port is None:
             # Use mock adapter if configured
             if self.settings.use_mock_tts:
                 self._tts_port = MockTTSAdapter()
             else:
-                # Use Azure Speech SDK
-                from ...adapters.speech.azure_tts_adapter import AzureTTSAdapter
+                from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
 
-                if not self.settings.azure_speech_key:
-                    raise ValueError("Azure Speech API key not configured")
-                if not self.settings.azure_speech_region:
-                    raise ValueError("Azure Speech region not configured")
+                if not self.settings.google_cloud_project_id:
+                    raise ValueError("Google Cloud project ID not configured")
 
-                self._tts_port = AzureTTSAdapter(
-                    subscription_key=self.settings.azure_speech_key,
-                    region=self.settings.azure_speech_region,
-                    default_voice=self.settings.azure_speech_voice,
+                self._tts_port = GoogleChirp3TTSAdapter(
+                    project_id=self.settings.google_cloud_project_id,
+                    voice_type=self.settings.google_tts_voice_type,
+                    default_voice=self.settings.google_tts_default_voice,
                 )
 
         return self._tts_port
