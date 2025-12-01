@@ -4,7 +4,7 @@ from uuid import UUID
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.candidate import Candidate
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
+from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 from ...domain.ports.vector_search_port import VectorSearchPort
 from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
 from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
@@ -39,13 +39,15 @@ class AnalyzeCVUseCase:
 
     async def execute(
         self,
-        cv_file_path: str,
+        cv_content: bytes,
+        file_type: FileType,
         candidate_id: UUID,
     ) -> CVAnalysis:
         """Execute CV analysis.
 
         Args:
-            cv_file_path: Path to CV file
+            cv_content: CV file content as bytes
+            file_type: File type ("pdf", "docx", "txt")
             candidate_id: ID of the candidate
 
         Returns:
@@ -56,7 +58,8 @@ class AnalyzeCVUseCase:
         """
         # Step 1: Analyze CV using the CV analyzer port
         cv_analysis = await self.cv_analyzer.analyze_cv(
-            cv_file_path=cv_file_path,
+            cv_content=cv_content,
+            file_type=file_type,
             candidate_id=str(candidate_id),
         )
 
@@ -68,7 +71,7 @@ class AnalyzeCVUseCase:
             id=candidate_id,
             name="Hardcoded Candidate",
             email="hardcoded@example.com",
-            cv_file_path=cv_file_path,
+            cv_file_path=None,  # No file path stored
         )
 
         try:

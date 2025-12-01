@@ -20,7 +20,7 @@ from docx import Document
 from ...domain.models.candidate import Candidate
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
+from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 
 debug_print("hybrid_cv_analyzer_adapter.py: About to import sub-modules...")
 from .confidence_scorer import ConfidenceScorer
@@ -68,12 +68,13 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
 
     async def analyze_cv(
         self,
-        cv_file_path: str,
-        candidate_id: UUID,
+        cv_content: bytes,
+        file_type: FileType,
+        candidate_id: str,
     ) -> CVAnalysis:
-        """Analyze CV contents using rules → NER → optional LLM fallback."""
+        """Analyze CV contents from bytes using rules → NER → optional LLM fallback."""
 
-        cv_text = self._read_cv_text(cv_file_path)
+        cv_text = self._read_cv_text_from_bytes(cv_content, file_type)
 
         rule_results = self.rule_extractor.extract(cv_text)
         ner_results = self.ner_extractor.extract(cv_text)
@@ -92,14 +93,14 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         return self._map_to_cv_analysis(
             merged_results,
             cv_text,
-            candidate_id,
+            UUID(candidate_id),
         )
 
     async def generate_candidate_from_summary(
         self,
         summary_info: str,
-        cv_file_path: str,
         candidate_id: UUID,
+        cv_file_path: str | None = None,
     ) -> Candidate:
         """Generate lightweight Candidate from summary text."""
 
@@ -117,32 +118,42 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             id=candidate_id,
             name=name,
             email=email,
-            cv_file_path=cv_file_path,
+            cv_file_path=cv_file_path,  # Optional, can be None
         )
 
-    def _read_cv_text(self, file_path: str) -> str:
-        """Read CV text supporting PDF, DOCX, and plaintext formats."""
+    def _read_cv_text_from_bytes(self, cv_bytes: bytes, file_type: FileType) -> str:
+        """Read CV text from bytes."""
+        if file_type == "pdf":
+            return self._read_pdf_from_bytes(cv_bytes)
+        elif file_type in ("docx", "doc"):
+            return self._read_docx_from_bytes(cv_bytes)
+        else:
+            return self._read_text_from_bytes(cv_bytes)
 
-        path = Path(file_path)
-        suffix = path.suffix.lower()
-
-        if suffix == ".pdf":
-            return self._read_pdf(path)
-        if suffix == ".docx":
-            return self._read_docx(path)
-
-        return self._read_text(path)
-
-    def _read_pdf(self, path: Path) -> str:
-        with pdfplumber.open(path) as pdf:
+    def _read_pdf_from_bytes(self, pdf_bytes: bytes) -> str:
+        """Read PDF from bytes."""
+        from io import BytesIO
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
 
-    def _read_docx(self, path: Path) -> str:
-        document = Document(path)
-        return "\n".join(p.text.strip() for p in document.paragraphs if p.text).strip()
+    def _read_docx_from_bytes(self, docx_bytes: bytes) -> str:
+        """Read DOCX from bytes (uses tempfile due to library limitation)."""
+        from tempfile import NamedTemporaryFile
+        import os
 
-    def _read_text(self, path: Path) -> str:
-        return path.read_text(encoding="utf-8", errors="ignore").strip()
+        with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            tmp.write(docx_bytes)
+            tmp_path = tmp.name
+
+        try:
+            document = Document(tmp_path)
+            return "\n".join(p.text.strip() for p in document.paragraphs if p.text).strip()
+        finally:
+            os.unlink(tmp_path)
+
+    def _read_text_from_bytes(self, text_bytes: bytes) -> str:
+        """Read plain text from bytes."""
+        return text_bytes.decode('utf-8', errors='ignore').strip()
 
     def _merge_results(
         self,

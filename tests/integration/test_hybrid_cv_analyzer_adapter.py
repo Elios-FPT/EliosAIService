@@ -34,8 +34,9 @@ def build_real_adapter() -> HybridCVAnalyzerAdapter:
 async def test_hybrid_analyzer_english_cv_full_pipeline() -> None:
     adapter = build_real_adapter()
     cv_path = Path("tests/fixtures/cv_samples/sample_cv_english.txt")
+    cv_bytes = cv_path.read_bytes()
 
-    analysis = await adapter.analyze_cv(str(cv_path), uuid4())
+    analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
     assert analysis.skills, "Expected skills extracted from English CV"
     assert analysis.extracted_text
@@ -45,8 +46,9 @@ async def test_hybrid_analyzer_english_cv_full_pipeline() -> None:
 async def test_hybrid_analyzer_vietnamese_cv_runs_with_fallback() -> None:
     adapter = build_real_adapter()
     cv_path = Path("tests/fixtures/cv_samples/sample_cv_vietnamese.txt")
+    cv_bytes = cv_path.read_bytes()
 
-    analysis = await adapter.analyze_cv(str(cv_path), uuid4())
+    analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
     assert analysis.extracted_text
 
