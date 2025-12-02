@@ -153,7 +153,6 @@ class QuestionMapper:
             question_type=QuestionType(db_model.question_type),
             difficulty=Difficulty(db_model.difficulty),
             skills=list(db_model.skills) if db_model.skills else [],
-            version=db_model.version,
             embedding=list(db_model.embedding) if db_model.embedding else None,
             ideal_answer=db_model.ideal_answer,
             rationale=db_model.rationale,
@@ -170,7 +169,6 @@ class QuestionMapper:
             question_type=domain_model.question_type.value,
             difficulty=domain_model.difficulty.value,
             skills=domain_model.skills,
-            version=domain_model.version,
             embedding=domain_model.embedding,
             ideal_answer=domain_model.ideal_answer,
             rationale=domain_model.rationale,
@@ -185,7 +183,6 @@ class QuestionMapper:
         db_model.question_type = domain_model.question_type.value
         db_model.difficulty = domain_model.difficulty.value
         db_model.skills = domain_model.skills
-        db_model.version = domain_model.version
         db_model.embedding = domain_model.embedding
         db_model.ideal_answer = domain_model.ideal_answer
         db_model.rationale = domain_model.rationale

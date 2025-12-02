@@ -136,7 +136,6 @@ class QuestionModel(Base):
         index=True,
     )
     skills: Mapped[list[str]] = mapped_column(ARRAY(String(100)), nullable=False, default=[])
-    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
 
     # Pre-planning fields for adaptive interviews
