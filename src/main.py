@@ -244,6 +244,41 @@ async def lifespan(app: FastAPI):
         # Non-critical: Continue startup even if Kafka fails
         logger.warning(f"Event publisher failed to start: {e}", exc_info=True)
 
+    # Initialize TTS adapter at startup (prevents first-use delay)
+    # This eliminates ~12 second delay on first question generation
+    debug_print("Initializing TTS adapter at startup...")
+    logger.info("Initializing TTS adapter at startup (to prevent first-use delay)...")
+    try:
+        await container.start_tts_adapter()
+        logger.info("TTS adapter initialized successfully at startup")
+        debug_print("TTS adapter initialized at startup")
+    except Exception as e:
+        # Log warning but don't fail startup - TTS will be created lazily on first request
+        logger.warning(
+            f"Failed to initialize TTS adapter at startup: {e}. "
+            "TTS adapter will be created lazily on first request. "
+            "This may cause a delay (~12s) on the first TTS call.",
+            exc_info=True
+        )
+        debug_print(f"TTS adapter initialization failed at startup: {e}")
+
+    # Start candidate event consumer in background (non-blocking)
+    candidate_consumer = None
+    consumer_task = None
+    try:
+        candidate_consumer = container.candidate_event_consumer()
+        await candidate_consumer.start()
+        import asyncio as _asyncio
+
+        consumer_task = _asyncio.create_task(candidate_consumer.consume_events())
+        logger.info("Candidate event consumer started successfully")
+    except Exception as e:
+        logger.warning(
+            f"Failed to start candidate event consumer: {e}. "
+            "Candidate delete events will not be processed until this is fixed.",
+            exc_info=True,
+        )
+
     # Optionally initialize LangGraph checkpointer at startup
     # This prevents first-request timeouts when the feature is enabled
     if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
@@ -281,6 +316,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         debug_print(f"Error stopping event publisher: {e}")
         logger.warning(f"Error stopping event publisher: {e}", exc_info=True)
+
+    # Stop candidate event consumer if it was started
+    try:
+        if candidate_consumer is not None:
+            await candidate_consumer.stop()
+        if consumer_task is not None:
+            import asyncio as _asyncio
+
+            consumer_task.cancel()
+            with contextlib.suppress(Exception):
+                await consumer_task
+        logger.info("Candidate event consumer stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping candidate event consumer: {e}", exc_info=True)
 
     try:
         await container.stop_checkpointer_heartbeat()

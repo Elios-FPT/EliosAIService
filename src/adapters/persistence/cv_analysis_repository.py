@@ -1,8 +1,9 @@
 """PostgreSQL implementation of CVAnalysisRepositoryPort."""
 
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.cv_analysis import CVAnalysis
@@ -46,6 +47,7 @@ class PostgreSQLCVAnalysisRepository(CVAnalysisRepositoryPort):
             result = await session.execute(
                 select(CVAnalysisModel)
                 .where(CVAnalysisModel.id == cv_analysis_id)
+                .where(CVAnalysisModel.deleted_at.is_(None))
                 .options(selectinload(CVAnalysisModel.skills))
             )
             db_model = result.scalar_one_or_none()
@@ -57,6 +59,7 @@ class PostgreSQLCVAnalysisRepository(CVAnalysisRepositoryPort):
             result = await session.execute(
                 select(CVAnalysisModel)
                 .where(CVAnalysisModel.candidate_id == candidate_id)
+                .where(CVAnalysisModel.deleted_at.is_(None))
                 .options(selectinload(CVAnalysisModel.skills))
                 .order_by(CVAnalysisModel.created_at.desc())
             )
@@ -72,6 +75,7 @@ class PostgreSQLCVAnalysisRepository(CVAnalysisRepositoryPort):
             result = await session.execute(
                 select(CVAnalysisModel)
                 .where(CVAnalysisModel.candidate_id == candidate_id)
+                .where(CVAnalysisModel.deleted_at.is_(None))
                 .options(selectinload(CVAnalysisModel.skills))
                 .order_by(CVAnalysisModel.created_at.desc())
                 .limit(1)
@@ -122,3 +126,28 @@ class PostgreSQLCVAnalysisRepository(CVAnalysisRepositoryPort):
             await session.delete(db_model)
             await session.commit()
             return True
+
+    async def soft_delete_by_candidate_id(self, candidate_id: UUID) -> int:
+        """Soft delete all CV analyses for a candidate that are not already deleted."""
+        async with self._session_provider() as session:
+            stmt = (
+                update(CVAnalysisModel)
+                .where(CVAnalysisModel.candidate_id == candidate_id)
+                .where(CVAnalysisModel.deleted_at.is_(None))
+                .values(deleted_at=datetime.utcnow())
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount or 0
+
+    async def hard_delete_old_soft_deleted(self, days: int = 30) -> int:
+        """Hard delete CV analyses soft-deleted more than N days ago."""
+        async with self._session_provider() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            stmt = delete(CVAnalysisModel).where(
+                CVAnalysisModel.deleted_at.is_not(None),
+                CVAnalysisModel.deleted_at < cutoff_date,
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount or 0

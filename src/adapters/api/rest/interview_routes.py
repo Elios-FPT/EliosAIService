@@ -27,90 +27,69 @@ from ....infrastructure.dependency_injection.container import get_container
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
 
 
-@router.post("/cv/upload", summary="Upload CV for further analyze")
-async def upload_cv(
-    file: UploadFile = File(..., description="PDF CV file"),
+@router.post("/cv/upload", summary="Analyze CV in-memory")
+async def analyze_cv(
+    file: UploadFile = File(..., description="CV file (PDF, DOCX, TXT)"),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
-    Upload a CV file to the server.
+    Analyze CV file without saving to disk.
 
-    This endpoint accepts a PDF file and saves it to the server.
-    Returns the file path where the CV is stored.
+    This endpoint processes CV files entirely in-memory.
     """
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a PDF")
+    # Validate file type
+    content_type = file.content_type
+    filename = file.filename or ""
 
-    file_path = None
+    # Read file bytes first (needed for magic byte detection)
+    content = await file.read()
+
+    # Detect file type using helper method from port
+    from ....domain.ports.cv_analyzer_port import CVAnalyzerPort
+
     try:
-        # Generate a unique filename
-        setting = get_settings()
-        UPLOAD_DIR = setting.upload_dir
-        logger.info(f"Upload directory configured as: {UPLOAD_DIR}")
-
-        file_extension = os.path.splitext(file.filename)[1]
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-
-        # Create directory if it doesn't exist
-        try:
-            os.makedirs(UPLOAD_DIR, exist_ok=True)
-            logger.info(f"Upload directory created/verified: {UPLOAD_DIR}")
-        except OSError as e:
-            logger.error(f"Failed to create upload directory {UPLOAD_DIR}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Cannot create upload directory: {str(e)}",
-            ) from e
-
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
-        logger.info(f"Saving file to: {file_path}")
-
-        # Save the uploaded file
-        try:
-            with open(file_path, "wb") as buffer:
-                content = await file.read()
-                buffer.write(content)
-            logger.info(f"File saved successfully: {file_path} ({len(content)} bytes)")
-        except IOError as e:
-            logger.error(f"Failed to write file to {file_path}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Cannot write file: {str(e)}",
-            ) from e
-
-        # TODO: replace with data from User Service
-        candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
-        logger.info(f"Starting CV analysis for candidate: {candidate_id}")
-
-        container = get_container()
-        cv_analyzer = container.cv_analyzer_port()
-
-        cv_analysis_use_case = AnalyzeCVUseCase(
-            cv_analyzer=cv_analyzer,
-            vector_search=container.vector_search_port(),
-            candidate_repository_port=container.candidate_repository_port(session=session),
-            cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
+        file_type = CVAnalyzerPort._detect_file_type(
+            content_type=content_type,
+            filename=filename,
+            content_bytes=content,
         )
-        cv_analysis = await cv_analysis_use_case.execute(file_path, candidate_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type. Supported: PDF, DOCX, TXT. {str(e)}"
+        )
+
+    # Validate file size (10MB limit)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large. Maximum size: 10MB."
+        )
+
+    # TODO: replace with candidate_id from User Service (provided by caller)
+    candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
+    logger.info(f"Starting CV analysis for candidate: {candidate_id} (file_type: {file_type}, size: {len(content)} bytes)")
+
+    container = get_container()
+    cv_analysis_use_case = AnalyzeCVUseCase(
+        cv_analyzer=container.cv_analyzer_port(),
+        vector_search=container.vector_search_port(),
+        cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
+    )
+
+    try:
+        cv_analysis = await cv_analysis_use_case.execute(
+            cv_content=content,
+            file_type=file_type,
+            candidate_id=candidate_id,
+        )
         logger.info(f"CV analysis completed: {cv_analysis.id}")
         return cv_analysis
-
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
     except Exception as e:
-        logger.error(f"Error uploading CV file: {e}", exc_info=True)
-        # Clean up the file if there was an error
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-                logger.info(f"Cleaned up file: {file_path}")
-            except OSError as cleanup_error:
-                logger.warning(f"Failed to cleanup file {file_path}: {cleanup_error}")
-
+        logger.error(f"Error analyzing CV file: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error uploading file: {str(e)}",
+            detail=f"Error analyzing file: {str(e)}",
         ) from e
 
 

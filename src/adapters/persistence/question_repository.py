@@ -31,6 +31,37 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
             await session.refresh(db_model)
             return QuestionMapper.to_domain(db_model)
 
+    async def save_batch(self, questions: list[Question]) -> list[Question]:
+        """Save multiple questions in a single atomic transaction.
+
+        All questions are saved in one transaction. If any question fails,
+        the entire transaction is rolled back.
+
+        Args:
+            questions: List of questions to save
+
+        Returns:
+            List of saved questions with updated metadata
+
+        Raises:
+            Exception: If any question fails to save, entire transaction is rolled back
+        """
+        async with self._session_provider() as session:
+            db_models = []
+            for question in questions:
+                db_model = QuestionMapper.to_db_model(question)
+                session.add(db_model)
+                db_models.append(db_model)
+
+            # Commit all questions in one transaction
+            await session.commit()
+
+            # Refresh all models to get updated metadata
+            for db_model in db_models:
+                await session.refresh(db_model)
+
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+
     async def get_by_id(self, question_id: UUID) -> Question | None:
         """Retrieve a question by ID."""
         async with self._session_provider() as session:

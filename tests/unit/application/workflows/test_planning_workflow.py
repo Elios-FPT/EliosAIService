@@ -43,7 +43,8 @@ def mock_cv_repo():
 def mock_question_repo():
     """Create mock question repository."""
     repo = MagicMock()
-    repo.create = AsyncMock()
+    repo.save = AsyncMock()
+    repo.save_batch = AsyncMock()
     return repo
 
 
@@ -342,12 +343,12 @@ class TestPlanningWorkflow:
     async def test_store_questions_node_success(
         self, workflow, mock_question_repo
     ):
-        """Test store_questions_node saves questions to database."""
+        """Test store_questions_node saves questions to database in batch."""
         # Setup
         question_id_1 = uuid4()
         question_id_2 = uuid4()
 
-        mock_question_repo.create.side_effect = [
+        saved_questions = [
             Question(
                 id=question_id_1,
                 text="What is Python GIL?",
@@ -367,6 +368,7 @@ class TestPlanningWorkflow:
                 rationale="Tests async knowledge",
             ),
         ]
+        mock_question_repo.save_batch.return_value = saved_questions
 
         state = {
             "generated_questions": ["What is Python GIL?", "Explain async/await"],
@@ -386,7 +388,12 @@ class TestPlanningWorkflow:
         assert len(result["stored_question_ids"]) == 2
         assert question_id_1 in result["stored_question_ids"]
         assert question_id_2 in result["stored_question_ids"]
-        assert mock_question_repo.create.call_count == 2
+        # Verify save_batch was called once with list of questions
+        mock_question_repo.save_batch.assert_called_once()
+        call_args = mock_question_repo.save_batch.call_args[0][0]
+        assert len(call_args) == 2
+        assert call_args[0].text == "What is Python GIL?"
+        assert call_args[1].text == "Explain async/await"
 
     async def test_store_questions_node_no_questions(self, workflow):
         """Test store_questions_node handles empty question list."""
@@ -552,7 +559,7 @@ class TestPlanningWorkflow:
             ideal_answer="Answer 2",
             rationale="Rationale 2",
         )
-        mock_question_repo.create.side_effect = [question_1, question_2]
+        mock_question_repo.save_batch.return_value = [question_1, question_2]
 
         interview = Interview(
             id=uuid4(),

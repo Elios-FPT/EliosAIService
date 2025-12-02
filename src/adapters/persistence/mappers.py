@@ -8,7 +8,6 @@ These mappers handle the translation between the domain layer
 from decimal import Decimal
 
 from ...domain.models.answer import Answer, AnswerEvaluation
-from ...domain.models.candidate import Candidate
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.models.follow_up_question import FollowUpQuestion
@@ -17,7 +16,6 @@ from ...domain.models.interview_question import InterviewQuestion
 from ...domain.models.question import Difficulty, Question, QuestionType
 from .models import (
     AnswerModel,
-    CandidateModel,
     CVAnalysisModel,
     CVSkillModel,
     FollowUpQuestionModel,
@@ -141,61 +139,6 @@ class InterviewQuestionMapper:
         db_model.asked_at = domain_model.asked_at
         db_model.skipped = domain_model.skipped
         db_model.skip_reason = domain_model.skip_reason
-
-
-class CandidateMapper:
-    """Mapper for Candidate domain model and CandidateModel database model."""
-
-    @staticmethod
-    def to_domain(db_model: CandidateModel) -> Candidate:
-        """Convert database model to domain model.
-
-        Args:
-            db_model: SQLAlchemy model instance
-
-        Returns:
-            Domain model instance
-        """
-        return Candidate(
-            id=db_model.id,
-            name=db_model.name,
-            email=db_model.email,
-            cv_file_path=db_model.cv_file_path,
-            created_at=db_model.created_at,
-            updated_at=db_model.updated_at,
-        )
-
-    @staticmethod
-    def to_db_model(domain_model: Candidate) -> CandidateModel:
-        """Convert domain model to database model.
-
-        Args:
-            domain_model: Domain model instance
-
-        Returns:
-            SQLAlchemy model instance
-        """
-        return CandidateModel(
-            id=domain_model.id,
-            name=domain_model.name,
-            email=domain_model.email,
-            cv_file_path=domain_model.cv_file_path,
-            created_at=domain_model.created_at,
-            updated_at=domain_model.updated_at,
-        )
-
-    @staticmethod
-    def update_db_model(db_model: CandidateModel, domain_model: Candidate) -> None:
-        """Update database model from domain model.
-
-        Args:
-            db_model: SQLAlchemy model to update
-            domain_model: Domain model with new data
-        """
-        db_model.name = domain_model.name
-        db_model.email = domain_model.email
-        db_model.cv_file_path = domain_model.cv_file_path
-        db_model.updated_at = domain_model.updated_at
 
 
 class QuestionMapper:

@@ -87,3 +87,24 @@ class CVAnalysisRepositoryPort(ABC):
             True if deleted, False if not found
         """
         pass
+
+    @abstractmethod
+    async def soft_delete_by_candidate_id(self, candidate_id: UUID) -> int:
+        """Soft delete all CV analyses for a candidate.
+
+        Returns:
+            Number of CV analyses soft deleted
+        """
+        pass
+
+    @abstractmethod
+    async def hard_delete_old_soft_deleted(self, days: int = 30) -> int:
+        """Hard delete CV analyses soft-deleted more than N days ago.
+
+        Args:
+            days: Number of days threshold (default 30)
+
+        Returns:
+            Number of CV analyses hard deleted
+        """
+        pass

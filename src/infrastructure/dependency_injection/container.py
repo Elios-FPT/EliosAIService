@@ -51,7 +51,6 @@ debug_print("container.py: Mock adapters imported")
 debug_print("container.py: About to import persistence adapters...")
 from ...adapters.persistence import (
     PostgreSQLAnswerRepository,
-    PostgreSQLCandidateRepository,
     PostgreSQLCVAnalysisRepository,
     PostgreSQLEvaluationRepository,
     PostgreSQLFollowUpQuestionRepository,
@@ -82,7 +81,6 @@ debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
     AnalyticsPort,
     AnswerRepositoryPort,
-    CandidateRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
     EvaluationRepositoryPort,
@@ -322,22 +320,6 @@ class Container:
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLFollowUpQuestionRepository(provider)
 
-    def candidate_repository_port(
-        self,
-        session: AsyncSession | None = None,
-        session_provider: SessionProvider | None = None,
-    ) -> CandidateRepositoryPort:
-        """Get candidate repository port implementation.
-
-        Args:
-            session: Async database session
-
-        Returns:
-            Configured candidate repository
-        """
-        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
-        return PostgreSQLCandidateRepository(provider)
-
     def interview_repository_port(
         self,
         session: AsyncSession | None = None,
@@ -543,6 +525,65 @@ class Container:
         # Only Kafka adapter has stop() method
         if isinstance(self._event_publisher, KafkaEventPublisher):
             await self._event_publisher.stop()
+
+    def candidate_event_consumer(self) -> "CandidateEventConsumer":
+        """Get candidate event consumer.
+
+        Returns:
+            Configured Kafka consumer for candidate events
+        """
+        from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+
+        return CandidateEventConsumer(
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            topic=self.settings.kafka_candidate_topic,
+            group_id=self.settings.kafka_candidate_consumer_group,
+            interview_repo=self.interview_repository_port(),
+            cv_analysis_repo=self.cv_analysis_repository_port(),
+        )
+
+    async def start_tts_adapter(self) -> None:
+        """Pre-initialize TTS adapter at startup to eliminate first-use delay.
+
+        This method:
+        1. Triggers TTS adapter initialization (creates Google Cloud client)
+        2. Optionally pre-warms with test synthesis (validates connection)
+        3. Handles errors gracefully (non-blocking, logs warnings)
+
+        Note:
+            - Non-blocking: Startup continues even if TTS init fails
+            - TTS will be created lazily on first use if startup init fails
+            - Pre-warming is optional (can be disabled via settings)
+        """
+        try:
+            # Trigger initialization by calling text_to_speech_port()
+            tts = self.text_to_speech_port()
+
+            # Optional: Pre-warm with test synthesis (validates connection)
+            # Skip if using mock adapter (no network call needed)
+            if not self.settings.use_mock_tts:
+                try:
+                    # Pre-warm with minimal text (validates Google Cloud connection)
+                    await tts.synthesize_speech("test", speed=1.0)
+                    logger.info("TTS adapter pre-warmed successfully")
+                except Exception as prewarm_exc:
+                    # Pre-warm failure is non-critical (adapter still initialized)
+                    logger.warning(
+                        f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
+                        "First TTS call may be slower."
+                    )
+            else:
+                logger.info("TTS adapter initialized (mock mode, no pre-warm needed)")
+
+        except Exception as exc:
+            # Non-blocking: Log warning but don't fail startup
+            # TTS will be created lazily on first use
+            logger.warning(
+                f"Failed to initialize TTS adapter at startup: {exc}. "
+                "TTS adapter will be created lazily on first request. "
+                "This may cause a delay (~12s) on the first TTS call.",
+                exc_info=True
+            )
 
     def analytics_port(self) -> AnalyticsPort:
         """Get analytics port implementation.

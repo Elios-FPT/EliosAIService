@@ -87,6 +87,7 @@ def build_ner_response(overall: float = 0.9) -> dict[str, Any]:
 async def test_analyze_cv_high_confidence_skips_llm(tmp_path: Path) -> None:
     cv_path = tmp_path / "cv.txt"
     cv_path.write_text("Sample CV", encoding="utf-8")
+    cv_bytes = cv_path.read_bytes()
 
     llm_stub = StubLLMFallback()
     adapter = HybridCVAnalyzerAdapter(
@@ -96,18 +97,18 @@ async def test_analyze_cv_high_confidence_skips_llm(tmp_path: Path) -> None:
         confidence_threshold=0.7,
     )
 
-    analysis = await adapter.analyze_cv(str(cv_path), uuid4())
+    analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
-    assert analysis.metadata["extraction_method"] == "hybrid"
-    assert analysis.metadata["confidence"]["email"] >= 0.9
     assert llm_stub.called is False
-    assert analysis.skills[0].skill == "Python"
+    assert len(analysis.skills) > 0
+    assert analysis.skills[0].skill_name == "Python"
 
 
 @pytest.mark.asyncio
 async def test_analyze_cv_low_confidence_triggers_llm(tmp_path: Path) -> None:
     cv_path = tmp_path / "cv.txt"
     cv_path.write_text("Sample CV missing emails", encoding="utf-8")
+    cv_bytes = cv_path.read_bytes()
 
     rule_response = build_rule_response()
     rule_response["emails"] = []
@@ -120,11 +121,10 @@ async def test_analyze_cv_low_confidence_triggers_llm(tmp_path: Path) -> None:
         confidence_threshold=0.7,
     )
 
-    analysis = await adapter.analyze_cv(str(cv_path), uuid4())
+    analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
     assert llm_stub.called is True
-    assert analysis.metadata["confidence"]["email"] == 0.0
-    assert analysis.metadata.get("language") == "en"
+    assert len(analysis.skills) > 0
 
 
 @pytest.mark.asyncio
@@ -144,27 +144,28 @@ async def test_generate_candidate_from_summary_uses_rules_and_ner(tmp_path: Path
 
     candidate = await adapter.generate_candidate_from_summary(
         "Jane Doe can be reached at candidate@example.com",
-        str(tmp_path / "summary.txt"),
         uuid4(),
+        cv_file_path=None,  # Optional
     )
 
     assert candidate.name == "Jane Doe"
     assert candidate.email == "candidate@example.com"
 
 
-def test_read_docx_supported(tmp_path: Path) -> None:
+def test_read_docx_from_bytes_supported(tmp_path: Path) -> None:
     doc_path = tmp_path / "cv.docx"
     document = Document()
     document.add_paragraph("Jane Doe")
     document.add_paragraph("Senior Engineer")
     document.save(doc_path)
+    doc_bytes = doc_path.read_bytes()
 
     adapter = HybridCVAnalyzerAdapter(
         rule_extractor=StubRuleExtractor(build_rule_response()),
         ner_extractor=StubNERExtractor(build_ner_response()),
     )
 
-    content = adapter._read_cv_text(str(doc_path))
+    content = adapter._read_cv_text_from_bytes(doc_bytes, "docx")
 
     assert "Jane Doe" in content
     assert "Senior Engineer" in content

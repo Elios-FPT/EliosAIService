@@ -21,12 +21,10 @@ from typing import Dict, Any
 from datetime import timezone
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort
-from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
+from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
-from ...domain.models.candidate import Candidate
 
 from ...infrastructure.config import Settings
 _nlp_models = {}
@@ -103,25 +101,51 @@ class CVProcessingAdapter(CVAnalyzerPort):
     def __init__(
             self,
             embedding_model:str="text-embedding-3-small",
-            model:str="gpt-4o-mini",
-            candidate_repository_port: CandidateRepositoryPort = None):
+            model:str="gpt-4o-mini"):
 
         self.settings  = Settings()
         self.embedding_model = embedding_model or self.settings.openai_embedding_model or "text-embedding-3-small"
         self.preprocessing = CVEmbeddingPreprocessor()
         self.model = model
-        self.candidate_repository_port = candidate_repository_port
 
     SKILL_PATTERNS = load_skill_patterns()
 
     @staticmethod
-    def read_cv(file_path: str) -> str:
-        if file_path.lower().endswith('.pdf'):
-            with pdfplumber.open(file_path) as pdf:
+    def read_cv_from_bytes(cv_bytes: bytes, file_type: FileType) -> str:
+        """Read CV text from bytes.
+
+        Args:
+            cv_bytes: CV file content as bytes
+            file_type: File type ("pdf", "docx", "txt")
+
+        Returns:
+            Extracted text content
+        """
+        from io import BytesIO
+
+        if file_type == "pdf":
+            with pdfplumber.open(BytesIO(cv_bytes)) as pdf:
                 return "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
+        elif file_type in ("docx", "doc"):
+            # Note: python-docx doesn't support BytesIO directly
+            # Need to use tempfile or alternative approach
+            from docx import Document
+            from tempfile import NamedTemporaryFile
+            import os
+
+            with NamedTemporaryFile(delete=False, suffix=f".{file_type}") as tmp:
+                tmp.write(cv_bytes)
+                tmp_path = tmp.name
+
+            try:
+                document = Document(tmp_path)
+                text = "\n".join(p.text.strip() for p in document.paragraphs if p.text).strip()
+            finally:
+                os.unlink(tmp_path)
+            return text
         else:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                return f.read().strip()
+            # Plain text
+            return cv_bytes.decode('utf-8', errors='ignore').strip()
 
     async def generate_cv_info_from_text(self, cv_text: str) -> str:
         date=datetime.now(timezone.utc)
@@ -219,72 +243,14 @@ class CVProcessingAdapter(CVAnalyzerPort):
         else:
             return "beginner"
 
-    async def generate_candidate_from_summary(
+    async def analyze_cv(
         self,
-        extracted_info: str,
-        cv_file_path: str,
-        candidate_id: UUID
-    ) -> Candidate:
-        """
-        Args:
-        extracted_info: CV information
-        cv_file_path: Path to the candidate's CV file
-
-        Returns:
-            Candidate: Populated Candidate object
-        """
-        try:
-            # Prepare the prompt for GPT-4o-mini
-            prompt = f"""
-            Extract candidate information (candidate name, email) from the following CV info:
-            {extracted_info}
-
-            Return a JSON object with the following structure:
-            {{
-                "name": "Full Name",
-                "email": "email@example.com"
-                // Only include these two fields
-            }}
-
-            Rules:
-            - If name is not found, use "Unknown Candidate"
-            - If email is not found, use "no-email@example.com"
-            - Only include the JSON object in your response
-            """
-
-            # Call GPT-4o-mini
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts candidate information from CV summaries."},
-                    {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0
-            )
-            # Parse the response
-            candidate_data = json.loads(response.choices[0].message.content.strip())
-            # Create and return the Candidate object
-            return Candidate(
-                id=candidate_id,
-                name=candidate_data.get("name", "Unknown Candidate"),
-                email=candidate_data.get("email", "no-email@example.com"),
-                cv_file_path=cv_file_path
-            )
-
-        except Exception as e:
-            print(f"Error generating candidate from summary: {e}")
-            # Return a default candidate with the CV file path
-
-        return Candidate(
-            id=uuid4(),
-            name="Unknown Candidate",
-            email="no-email@example.com",
-            cv_file_path=cv_file_path
-        )
-
-    async def analyze_cv(self, cv_file_path: str, candidate_id: UUID) -> CVAnalysis:
-        cv_text = self.read_cv(cv_file_path)
+        cv_content: bytes,
+        file_type: FileType,
+        candidate_id: str,
+    ) -> CVAnalysis:
+        """Analyze CV from bytes."""
+        cv_text = self.read_cv_from_bytes(cv_content, file_type)
         try:
             summary_info = await self.generate_cv_info_from_text(cv_text)
             # print(summary_info)
@@ -345,14 +311,6 @@ class CVProcessingAdapter(CVAnalyzerPort):
         except Exception as e:
             print("Error generating difficulty: ", e)
 
-        try:
-            metadata = self.preprocessing.create_metadata_from_summary(
-                summary=summary_info,
-                difficulty=suggested_difficulty)
-            # print(metadata)
-        except Exception as e:
-            print("Error creating metadata: ", e)
-
         return CVAnalysis(
             id=cv_analysis_id,
             candidate_id=candidate_id,
@@ -364,6 +322,5 @@ class CVProcessingAdapter(CVAnalyzerPort):
             suggested_difficulty=suggested_difficulty,
             embedding=None,
             summary=json.loads(summary_info).get("summary", ""),
-            metadata=metadata,
             created_at=datetime.now().isoformat()
         )
