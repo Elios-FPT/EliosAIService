@@ -2,7 +2,6 @@
 
 from .analytics_port import AnalyticsPort
 from .answer_repository_port import AnswerRepositoryPort
-from .candidate_repository_port import CandidateRepositoryPort
 from .cv_analysis_repository_port import CVAnalysisRepositoryPort
 from .cv_analyzer_port import CVAnalyzerPort
 from .evaluation_repository_port import EvaluationRepositoryPort
@@ -21,7 +20,6 @@ __all__ = [
     "VectorSearchPort",
     "QuestionRepositoryPort",
     "FollowUpQuestionRepositoryPort",
-    "CandidateRepositoryPort",
     "InterviewRepositoryPort",
     "AnswerRepositoryPort",
     "EvaluationRepositoryPort",

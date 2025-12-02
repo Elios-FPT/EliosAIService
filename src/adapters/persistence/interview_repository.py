@@ -1,9 +1,9 @@
 """PostgreSQL implementation of InterviewRepositoryPort."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
@@ -38,7 +38,9 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         """Retrieve an interview by ID."""
         async with self._session_provider() as session:
             result = await session.execute(
-                select(InterviewModel).where(InterviewModel.id == interview_id)
+                select(InterviewModel)
+                .where(InterviewModel.id == interview_id)
+                .where(InterviewModel.deleted_at.is_(None))
             )
             db_model = result.scalar_one_or_none()
             return InterviewMapper.to_domain(db_model) if db_model else None
@@ -54,7 +56,9 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         if status:
             query = query.where(InterviewModel.status == status.value)
 
-        query = query.order_by(InterviewModel.created_at.desc())
+        query = query.where(InterviewModel.deleted_at.is_(None)).order_by(
+            InterviewModel.created_at.desc()
+        )
 
         async with self._session_provider() as session:
             result = await session.execute(query)
@@ -77,6 +81,7 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             result = await session.execute(
                 select(InterviewModel)
                 .where(InterviewModel.candidate_id == candidate_id)
+                .where(InterviewModel.deleted_at.is_(None))
                 .where(
                     InterviewModel.status.notin_(
                         [InterviewStatus.COMPLETE.value, InterviewStatus.CANCELLED.value]
@@ -98,6 +103,7 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             result = await session.execute(
                 select(InterviewModel)
                 .where(InterviewModel.status == status.value)
+                .where(InterviewModel.deleted_at.is_(None))
                 .order_by(InterviewModel.created_at.desc())
                 .limit(limit)
             )
@@ -140,6 +146,7 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
         async with self._session_provider() as session:
             result = await session.execute(
                 select(InterviewModel)
+                .where(InterviewModel.deleted_at.is_(None))
                 .order_by(InterviewModel.created_at.desc())
                 .offset(skip)
                 .limit(limit)
@@ -294,3 +301,28 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                 )
             )
             return result.scalar_one()
+
+    async def soft_delete_by_candidate_id(self, candidate_id: UUID) -> int:
+        """Soft delete all interviews for a candidate that are not already deleted."""
+        async with self._session_provider() as session:
+            stmt = (
+                update(InterviewModel)
+                .where(InterviewModel.candidate_id == candidate_id)
+                .where(InterviewModel.deleted_at.is_(None))
+                .values(deleted_at=datetime.utcnow())
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount or 0
+
+    async def hard_delete_old_soft_deleted(self, days: int = 30) -> int:
+        """Hard delete interviews soft-deleted more than N days ago."""
+        async with self._session_provider() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            stmt = delete(InterviewModel).where(
+                InterviewModel.deleted_at.is_not(None),
+                InterviewModel.deleted_at < cutoff_date,
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount or 0

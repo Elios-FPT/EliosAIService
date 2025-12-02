@@ -235,6 +235,22 @@ class Interview(BaseModel):  # Aggregate Root
 - Clear ownership and boundaries
 - Transactional consistency
 
+## Candidate Data Management
+
+**Ownership:** Candidate data (name, email, profile) is owned by a separate user/candidate microservice.
+
+**Integration:**
+- Interview service stores only `candidate_id: UUID` (no DB-level FK constraint).
+- Candidate lifecycle events are consumed via Kafka (`user-interview-candidate` topic).
+- On `DELETED` events, this service soft deletes related `interviews` and `cv_analyses` by setting `deleted_at`.
+- Soft-deleted records are retained for 30 days, then hard deleted by a daily reconciliation job (`scripts/reconcile_deleted_candidates.py`).
+
+**Trade-offs:**
+- ✅ Clear microservice boundary and single source of truth for candidate data.
+- ✅ No data duplication across services.
+- ❌ No database-level referential integrity to candidate table.
+- ❌ Eventual consistency between candidate service and interview service (Kafka lag, retries).
+
 ### 5. Session Orchestrator Pattern (State Machine)
 
 **Purpose**: Manage WebSocket interview session lifecycle with state machine pattern

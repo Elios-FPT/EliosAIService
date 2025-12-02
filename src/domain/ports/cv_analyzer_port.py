@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Literal
 
 from ..models.cv_analysis import CVAnalysis
-from ..models.candidate import Candidate
 from uuid import UUID
 
 FileType = Literal["pdf", "docx", "doc", "txt"]
@@ -34,25 +33,6 @@ class CVAnalyzerPort(ABC):
 
         Returns:
             CVAnalysis with extracted skills, experience, and metadata
-        """
-        pass
-
-    @abstractmethod
-    async def generate_candidate_from_summary(
-        self,
-        summary_info: str,
-        candidate_id: UUID,
-        cv_file_path: str | None = None,  # Optional for backward compat
-    ) -> Candidate:
-        """Generate Candidate from CV summary.
-
-        Args:
-            summary_info: JSON string containing CV summary
-            candidate_id: ID of the candidate
-            cv_file_path: Optional file path (deprecated, kept for compatibility)
-
-        Returns:
-            Candidate: Populated Candidate object
         """
         pass
 

@@ -64,10 +64,10 @@ Quick reference:
 - `src/adapters/` - External service implementations
 - `src/infrastructure/` - Config, DI, logging
 
-**Recent Schema Changes (v0.4.0)**:
-- Normalized `cv_skills` table replaces JSONB array
-- Junction `interview_questions` table replaces question_ids array
-- PostgreSQL ENUMs for type safety
+**Recent Schema Changes (v0.5.0)**:
+- Removed `candidates` table (candidate data owned by separate microservice)
+- Added `deleted_at` column to `interviews` and `cv_analyses` (soft delete support)
+- Candidate lifecycle managed via Kafka events (`user-interview-candidate` topic)
 
 ## Development Commands
 

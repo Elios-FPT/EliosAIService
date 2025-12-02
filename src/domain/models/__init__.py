@@ -1,7 +1,6 @@
 """Domain models package."""
 
 from .answer import Answer, AnswerEvaluation
-from .candidate import Candidate
 from .cv_analysis import CVAnalysis
 from .cv_skill import CVSkill, ProficiencyLevel
 from .error_codes import WebSocketErrorCode
@@ -15,7 +14,6 @@ from .question import Difficulty, DifficultyLevel, Question, QuestionType
 
 __all__ = [
     # Existing models
-    "Candidate",
     "CVAnalysis",
     "Interview",
     "InterviewStatus",

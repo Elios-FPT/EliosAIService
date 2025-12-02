@@ -22,11 +22,9 @@ from datetime import timezone
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
-from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
-from ...domain.models.candidate import Candidate
 
 from ...infrastructure.config import Settings
 _nlp_models = {}
@@ -103,14 +101,12 @@ class CVProcessingAdapter(CVAnalyzerPort):
     def __init__(
             self,
             embedding_model:str="text-embedding-3-small",
-            model:str="gpt-4o-mini",
-            candidate_repository_port: CandidateRepositoryPort = None):
+            model:str="gpt-4o-mini"):
 
         self.settings  = Settings()
         self.embedding_model = embedding_model or self.settings.openai_embedding_model or "text-embedding-3-small"
         self.preprocessing = CVEmbeddingPreprocessor()
         self.model = model
-        self.candidate_repository_port = candidate_repository_port
 
     SKILL_PATTERNS = load_skill_patterns()
 
@@ -246,71 +242,6 @@ class CVProcessingAdapter(CVAnalyzerPort):
             return "medium"
         else:
             return "beginner"
-
-    async def generate_candidate_from_summary(
-        self,
-        summary_info: str,
-        candidate_id: UUID,
-        cv_file_path: str | None = None,
-    ) -> Candidate:
-        """Generate Candidate from CV summary.
-
-        Args:
-            summary_info: JSON string containing CV summary
-            candidate_id: ID of the candidate
-            cv_file_path: Optional file path (deprecated, kept for compatibility)
-
-        Returns:
-            Candidate: Populated Candidate object
-        """
-        try:
-            # Prepare the prompt for GPT-4o-mini
-            prompt = f"""
-            Extract candidate information (candidate name, email) from the following CV info:
-            {summary_info}
-
-            Return a JSON object with the following structure:
-            {{
-                "name": "Full Name",
-                "email": "email@example.com"
-                // Only include these two fields
-            }}
-
-            Rules:
-            - If name is not found, use "Unknown Candidate"
-            - If email is not found, use "no-email@example.com"
-            - Only include the JSON object in your response
-            """
-
-            # Call GPT-4o-mini
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts candidate information from CV summaries."},
-                    {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0
-            )
-            # Parse the response
-            candidate_data = json.loads(response.choices[0].message.content.strip())
-            # Create and return the Candidate object
-            return Candidate(
-                id=candidate_id,
-                name=candidate_data.get("name", "Unknown Candidate"),
-                email=candidate_data.get("email", "no-email@example.com"),
-                cv_file_path=cv_file_path  # Optional, can be None
-            )
-
-        except Exception as e:
-            print(f"Error generating candidate from summary: {e}")
-            # Return a default candidate
-            return Candidate(
-                id=candidate_id,
-                name="Unknown Candidate",
-                email="no-email@example.com",
-                cv_file_path=cv_file_path  # Optional, can be None
-            )
 
     async def analyze_cv(
         self,
