@@ -26,6 +26,21 @@ class QuestionRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def save_batch(self, questions: list[Question]) -> list[Question]:
+        """Save multiple questions in a single atomic transaction.
+
+        Args:
+            questions: List of questions to save
+
+        Returns:
+            List of saved questions with updated metadata
+
+        Raises:
+            Exception: If any question fails to save, entire transaction is rolled back
+        """
+        pass
+
+    @abstractmethod
     async def get_by_id(self, question_id: UUID) -> Question | None:
         """Retrieve a question by ID.
 

@@ -544,6 +544,49 @@ class Container:
         if isinstance(self._event_publisher, KafkaEventPublisher):
             await self._event_publisher.stop()
 
+    async def start_tts_adapter(self) -> None:
+        """Pre-initialize TTS adapter at startup to eliminate first-use delay.
+
+        This method:
+        1. Triggers TTS adapter initialization (creates Google Cloud client)
+        2. Optionally pre-warms with test synthesis (validates connection)
+        3. Handles errors gracefully (non-blocking, logs warnings)
+
+        Note:
+            - Non-blocking: Startup continues even if TTS init fails
+            - TTS will be created lazily on first use if startup init fails
+            - Pre-warming is optional (can be disabled via settings)
+        """
+        try:
+            # Trigger initialization by calling text_to_speech_port()
+            tts = self.text_to_speech_port()
+
+            # Optional: Pre-warm with test synthesis (validates connection)
+            # Skip if using mock adapter (no network call needed)
+            if not self.settings.use_mock_tts:
+                try:
+                    # Pre-warm with minimal text (validates Google Cloud connection)
+                    await tts.synthesize_speech("test", speed=1.0)
+                    logger.info("TTS adapter pre-warmed successfully")
+                except Exception as prewarm_exc:
+                    # Pre-warm failure is non-critical (adapter still initialized)
+                    logger.warning(
+                        f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
+                        "First TTS call may be slower."
+                    )
+            else:
+                logger.info("TTS adapter initialized (mock mode, no pre-warm needed)")
+
+        except Exception as exc:
+            # Non-blocking: Log warning but don't fail startup
+            # TTS will be created lazily on first use
+            logger.warning(
+                f"Failed to initialize TTS adapter at startup: {exc}. "
+                "TTS adapter will be created lazily on first request. "
+                "This may cause a delay (~12s) on the first TTS call.",
+                exc_info=True
+            )
+
     def analytics_port(self) -> AnalyticsPort:
         """Get analytics port implementation.
 

@@ -448,7 +448,7 @@ class PlanningWorkflow(BaseWorkflow):
                 return {"errors": ["No questions to store"]}
 
             # Create Question objects
-            question_ids = []
+            question_objects = []
             for i, (q_text, ideal_answer, rationale, spec) in enumerate(
                 zip(questions, answers, rationales, specs)
             ):
@@ -460,12 +460,13 @@ class PlanningWorkflow(BaseWorkflow):
                     ideal_answer=ideal_answer,
                     rationale=rationale,
                 )
+                question_objects.append(question)
 
-                # Save to repository
-                saved_question = await self.question_repo.save(question)
-                question_ids.append(saved_question.id)
+            # Save all questions in one atomic transaction
+            saved_questions = await self.question_repo.save_batch(question_objects)
+            question_ids = [q.id for q in saved_questions]
 
-            logger.info(f"Stored {len(question_ids)} questions")
+            logger.info(f"Stored {len(question_ids)} questions in single transaction")
             return {"stored_question_ids": question_ids}
 
         except Exception as e:
