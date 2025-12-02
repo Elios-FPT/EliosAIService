@@ -650,7 +650,7 @@ EliosAIService/
 │   ├── application/         # Use cases & workflows (8 use cases, 3 workflows)
 │   ├── adapters/            # External service implementations (20+ adapters)
 │   └── infrastructure/      # Config, DI, database, observability
-├── alembic/                 # Database migrations (15 migrations)
+├── alembic/                 # Database migrations (baseline + seeds)
 ├── docs/                    # Documentation (8 comprehensive guides)
 └── tests/                   # Test suites (354/601 passing, 59% coverage)
 ```
