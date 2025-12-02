@@ -39,7 +39,7 @@ async def test_hybrid_analyzer_english_cv_full_pipeline() -> None:
     analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
     assert analysis.skills, "Expected skills extracted from English CV"
-    assert analysis.extracted_text
+    assert analysis.summary is not None or len(analysis.skills) > 0
 
 
 @pytest.mark.asyncio
@@ -50,5 +50,5 @@ async def test_hybrid_analyzer_vietnamese_cv_runs_with_fallback() -> None:
 
     analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
-    assert analysis.extracted_text
+    assert analysis.summary is not None or len(analysis.skills) > 0
 

@@ -300,15 +300,6 @@ class CVAnalysisModel(Base):
         nullable=False,
         index=True,
     )
-    extracted_text: Mapped[str] = mapped_column(Text, nullable=False)
-    work_experience_years: Mapped[float | None] = mapped_column(Float, nullable=True)
-    education_level: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    suggested_topics: Mapped[list[str]] = mapped_column(
-        ARRAY(String(200)),
-        nullable=False,
-        default=[],
-    )
-    suggested_difficulty: Mapped[str] = mapped_column(String(50), nullable=False, default="medium")
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

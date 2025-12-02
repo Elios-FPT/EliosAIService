@@ -320,14 +320,7 @@ class CVAnalysisMapper:
         return CVAnalysis(
             id=db_model.id,
             candidate_id=db_model.candidate_id,
-            extracted_text=db_model.extracted_text,
             skills=skills,
-            work_experience_years=db_model.work_experience_years,
-            education_level=db_model.education_level,
-            suggested_topics=(
-                list(db_model.suggested_topics) if db_model.suggested_topics else []
-            ),
-            suggested_difficulty=db_model.suggested_difficulty,
             embedding=list(db_model.embedding) if db_model.embedding else None,
             summary=db_model.summary,
             created_at=db_model.created_at,
@@ -343,11 +336,6 @@ class CVAnalysisMapper:
         return CVAnalysisModel(
             id=domain_model.id,
             candidate_id=domain_model.candidate_id,
-            extracted_text=domain_model.extracted_text,
-            work_experience_years=domain_model.work_experience_years,
-            education_level=domain_model.education_level,
-            suggested_topics=domain_model.suggested_topics,
-            suggested_difficulty=domain_model.suggested_difficulty,
             embedding=domain_model.embedding,
             summary=domain_model.summary,
             created_at=domain_model.created_at,
@@ -359,11 +347,6 @@ class CVAnalysisMapper:
 
         Note: Skills relationship updated separately via repository layer.
         """
-        db_model.extracted_text = domain_model.extracted_text
-        db_model.work_experience_years = domain_model.work_experience_years
-        db_model.education_level = domain_model.education_level
-        db_model.suggested_topics = domain_model.suggested_topics
-        db_model.suggested_difficulty = domain_model.suggested_difficulty
         db_model.embedding = domain_model.embedding
         db_model.summary = domain_model.summary
 

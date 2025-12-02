@@ -67,11 +67,11 @@ async def test_confidence_threshold_configuration() -> None:
 
     # Process with low threshold
     analysis_low = await adapter_low.analyze_cv(cv_bytes, "txt", candidate_id)
-    assert analysis_low.extracted_text is not None
+    assert analysis_low.summary is not None or len(analysis_low.skills) > 0
 
     # Process with high threshold
     analysis_high = await adapter_high.analyze_cv(cv_bytes, "txt", candidate_id)
-    assert analysis_high.extracted_text is not None
+    assert analysis_high.summary is not None or len(analysis_high.skills) > 0
 
     # Both should have skills extracted
     assert len(analysis_low.skills) >= 0
