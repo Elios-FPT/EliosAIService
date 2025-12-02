@@ -38,7 +38,6 @@ debug_print("container.py: LangChainAdapter imported")
 debug_print("container.py: About to import mock adapters...")
 from ...adapters.mock import (
     MockAnalyticsAdapter,
-    MockCVAnalyzerAdapter,
     MockEventPublisher,
     MockLLMAdapter,
     MockSTTAdapter,
@@ -68,8 +67,6 @@ from ...adapters.vector_db.chroma_adapter import ChromaAdapter
 debug_print("container.py: ChromaAdapter imported")
 
 debug_print("container.py: About to import CV processing adapters...")
-from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
-debug_print("container.py: CVProcessingAdapter imported")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 debug_print("container.py: HybridCVAnalyzerAdapter imported")
 
@@ -404,24 +401,12 @@ class Container:
         """Get CV analyzer port implementation.
 
         Returns:
-            Configured CV analyzer (mock, hybrid, or legacy)
-
-        Priority:
-        1. Mock adapter (if use_mock_cv_analyzer=True)
-        2. Hybrid adapter (if use_hybrid_cv_analyzer=True)
-        3. Legacy adapter (CVProcessingAdapter)
+            Hybrid CV analyzer implementation.
         """
-        if self.settings.use_mock_cv_analyzer:
-            return MockCVAnalyzerAdapter()
-        elif self.settings.use_hybrid_cv_analyzer:
-            # Hybrid adapter with configurable threshold and LLM fallback
-            return HybridCVAnalyzerAdapter(
-                confidence_threshold=self.settings.hybrid_confidence_threshold,
-                use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
-            )
-        else:
-            # Legacy adapter (default for backward compatibility)
-            return CVProcessingAdapter()
+        return HybridCVAnalyzerAdapter(
+            confidence_threshold=self.settings.hybrid_confidence_threshold,
+            use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
+        )
 
 
     def speech_to_text_port(self) -> SpeechToTextPort:

@@ -267,14 +267,12 @@ class Settings(BaseSettings):
     # Individual flags for each adapter - set to False to use real implementations
     use_mock_llm: bool = True
     use_mock_vector_search: bool = True
-    use_mock_cv_analyzer: bool = True
     use_mock_stt: bool = True
     use_mock_tts: bool = True
     use_mock_analytics: bool = True
     use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
-    # Hybrid CV Analyzer Configuration
-    use_hybrid_cv_analyzer: bool = False  # Feature flag (default: legacy)
+    # Hybrid CV Analyzer Configuration (always enabled)
     hybrid_confidence_threshold: float = 0.7  # LLM fallback trigger
     hybrid_enable_llm_fallback: bool = True  # Allow LLM when confidence low
     hybrid_skill_patterns_path: str = "./src/adapters/cv_processing/skill_patterns.json"

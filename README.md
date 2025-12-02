@@ -442,12 +442,11 @@ docker-compose up -d --build
 
 **Mock adapters** simulate external services without API costs or network latency. Enabled by default in development.
 
-**Available Mocks** (6 total):
+**Available Mocks** (5 total):
 - `MockLLMAdapter` - Simulates OpenAI/LLM responses
 - `MockVectorSearchAdapter` - In-memory vector search
 - `MockSTTAdapter` - Simulates speech-to-text
 - `MockTTSAdapter` - Simulates text-to-speech
-- `MockCVAnalyzerAdapter` - Filename-based CV parsing
 - `MockAnalyticsAdapter` - In-memory performance tracking
 
 **Configuration**:
