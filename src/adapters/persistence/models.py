@@ -185,11 +185,6 @@ class InterviewModel(Base):
 
     # NEW: Pre-planning metadata for adaptive interviews
     plan_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default={})
-    adaptive_follow_ups: Mapped[list[UUID]] = mapped_column(
-        ARRAY(PGUUID(as_uuid=True)),
-        nullable=False,
-        default=[],
-    )
 
     # NEW: Follow-up tracking for current session
     current_parent_question_id: Mapped[UUID | None] = mapped_column(

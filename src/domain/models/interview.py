@@ -51,7 +51,6 @@ class Interview(BaseModel):
 
     # NEW: Pre-planning metadata for adaptive interviews
     plan_metadata: dict[str, Any] = Field(default_factory=dict)  # {n, generated_at, strategy}
-    adaptive_follow_ups: list[UUID] = Field(default_factory=list)  # Follow-up question IDs
 
     # NEW: Follow-up tracking for current session
     current_parent_question_id: UUID | None = None
@@ -160,7 +159,6 @@ class Interview(BaseModel):
                 )
             self.current_followup_count += 1
 
-        self.adaptive_follow_ups.append(followup_id)
         self.transition_to(InterviewStatus.FOLLOW_UP)
         self.updated_at = datetime.utcnow()
 
@@ -194,7 +192,6 @@ class Interview(BaseModel):
         Raises:
             ValueError: If follow-up limit exceeded (max 3 per main question)
         """
-        self.adaptive_follow_ups.append(question_id)
         self.transition_to(InterviewStatus.FOLLOW_UP)
         self.updated_at = datetime.utcnow()
 

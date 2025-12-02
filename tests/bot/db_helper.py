@@ -191,10 +191,6 @@ class DatabaseHelper:
         """Create Interview domain model."""
         data = interview_data or {}
 
-        adaptive_follow_ups = [
-            self._parse_uuid(value) for value in data.get("adaptive_follow_ups", [])
-        ]
-
         return Interview(
             id=interview_id,
             candidate_id=candidate_id,
@@ -202,7 +198,6 @@ class DatabaseHelper:
             status=InterviewStatus(data.get("status", InterviewStatus.IDLE.value)),
             current_question_index=data.get("current_question_index", 0),
             plan_metadata=data.get("plan_metadata", {}),
-            adaptive_follow_ups=[value for value in adaptive_follow_ups if value],
             current_parent_question_id=self._parse_uuid(
                 data.get("current_parent_question_id")
             ),

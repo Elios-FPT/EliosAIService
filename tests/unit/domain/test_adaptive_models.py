@@ -61,7 +61,7 @@ class TestQuestionAdaptiveFields:
 
 
 class TestInterviewAdaptiveFields:
-    """Test Interview model adaptive fields (plan_metadata, adaptive_follow_ups)."""
+    """Test Interview model adaptive fields (plan_metadata)."""
 
     def test_interview_with_planning_metadata(self):
         """Test interview with plan_metadata."""
@@ -89,7 +89,7 @@ class TestInterviewAdaptiveFields:
         assert interview.planned_question_count == 0
 
     def test_add_adaptive_followup(self):
-        """Test adding adaptive follow-up questions."""
+        """Test adding adaptive follow-up questions (deprecated method)."""
         interview = Interview(
             candidate_id=uuid4(),
             status=InterviewStatus.EVALUATING,
@@ -98,8 +98,8 @@ class TestInterviewAdaptiveFields:
         follow_up_id = uuid4()
         interview.add_adaptive_followup(follow_up_id)
 
-        assert len(interview.adaptive_follow_ups) == 1
-        assert follow_up_id in interview.adaptive_follow_ups
+        # Method transitions to FOLLOW_UP state (field removed, follow-ups tracked in DB)
+        assert interview.status == InterviewStatus.FOLLOW_UP
 
     def test_mark_ready_with_cv_analysis(self):
         """Test marking interview as READY after planning."""

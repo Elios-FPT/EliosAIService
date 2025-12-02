@@ -120,13 +120,17 @@ class GenerateSummaryUseCase:
         # Get total questions count from junction table
         total_questions = await self.interview_repo.count_interview_questions(interview.id)
 
+        # Get total follow-ups count from repository
+        follow_ups = await self.follow_up_repo.get_by_interview_id(interview.id)
+        total_follow_ups = len(follow_ups)
+
         return {
             "interview_id": str(interview_id),
             "overall_score": metrics["overall_score"],
             "theoretical_score_avg": metrics["theoretical_avg"],
             "speaking_score_avg": metrics["speaking_avg"],
             "total_questions": total_questions,
-            "total_follow_ups": len(interview.adaptive_follow_ups),
+            "total_follow_ups": total_follow_ups,
             "question_summaries": await self._create_question_summaries(question_groups, evaluations_map),
             "gap_progression": gap_progression,
             "strengths": recommendations["strengths"],
