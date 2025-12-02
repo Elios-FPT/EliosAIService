@@ -249,7 +249,6 @@ class AnswerModel(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     is_voice: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     audio_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
 
     # Link to Evaluation entity

@@ -175,7 +175,7 @@ def upgrade() -> None:
             "top_p": 0.95,
             "frequency_penalty": 0.00,
             "presence_penalty": 0.00,
-            "is_active": False,
+            "is_active": True,
             "is_draft": False,
             "created_by": "system",
             "created_at": datetime.fromisoformat("2025-11-19 20:09:04.812156"),

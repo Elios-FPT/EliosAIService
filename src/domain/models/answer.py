@@ -48,7 +48,6 @@ class Answer(BaseModel):
     text: str  # The actual answer text
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
-    duration_seconds: float | None = None  # Time taken to answer
     embedding: list[float] | None = None  # Vector embedding of answer
 
     # UPDATED: Link to separate Evaluation entity (Phase 1 refactoring)
