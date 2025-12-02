@@ -244,6 +244,24 @@ async def lifespan(app: FastAPI):
         # Non-critical: Continue startup even if Kafka fails
         logger.warning(f"Event publisher failed to start: {e}", exc_info=True)
 
+    # Initialize TTS adapter at startup (prevents first-use delay)
+    # This eliminates ~12 second delay on first question generation
+    debug_print("Initializing TTS adapter at startup...")
+    logger.info("Initializing TTS adapter at startup (to prevent first-use delay)...")
+    try:
+        await container.start_tts_adapter()
+        logger.info("TTS adapter initialized successfully at startup")
+        debug_print("TTS adapter initialized at startup")
+    except Exception as e:
+        # Log warning but don't fail startup - TTS will be created lazily on first request
+        logger.warning(
+            f"Failed to initialize TTS adapter at startup: {e}. "
+            "TTS adapter will be created lazily on first request. "
+            "This may cause a delay (~12s) on the first TTS call.",
+            exc_info=True
+        )
+        debug_print(f"TTS adapter initialization failed at startup: {e}")
+
     # Optionally initialize LangGraph checkpointer at startup
     # This prevents first-request timeouts when the feature is enabled
     if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
