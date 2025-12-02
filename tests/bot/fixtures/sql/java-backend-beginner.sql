@@ -1,16 +1,3 @@
-DELETE FROM candidates
-WHERE id = '102ea1b3-f664-4617-8f43-fdde557f12b6';
-
-INSERT INTO candidates (id, name, email, cv_file_path, created_at, updated_at)
-VALUES (
-  '102ea1b3-f664-4617-8f43-fdde557f12b6',
-  'Hardcoded Candidate',
-  'hardcoded@example.com',
-  '../uploads\a45307ca-21c4-4fc3-b0fd-a1e1b1efb567.pdf',
-  '2025-11-27 03:52:26.138453',
-  '2025-11-27 03:52:26.138453'
-);
-
 ---------------------------
 delete from interviews
 WHERE id ='b323c6a1-4749-4922-876f-72b6c426b2a6';
