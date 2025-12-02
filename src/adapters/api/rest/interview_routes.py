@@ -66,7 +66,7 @@ async def analyze_cv(
             detail="File too large. Maximum size: 10MB."
         )
 
-    # TODO: replace with data from User Service
+    # TODO: replace with candidate_id from User Service (provided by caller)
     candidate_id = uuid.UUID("102ea1b3-f664-4617-8f43-fdde557f12b6")
     logger.info(f"Starting CV analysis for candidate: {candidate_id} (file_type: {file_type}, size: {len(content)} bytes)")
 
@@ -74,7 +74,6 @@ async def analyze_cv(
     cv_analysis_use_case = AnalyzeCVUseCase(
         cv_analyzer=container.cv_analyzer_port(),
         vector_search=container.vector_search_port(),
-        candidate_repository_port=container.candidate_repository_port(session=session),
         cv_analysis_repository_port=container.cv_analysis_repository_port(session=session),
     )
 

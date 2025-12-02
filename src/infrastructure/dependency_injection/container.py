@@ -51,7 +51,6 @@ debug_print("container.py: Mock adapters imported")
 debug_print("container.py: About to import persistence adapters...")
 from ...adapters.persistence import (
     PostgreSQLAnswerRepository,
-    PostgreSQLCandidateRepository,
     PostgreSQLCVAnalysisRepository,
     PostgreSQLEvaluationRepository,
     PostgreSQLFollowUpQuestionRepository,
@@ -82,7 +81,6 @@ debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
     AnalyticsPort,
     AnswerRepositoryPort,
-    CandidateRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
     EvaluationRepositoryPort,
@@ -322,22 +320,6 @@ class Container:
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLFollowUpQuestionRepository(provider)
 
-    def candidate_repository_port(
-        self,
-        session: AsyncSession | None = None,
-        session_provider: SessionProvider | None = None,
-    ) -> CandidateRepositoryPort:
-        """Get candidate repository port implementation.
-
-        Args:
-            session: Async database session
-
-        Returns:
-            Configured candidate repository
-        """
-        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
-        return PostgreSQLCandidateRepository(provider)
-
     def interview_repository_port(
         self,
         session: AsyncSession | None = None,
@@ -543,6 +525,22 @@ class Container:
         # Only Kafka adapter has stop() method
         if isinstance(self._event_publisher, KafkaEventPublisher):
             await self._event_publisher.stop()
+
+    def candidate_event_consumer(self) -> "CandidateEventConsumer":
+        """Get candidate event consumer.
+
+        Returns:
+            Configured Kafka consumer for candidate events
+        """
+        from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+
+        return CandidateEventConsumer(
+            bootstrap_servers=self.settings.kafka_bootstrap_servers,
+            topic=self.settings.kafka_candidate_topic,
+            group_id=self.settings.kafka_candidate_consumer_group,
+            interview_repo=self.interview_repository_port(),
+            cv_analysis_repo=self.cv_analysis_repository_port(),
+        )
 
     async def start_tts_adapter(self) -> None:
         """Pre-initialize TTS adapter at startup to eliminate first-use delay.

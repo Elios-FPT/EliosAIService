@@ -3,11 +3,10 @@
 from uuid import UUID
 
 from ...domain.models.cv_analysis import CVAnalysis
-from ...domain.models.candidate import Candidate
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 from ...domain.ports.vector_search_port import VectorSearchPort
-from ...domain.ports.candidate_repository_port import CandidateRepositoryPort
 from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+
 
 class AnalyzeCVUseCase:
     """Use case for analyzing a candidate's CV.
@@ -23,7 +22,6 @@ class AnalyzeCVUseCase:
         self,
         cv_analyzer: CVAnalyzerPort,
         vector_search: VectorSearchPort,
-        candidate_repository_port: CandidateRepositoryPort,
         cv_analysis_repository_port: CVAnalysisRepositoryPort,
     ):
         """Initialize use case with required ports.
@@ -34,7 +32,6 @@ class AnalyzeCVUseCase:
         """
         self.cv_analyzer = cv_analyzer
         self.vector_search = vector_search
-        self.candidate_repository_port = candidate_repository_port
         self.cv_analysis_repository_port = cv_analysis_repository_port
 
     async def execute(
@@ -63,22 +60,10 @@ class AnalyzeCVUseCase:
             candidate_id=str(candidate_id),
         )
 
-        extracted_text = cv_analysis.extracted_text
-        # print(extracted_text)
-
-        # TODO: replace with data from User Service
-        candidate = Candidate(
-            id=candidate_id,
-            name="Hardcoded Candidate",
-            email="hardcoded@example.com",
-            cv_file_path=None,  # No file path stored
-        )
-
+        # Step 2: Persist CV analysis (candidate lifecycle owned by external service)
         try:
-            if not await self.candidate_repository_port.get_by_id(candidate_id=candidate.id):
-                await self.candidate_repository_port.save(candidate)
             await self.cv_analysis_repository_port.save(cv_analysis)
         except Exception as e:
-            print("Error saving candidate: ", e)
+            raise ValueError(f"Failed to save CV analysis: {e}") from e
 
         return cv_analysis

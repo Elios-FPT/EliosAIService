@@ -17,7 +17,6 @@ from uuid import UUID
 import pdfplumber
 from docx import Document
 
-from ...domain.models.candidate import Candidate
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
 from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
@@ -94,31 +93,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             merged_results,
             cv_text,
             UUID(candidate_id),
-        )
-
-    async def generate_candidate_from_summary(
-        self,
-        summary_info: str,
-        candidate_id: UUID,
-        cv_file_path: str | None = None,
-    ) -> Candidate:
-        """Generate lightweight Candidate from summary text."""
-
-        ner_results = self.ner_extractor.extract(summary_info)
-        rule_results = self.rule_extractor.extract(summary_info)
-
-        overall_conf = ner_results.get("confidence", {}).get("overall", 0.0)
-        name = ner_results.get("name")
-        if not name or overall_conf < 0.5:
-            name = "Unknown Candidate"
-        emails = rule_results.get("emails", [])
-        email = emails[0] if emails else "no-email@example.com"
-
-        return Candidate(
-            id=candidate_id,
-            name=name,
-            email=email,
-            cv_file_path=cv_file_path,  # Optional, can be None
         )
 
     def _read_cv_text_from_bytes(self, cv_bytes: bytes, file_type: FileType) -> str:

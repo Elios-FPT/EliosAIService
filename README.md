@@ -587,38 +587,20 @@ python scripts/verify_db.py
 
 ## 🎯 Usage Example
 
-### 1. Create a Candidate
-
-```python
-import httpx
-
-async with httpx.AsyncClient() as client:
-    response = await client.post(
-        "http://localhost:8000/api/candidates",
-        json={
-            "name": "John Doe",
-            "email": "john.doe@example.com"
-        }
-    )
-    candidate = response.json()
-    print(f"Created candidate: {candidate['id']}")
-```
-
-### 2. Upload and Analyze CV
+### 1. Upload and Analyze CV
 
 ```python
 async with httpx.AsyncClient() as client:
     with open("resume.pdf", "rb") as cv_file:
         response = await client.post(
-            "http://localhost:8000/api/cv/upload",
+            "http://localhost:8000/api/ai/interviews/cv/upload",
             files={"file": cv_file},
-            data={"candidate_id": candidate['id']}
         )
     cv_analysis = response.json()
     print(f"Skills found: {cv_analysis['skills']}")
 ```
 
-### 3. Start Interview
+### 2. Start Interview
 
 ```python
 async with httpx.AsyncClient() as client:

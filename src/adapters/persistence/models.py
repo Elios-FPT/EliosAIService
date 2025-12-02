@@ -31,36 +31,6 @@ from ...domain.models.cv_skill import ProficiencyLevel
 from ...infrastructure.database.base import Base
 
 
-class CandidateModel(Base):
-    """SQLAlchemy model for Candidate entity."""
-
-    __tablename__ = "candidates"
-
-    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    cv_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
-    # Relationships
-    interviews: Mapped[list["InterviewModel"]] = relationship(
-        "InterviewModel",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
-    cv_analyses: Mapped[list["CVAnalysisModel"]] = relationship(
-        "CVAnalysisModel",
-        back_populates="candidate",
-        cascade="all, delete-orphan",
-    )
-
-    __table_args__ = (
-        Index("idx_candidates_email", "email"),
-        Index("idx_candidates_created_at", "created_at"),
-    )
-
-
 class CVSkillModel(Base):
     """SQLAlchemy model for CV Skill entity (normalized from JSONB)."""
 
@@ -195,9 +165,9 @@ class InterviewModel(Base):
     __tablename__ = "interviews"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    # Candidate ID is now a plain UUID (no FK) - candidate data owned by separate service
     candidate_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("candidates.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -237,12 +207,10 @@ class InterviewModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # Soft delete support (managed via repository methods)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    candidate: Mapped["CandidateModel"] = relationship(
-        "CandidateModel",
-        back_populates="interviews",
-    )
     cv_analysis: Mapped["CVAnalysisModel | None"] = relationship(
         "CVAnalysisModel",
         foreign_keys=[cv_analysis_id],
@@ -326,9 +294,9 @@ class CVAnalysisModel(Base):
     __tablename__ = "cv_analyses"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    # Candidate ID is now a plain UUID (no FK) - candidate data owned by separate service
     candidate_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("candidates.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -344,12 +312,10 @@ class CVAnalysisModel(Base):
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    # Soft delete support (managed via repository methods)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    candidate: Mapped["CandidateModel"] = relationship(
-        "CandidateModel",
-        back_populates="cv_analyses",
-    )
     skills: Mapped[list["CVSkillModel"]] = relationship(
         "CVSkillModel",
         back_populates="cv_analysis",
