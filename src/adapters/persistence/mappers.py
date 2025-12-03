@@ -14,6 +14,15 @@ from ...domain.models.follow_up_question import FollowUpQuestion
 from ...domain.models.interview import Interview, InterviewStatus
 from ...domain.models.interview_question import InterviewQuestion
 from ...domain.models.question import Difficulty, Question, QuestionType
+from ...domain.models.feedback_request import FeedbackRequest
+from ...domain.models.feedback_response import FeedbackResponse
+from ...domain.models.feedback_result import (
+    CVFeedbackResult,
+    CodeReviewFeedbackResult,
+    FeedbackStatus,
+    InputType,
+    InterviewFeedbackResult,
+)
 from .models import (
     AnswerModel,
     CVAnalysisModel,
@@ -22,6 +31,8 @@ from .models import (
     InterviewModel,
     InterviewQuestionModel,
     QuestionModel,
+    FeedbackRequestModel,
+    FeedbackResponseModel,
 )
 
 
@@ -629,4 +640,122 @@ class PromptExecutionMapper:
             success=domain_model.success,
             error_message=domain_model.error_message,
             executed_at=domain_model.executed_at,
+        )
+
+
+class FeedbackRequestMapper:
+    """Maps FeedbackRequest domain model <-> DB model."""
+
+    @staticmethod
+    def to_domain(db_model: FeedbackRequestModel) -> FeedbackRequest:
+        """Convert database model to domain model.
+
+        Args:
+            db_model: FeedbackRequestModel SQLAlchemy model
+
+        Returns:
+            FeedbackRequest domain model
+        """
+        return FeedbackRequest(
+            id=db_model.id,
+            entity_id=db_model.entity_id,
+            input_type=InputType(db_model.input_type),
+            user_id=db_model.user_id,
+            status=FeedbackStatus(db_model.status),
+            error_message=db_model.error_message,
+            created_at=db_model.created_at,
+            updated_at=db_model.updated_at,
+        )
+
+    @staticmethod
+    def to_db_model(domain_model: FeedbackRequest) -> FeedbackRequestModel:
+        """Convert domain model to database model.
+
+        Args:
+            domain_model: FeedbackRequest domain model
+
+        Returns:
+            FeedbackRequestModel SQLAlchemy model
+        """
+        return FeedbackRequestModel(
+            id=domain_model.id,
+            entity_id=domain_model.entity_id,
+            input_type=domain_model.input_type.value,
+            user_id=domain_model.user_id,
+            status=domain_model.status.value,
+            error_message=domain_model.error_message,
+            created_at=domain_model.created_at,
+            updated_at=domain_model.updated_at,
+        )
+
+    @staticmethod
+    def update_db_model(
+        db_model: FeedbackRequestModel, domain_model: FeedbackRequest
+    ) -> None:
+        """Update DB model from domain (for updates).
+
+        Args:
+            db_model: FeedbackRequestModel SQLAlchemy model to update
+            domain_model: FeedbackRequest domain model with new data
+        """
+        db_model.status = domain_model.status.value
+        db_model.error_message = domain_model.error_message
+        db_model.updated_at = domain_model.updated_at
+
+
+class FeedbackResponseMapper:
+    """Maps FeedbackResponse domain model <-> DB model."""
+
+    @staticmethod
+    def to_domain(
+        db_model: FeedbackResponseModel,
+        input_type: InputType,  # Required for deserialization
+    ) -> FeedbackResponse:
+        """Convert DB model to domain with type-safe result deserialization.
+
+        Args:
+            db_model: FeedbackResponseModel SQLAlchemy model
+            input_type: InputType from request (determines result class)
+
+        Returns:
+            FeedbackResponse domain model with typed result
+
+        Raises:
+            ValueError: If input_type is unknown
+        """
+        # Deserialize JSON based on input_type
+        if input_type == InputType.INTERVIEW:
+            result = InterviewFeedbackResult(**db_model.result_json)
+        elif input_type == InputType.CODE:
+            result = CodeReviewFeedbackResult(**db_model.result_json)
+        elif input_type == InputType.CV:
+            result = CVFeedbackResult(**db_model.result_json)
+        else:
+            raise ValueError(f"Unknown input_type: {input_type}")
+
+        return FeedbackResponse(
+            id=db_model.id,
+            request_id=db_model.feedback_request_id,
+            result=result,
+            created_at=db_model.created_at,
+        )
+
+    @staticmethod
+    def to_db_model(domain_model: FeedbackResponse) -> FeedbackResponseModel:
+        """Convert domain to DB model.
+
+        Args:
+            domain_model: FeedbackResponse domain model
+
+        Returns:
+            FeedbackResponseModel SQLAlchemy model
+        """
+        # Pydantic automatically serializes to dict
+        result_json = domain_model.result.model_dump()
+
+        return FeedbackResponseModel(
+            id=domain_model.id,
+            feedback_request_id=domain_model.request_id,
+            result_json=result_json,
+            created_at=domain_model.created_at,
         )

@@ -101,12 +101,14 @@ class FeedbackResponseRepositoryPort(ABC):
         self,
         request_id: UUID,
         result: FeedbackResult,
+        prompt_execution_id: UUID | None = None,
     ) -> FeedbackResponse:
         """Create feedback response with type-safe result.
 
         Args:
             request_id: Foreign key to feedback_request
             result: Typed feedback result (Interview/Code/CV)
+            prompt_execution_id: Optional link to prompt_executions for cost tracking
 
         Returns:
             Created FeedbackResponse

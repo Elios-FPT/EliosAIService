@@ -28,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ...domain.models.interview import InterviewStatus
 from ...domain.models.question import Difficulty, DifficultyLevel, QuestionType
 from ...domain.models.cv_skill import ProficiencyLevel
+from ...domain.models.feedback_result import FeedbackStatus, InputType
 from ...infrastructure.database.base import Base
 
 
@@ -607,3 +608,69 @@ class PromptAnalyticsSummaryModel(Base):
     success_rate: Mapped[float] = mapped_column(Float, nullable=False)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False)
     last_executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class FeedbackRequestModel(Base):
+    """SQLAlchemy model for feedback requests."""
+
+    __tablename__ = "feedback_request"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    input_type: Mapped[str] = mapped_column(
+        SQLEnum(
+            InputType,
+            native_enum=False,
+            length=20,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+    )
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        SQLEnum(
+            FeedbackStatus,
+            native_enum=False,
+            length=20,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        server_default="PENDING",
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # 1:1 relationship
+    response: Mapped["FeedbackResponseModel | None"] = relationship(
+        "FeedbackResponseModel",
+        back_populates="request",
+        uselist=False,
+    )
+
+
+class FeedbackResponseModel(Base):
+    """SQLAlchemy model for feedback responses."""
+
+    __tablename__ = "feedback_response"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    feedback_request_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("feedback_request.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    result_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    prompt_execution_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("prompt_executions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    # Relationships
+    request: Mapped["FeedbackRequestModel"] = relationship(
+        "FeedbackRequestModel",
+        back_populates="response",
+    )
