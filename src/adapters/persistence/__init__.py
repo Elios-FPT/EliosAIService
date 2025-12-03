@@ -7,6 +7,8 @@ using SQLAlchemy ORM for data persistence.
 from .answer_repository import PostgreSQLAnswerRepository
 from .cv_analysis_repository import PostgreSQLCVAnalysisRepository
 from .evaluation_repository import PostgreSQLEvaluationRepository
+from .feedback_request_repository import PostgresFeedbackRequestRepository
+from .feedback_response_repository import PostgresFeedbackResponseRepository
 from .follow_up_question_repository import PostgreSQLFollowUpQuestionRepository
 from .interview_repository import PostgreSQLInterviewRepository
 from .postgres_prompt_repository import PostgreSQLPromptRepository
@@ -21,5 +23,7 @@ __all__ = [
     "PostgreSQLEvaluationRepository",
     "PostgreSQLCVAnalysisRepository",
     "PostgreSQLPromptRepository",
+    "PostgresFeedbackRequestRepository",
+    "PostgresFeedbackResponseRepository",
     "SessionProvider",
 ]
