@@ -386,18 +386,38 @@ class InterviewConversationWorkflow(BaseWorkflow):
                     )
 
             # Step 5: Create answer entity (simplified - no embedded evaluation)
-            # For follow-up questions, use parent_question_id to satisfy FK constraint
+            # For follow-up questions, use parent_question_id for question_id and current_question_id for follow_up_question_id
             if is_followup:
+                # Validate parent_question_id
                 if parent_question_id is None:
-                    logger.error("parent_question_id is None when creating answer")
+                    logger.error("parent_question_id is None when creating follow-up answer")
                     return {"errors": state.get("errors", []) + ["parent_question_id is None"]}
-                answer_question_id = parent_question_id
+
+                # Validate current_question_id (should be follow-up ID)
+                current_followup_id_str = state.get("current_question_id")
+                if not current_followup_id_str:
+                    logger.error("current_question_id missing from state when is_followup=True")
+                    return {"errors": state.get("errors", []) + ["current_followup_id missing"]}
+
+                # Set FKs for follow-up answer
+                answer_question_id = parent_question_id  # Parent context (analytics)
+                follow_up_question_id = UUID(current_followup_id_str)  # Direct link to follow-up
+
+                logger.info(
+                    f"Creating follow-up answer: parent={parent_question_id}, "
+                    f"follow_up={follow_up_question_id}"
+                )
             else:
+                # Main question answer
                 answer_question_id = UUID(state["current_question_id"])
+                follow_up_question_id = None  # Explicit None
+
+                logger.info(f"Creating main question answer: question={answer_question_id}")
 
             answer = Answer(
                 interview_id=interview_id,
-                question_id=answer_question_id,  # Use parent question ID for follow-ups
+                question_id=answer_question_id,
+                follow_up_question_id=follow_up_question_id,  # NEW FIELD!
                 text=answer_text,
                 is_voice=state.get("is_voice_answer", False),
                 voice_metrics=state.get("voice_metrics"),

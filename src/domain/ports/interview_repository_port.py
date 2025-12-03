@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from ..models.interview import Interview, InterviewStatus
@@ -224,5 +225,29 @@ class InterviewRepositoryPort(ABC):
 
         Returns:
             Number of interviews hard deleted
+        """
+        pass
+
+    @abstractmethod
+    async def get_conversation_export(self, interview_id: UUID) -> dict[str, Any]:
+        """Get interview conversation in chat-like format.
+
+        Args:
+            interview_id: UUID of interview to export
+
+        Returns:
+            Dict with structure:
+            {
+                "interview_id": "uuid-string",
+                "messages": [
+                    {"type": "question", "speaker": "Interviewer", ...},
+                    {"type": "answer", "speaker": "Candidate", ...},
+                    {"type": "followup", "speaker": "Interviewer", ...},
+                    ...
+                ]
+            }
+
+        Raises:
+            ValueError: If interview not found
         """
         pass

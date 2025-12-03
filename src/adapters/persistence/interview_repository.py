@@ -1,6 +1,7 @@
 """PostgreSQL implementation of InterviewRepositoryPort."""
 
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
@@ -10,7 +11,13 @@ from ...domain.models.interview import Interview, InterviewStatus
 from ...domain.models.interview_question import InterviewQuestion
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from .mappers import InterviewMapper, InterviewQuestionMapper
-from .models import InterviewModel, InterviewQuestionModel
+from .models import (
+    AnswerModel,
+    FollowUpQuestionModel,
+    InterviewModel,
+    InterviewQuestionModel,
+    QuestionModel,
+)
 from .session_provider import SessionProvider
 
 
@@ -326,3 +333,167 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount or 0
+
+    async def get_conversation_export(self, interview_id: UUID) -> dict[str, Any]:
+        """Get interview conversation in chat-like format.
+
+        Uses proper FK joins (no timestamp inference).
+        """
+        async with self._session_provider() as session:
+            try:
+                # Step 1: Verify interview exists
+                interview_exists = await session.execute(
+                    select(InterviewModel.id)
+                    .where(InterviewModel.id == interview_id)
+                    .where(InterviewModel.deleted_at.is_(None))
+                )
+                if not interview_exists.scalar_one_or_none():
+                    raise ValueError(f"Interview {interview_id} not found")
+
+                # Step 2: Fetch main questions with answers
+                main_questions_query = (
+                    select(
+                        InterviewQuestionModel.sequence_order,
+                        QuestionModel.id.label("question_id"),
+                        QuestionModel.text.label("question_text"),
+                        QuestionModel.question_type,
+                        InterviewQuestionModel.asked_at.label("question_asked_at"),
+                        InterviewQuestionModel.skipped,
+                        InterviewQuestionModel.skip_reason,
+                        AnswerModel.id.label("answer_id"),
+                        AnswerModel.text.label("answer_text"),
+                        AnswerModel.is_voice,
+                        AnswerModel.audio_file_path,
+                        AnswerModel.created_at.label("answer_created_at"),
+                    )
+                    .select_from(InterviewQuestionModel)
+                    .join(QuestionModel, InterviewQuestionModel.question_id == QuestionModel.id)
+                    .outerjoin(
+                        AnswerModel,
+                        (AnswerModel.interview_id == InterviewQuestionModel.interview_id)
+                        & (AnswerModel.question_id == QuestionModel.id)
+                        & (AnswerModel.follow_up_question_id.is_(None)),
+                    )
+                    .where(InterviewQuestionModel.interview_id == interview_id)
+                    .order_by(InterviewQuestionModel.sequence_order, AnswerModel.created_at)
+                )
+                main_questions_result = await session.execute(main_questions_query)
+                main_questions = main_questions_result.all()
+
+                # Step 3: Fetch follow-ups with answers
+                follow_ups_query = (
+                    select(
+                        FollowUpQuestionModel.id.label("followup_id"),
+                        FollowUpQuestionModel.parent_question_id,
+                        FollowUpQuestionModel.text.label("followup_text"),
+                        FollowUpQuestionModel.order_in_sequence,
+                        FollowUpQuestionModel.generated_reason,
+                        FollowUpQuestionModel.created_at.label("followup_created_at"),
+                        AnswerModel.id.label("answer_id"),
+                        AnswerModel.text.label("answer_text"),
+                        AnswerModel.is_voice,
+                        AnswerModel.audio_file_path,
+                        AnswerModel.created_at.label("answer_created_at"),
+                    )
+                    .select_from(FollowUpQuestionModel)
+                    .outerjoin(AnswerModel, AnswerModel.follow_up_question_id == FollowUpQuestionModel.id)
+                    .where(FollowUpQuestionModel.interview_id == interview_id)
+                    .order_by(FollowUpQuestionModel.parent_question_id, FollowUpQuestionModel.order_in_sequence)
+                )
+                follow_ups_result = await session.execute(follow_ups_query)
+                follow_ups = follow_ups_result.all()
+
+                # Step 4: Build conversation messages
+                messages = self._build_conversation_messages(
+                    main_questions,
+                    follow_ups,
+                    interview_id
+                )
+
+                return {
+                    "interview_id": str(interview_id),
+                    "messages": messages
+                }
+
+            except ValueError:
+                raise  # Re-raise ValueError (interview not found)
+            except Exception as e:
+                raise ValueError(f"Failed to export conversation: {e}") from e
+
+    def _build_conversation_messages(
+        self,
+        main_questions: list,
+        follow_ups: list,
+        interview_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Build conversation message list from query results.
+
+        Args:
+            main_questions: Main question rows (sequence_order, question_text, answer, etc.)
+            follow_ups: Follow-up rows (parent_question_id, followup_text, answer, etc.)
+            interview_id: UUID of interview (for logging)
+
+        Returns:
+            List of message dicts (chronologically ordered)
+        """
+        messages = []
+
+        # Group follow-ups by parent_question_id
+        followups_by_parent: dict[UUID, list] = {}
+        for row in follow_ups:
+            parent_id = row.parent_question_id
+            if parent_id not in followups_by_parent:
+                followups_by_parent[parent_id] = []
+            followups_by_parent[parent_id].append(row)
+
+        # Process main questions in sequence order
+        for row in main_questions:
+            # Add main question message
+            messages.append({
+                "type": "question",
+                "speaker": "Interviewer",
+                "sequence": row.sequence_order,
+                "text": row.question_text,
+                "question_type": row.question_type,
+                "asked_at": row.question_asked_at.isoformat() if row.question_asked_at else None,
+                "skipped": row.skipped,
+                "skip_reason": row.skip_reason
+            })
+
+            # Add main answer (if exists)
+            if row.answer_id:
+                messages.append({
+                    "type": "answer",
+                    "speaker": "Candidate",
+                    "text": row.answer_text,
+                    "is_voice": row.is_voice,
+                    "audio_path": row.audio_file_path,
+                    "created_at": row.answer_created_at.isoformat()
+                })
+
+            # Add follow-ups for this question
+            question_followups = followups_by_parent.get(row.question_id, [])
+            for followup_row in question_followups:
+                # Add follow-up question
+                messages.append({
+                    "type": "followup",
+                    "speaker": "Interviewer",
+                    "text": followup_row.followup_text,
+                    "parent_sequence": row.sequence_order,
+                    "followup_order": followup_row.order_in_sequence,
+                    "reason": followup_row.generated_reason,
+                    "asked_at": followup_row.followup_created_at.isoformat()
+                })
+
+                # Add follow-up answer (if exists)
+                if followup_row.answer_id:
+                    messages.append({
+                        "type": "answer",
+                        "speaker": "Candidate",
+                        "text": followup_row.answer_text,
+                        "is_voice": followup_row.is_voice,
+                        "audio_path": followup_row.audio_file_path,
+                        "created_at": followup_row.answer_created_at.isoformat()
+                    })
+
+        return messages

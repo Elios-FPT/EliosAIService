@@ -38,13 +38,18 @@ class AnswerEvaluation(BaseModel):
 class Answer(BaseModel):
     """Represents a candidate's answer to a question.
 
-    This is an entity in the interview domain.
+    This entity supports both main question answers and follow-up answers.
+    Use follow_up_question_id to distinguish:
+    - Main question: follow_up_question_id is None
+    - Follow-up answer: follow_up_question_id points to follow_up_questions table
+
     NOTE: Evaluation moved to separate Evaluation entity (linked via evaluation_id).
     """
 
     id: UUID = Field(default_factory=uuid4)
     interview_id: UUID
-    question_id: UUID
+    question_id: UUID  # Parent question ID (from questions table)
+    follow_up_question_id: UUID | None = None  # FK to follow_up_questions (if follow-up answer)
     text: str  # The actual answer text
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
@@ -97,3 +102,19 @@ class Answer(BaseModel):
             Voice metrics dict or None
         """
         return self.voice_metrics
+
+    def is_follow_up_answer(self) -> bool:
+        """Check if answer is for a follow-up question.
+
+        Returns:
+            True if this is a follow-up answer, False if main question answer
+        """
+        return self.follow_up_question_id is not None
+
+    def is_main_question_answer(self) -> bool:
+        """Check if answer is for a main question.
+
+        Returns:
+            True if this is a main question answer, False if follow-up
+        """
+        return self.follow_up_question_id is None

@@ -261,6 +261,7 @@ class AnswerMapper:
             id=db_model.id,
             interview_id=db_model.interview_id,
             question_id=db_model.question_id,
+            follow_up_question_id=db_model.follow_up_question_id,
             text=db_model.text,
             is_voice=db_model.is_voice,
             audio_file_path=db_model.audio_file_path,
@@ -277,6 +278,7 @@ class AnswerMapper:
             id=domain_model.id,
             interview_id=domain_model.interview_id,
             question_id=domain_model.question_id,
+            follow_up_question_id=domain_model.follow_up_question_id,
             text=domain_model.text,
             is_voice=domain_model.is_voice,
             audio_file_path=domain_model.audio_file_path,
@@ -293,6 +295,7 @@ class AnswerMapper:
         db_model.audio_file_path = domain_model.audio_file_path
         db_model.evaluation_id = domain_model.evaluation_id
         db_model.embedding = domain_model.embedding
+        db_model.follow_up_question_id = domain_model.follow_up_question_id
 
 
 class CVAnalysisMapper:

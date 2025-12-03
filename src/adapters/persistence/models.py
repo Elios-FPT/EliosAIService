@@ -246,6 +246,12 @@ class AnswerModel(Base):
         nullable=False,
         index=True,
     )
+    follow_up_question_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("follow_up_questions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     is_voice: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     audio_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -273,10 +279,15 @@ class AnswerModel(Base):
         "QuestionModel",
         back_populates="answers",
     )
+    follow_up_question: Mapped["FollowUpQuestionModel | None"] = relationship(
+        "FollowUpQuestionModel",
+        foreign_keys=[follow_up_question_id],
+    )
 
     __table_args__ = (
         Index("idx_answers_interview_id", "interview_id"),
         Index("idx_answers_question_id", "question_id"),
+        Index("idx_answers_follow_up_question_id", "follow_up_question_id"),
         Index("idx_answers_created_at", "created_at"),
     )
 

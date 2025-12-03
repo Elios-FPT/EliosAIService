@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 import uuid
 from uuid import UUID
 
@@ -439,3 +440,75 @@ async def get_interview_summary(
         )
 
     return InterviewSummaryResponse(**summary)
+
+
+@router.get(
+    "/{interview_id}/conversation",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Get interview conversation",
+    description="""
+    Export interview conversation in chat-like format with chronologically ordered messages.
+
+    Returns questions, answers, and follow-ups in conversation flow.
+    Audio paths point to R2 storage (handled by separate microservice).
+
+    **Note**: Only completed interviews are guaranteed to have all messages.
+    In-progress interviews may have incomplete conversations.
+    """,
+)
+async def get_interview_conversation(
+    interview_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+) -> dict:
+    """Get interview conversation in chat-like format.
+
+    Args:
+        interview_id: UUID of interview to export
+        session: Database session
+
+    Returns:
+        Dict with interview_id and messages list
+
+    Raises:
+        HTTPException:
+            - 404: Interview not found
+            - 500: Failed to export conversation
+    """
+    start_time = time.time()
+    logger.info(f"Fetching conversation for interview {interview_id}")
+
+    try:
+        container = get_container()
+        interview_repo = container.interview_repository_port(session=session)
+
+        # Get conversation export from repository
+        conversation = await interview_repo.get_conversation_export(interview_id)
+
+        # Calculate latency
+        latency_ms = (time.time() - start_time) * 1000
+        logger.info(
+            f"Exported conversation for interview {interview_id} "
+            f"({len(conversation['messages'])} messages, {latency_ms:.2f}ms)"
+        )
+
+        return conversation
+
+    except ValueError as e:
+        # Interview not found
+        logger.warning(f"Interview {interview_id} not found: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview {interview_id} not found"
+        ) from e
+
+    except Exception as e:
+        # Repository error
+        logger.error(
+            f"Failed to export conversation for interview {interview_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to export conversation"
+        ) from e
