@@ -521,6 +521,7 @@ class Container:
                 self._event_publisher = KafkaEventPublisher(
                     bootstrap_servers=self.settings.kafka_bootstrap_servers,
                     interview_topic=self.settings.kafka_interview_topic,
+                    feedback_topic=self.settings.kafka_feedback_topic,
                 )
 
         return self._event_publisher

@@ -77,3 +77,48 @@ class MockEventPublisher(EventPublisherPort):
             return self.published_events.copy()
         return [e for e in self.published_events if e["event_type"] == event_type]
 
+    async def publish_feedback_completed(
+        self,
+        request_id: UUID,
+        entity_id: UUID,
+        input_type: str,
+        user_id: UUID | None,
+        result: dict,
+        correlation_id: UUID,
+    ) -> None:
+        """Log event and store in memory (no actual publish).
+
+        Args:
+            request_id: Feedback request UUID
+            entity_id: Entity UUID
+            input_type: Type of entity (INTERVIEW/CV/CODE)
+            user_id: User UUID (nullable)
+            result: Feedback result dict
+            correlation_id: Correlation ID
+
+        Note:
+            Mock implementation - no actual Kafka publishing.
+        """
+        event_data = {
+            "event_type": "FEEDBACK_COMPLETED",
+            "request_id": str(request_id),
+            "entity_id": str(entity_id),
+            "input_type": input_type,
+            "user_id": str(user_id) if user_id else None,
+            "correlation_id": str(correlation_id),
+            "result": result,
+        }
+
+        self.published_events.append(event_data)
+
+        logger.info(
+            "MockEventPublisher: FEEDBACK_COMPLETED event",
+            extra={
+                "request_id": str(request_id),
+                "entity_id": str(entity_id),
+                "input_type": input_type,
+                "user_id": str(user_id) if user_id else None,
+                "correlation_id": str(correlation_id),
+            },
+        )
+

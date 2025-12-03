@@ -179,6 +179,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_interview_topic: str = "interview-user-interview"
     kafka_candidate_topic: str = "user-interview-candidate"
+    kafka_feedback_topic: str = "ai-feedback-results"
     kafka_candidate_consumer_group: str = "interview-service-candidate-events"
 
     # Logging
