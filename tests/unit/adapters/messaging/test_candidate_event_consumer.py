@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from src.adapters.messaging.candidate_event_consumer import CandidateEventConsumer
-from src.domain.models.candidate_event import CandidateEvent, EventType
+from src.domain.models.candidate_event import CandidateEvent, CandidateEventPayload, EventType
 
 
 @pytest.fixture
@@ -38,11 +38,10 @@ def consumer(mock_interview_repo, mock_cv_repo):
 async def test_handle_candidate_deleted_event(consumer, mock_interview_repo, mock_cv_repo):
     """Test handling candidate.DELETED event triggers soft deletes."""
     candidate_id = uuid4()
+    payload = CandidateEventPayload(UserId=candidate_id, DeletedAt="2025-12-02T00:00:00Z")
     event = CandidateEvent(
-        EventId=uuid4(),
-        CorrelationId=uuid4(),
-        EventType=EventType.DELETED,
-        Payload={"UserId": candidate_id, "DeletedAt": "2025-12-02T00:00:00Z"},
+        event_type=EventType.DELETED,
+        payload=payload,
     )
 
     await consumer._handle_candidate_deleted(event)

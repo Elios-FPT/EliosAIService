@@ -6,7 +6,6 @@ from datetime import datetime
 from aiokafka import AIOKafkaConsumer
 from pydantic import ValidationError
 
-from ..persistence.session_provider import SessionProvider
 from ...domain.models.candidate_event import CandidateEvent, EventType
 from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
@@ -85,15 +84,15 @@ class CandidateEventConsumer:
         try:
             event = CandidateEvent.model_validate_json(message.value)
 
-            if event.EventType == EventType.DELETED:
+            if event.event_type == EventType.DELETED:
                 await self._handle_candidate_deleted(event)
             else:
                 logger.debug(
                     "Ignoring candidate event type",
                     extra={
                         "event": "kafka_event_ignored",
-                        "event_type": event.EventType,
-                        "event_id": str(event.EventId),
+                        "event_type": event.event_type,
+                        "event_id": str(event.event_id),
                     },
                 )
         except ValidationError as exc:
@@ -124,7 +123,7 @@ class CandidateEventConsumer:
 
         Soft deletes all interviews + CV analyses for the candidate.
         """
-        candidate_id = event.Payload.UserId
+        candidate_id = event.payload.UserId
 
         try:
             interviews_deleted = await self.interview_repo.soft_delete_by_candidate_id(
@@ -139,8 +138,8 @@ class CandidateEventConsumer:
                 extra={
                     "event": "candidate_deleted_processed",
                     "candidate_id": str(candidate_id),
-                    "event_id": str(event.EventId),
-                    "correlation_id": str(event.CorrelationId),
+                    "event_id": str(event.event_id),
+                    "correlation_id": str(event.correlation_id),
                     "interviews_deleted": interviews_deleted,
                     "cv_analyses_deleted": cv_analyses_deleted,
                 },
@@ -151,7 +150,7 @@ class CandidateEventConsumer:
                 extra={
                     "event": "candidate_deletion_failed",
                     "candidate_id": str(candidate_id),
-                    "event_id": str(event.EventId),
+                    "event_id": str(event.event_id),
                     "error": str(exc),
                 },
                 exc_info=True,

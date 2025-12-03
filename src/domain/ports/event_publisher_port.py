@@ -5,6 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from ..models.feedback_result import FeedbackResult
+
 
 class EventPublisherPort(ABC):
     """Interface for publishing domain events to message brokers.
@@ -26,7 +28,7 @@ class EventPublisherPort(ABC):
         """Publish INTERVIEW_ATTEMPTED event to User Service.
 
         Args:
-            candidate_id: Candidate UUID (maps to UserId)
+            candidate_id: Candidate UUID (maps to UserId in downstream services)
             interview_id: Interview UUID
             correlation_id: Request correlation ID for tracing
             overall_score: Weighted overall score (0-100)
@@ -46,7 +48,7 @@ class EventPublisherPort(ABC):
         entity_id: UUID,
         input_type: str,  # InputType enum value as string
         user_id: UUID | None,
-        result: "FeedbackResult | dict",  # Forward reference - FeedbackResult or dict
+        result: FeedbackResult,
         correlation_id: UUID,
     ) -> None:
         """Publish FEEDBACK_COMPLETED event to Kafka.
@@ -62,7 +64,5 @@ class EventPublisherPort(ABC):
         Note:
             This method should NOT raise exceptions (fire-and-forget).
             Errors should be logged and swallowed.
-            Implementation will be added in Phase 06.
         """
         pass
-

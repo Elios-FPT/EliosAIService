@@ -3,6 +3,7 @@
 import logging
 from uuid import UUID
 
+from ...domain.models.feedback_result import FeedbackResult
 from ...domain.ports.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class MockEventPublisher(EventPublisherPort):
         entity_id: UUID,
         input_type: str,
         user_id: UUID | None,
-        result: dict,
+        result: FeedbackResult,
         correlation_id: UUID,
     ) -> None:
         """Log event and store in memory (no actual publish).
@@ -93,7 +94,7 @@ class MockEventPublisher(EventPublisherPort):
             entity_id: Entity UUID
             input_type: Type of entity (INTERVIEW/CV/CODE)
             user_id: User UUID (nullable)
-            result: Feedback result dict
+            result: Feedback result model
             correlation_id: Correlation ID
 
         Note:
@@ -106,7 +107,7 @@ class MockEventPublisher(EventPublisherPort):
             "input_type": input_type,
             "user_id": str(user_id) if user_id else None,
             "correlation_id": str(correlation_id),
-            "result": result,
+            "result": result.model_dump(mode="json"),
         }
 
         self.published_events.append(event_data)

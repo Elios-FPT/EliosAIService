@@ -184,7 +184,7 @@ class KafkaEventPublisher(EventPublisherPort):
         entity_id: UUID,
         input_type: str,
         user_id: UUID | None,
-        result: FeedbackResult | dict,
+        result: FeedbackResult,
         correlation_id: UUID,
     ) -> None:
         """Publish FEEDBACK_COMPLETED event to Kafka.
@@ -194,7 +194,7 @@ class KafkaEventPublisher(EventPublisherPort):
             entity_id: Entity UUID (used for partitioning)
             input_type: Type of entity (INTERVIEW/CV/CODE)
             user_id: User UUID (nullable)
-            result: Typed feedback result or dict
+            result: Typed feedback result
             correlation_id: Correlation ID for tracing
 
         Note:
@@ -205,24 +205,13 @@ class KafkaEventPublisher(EventPublisherPort):
             return
 
         try:
-            # Convert result to dict if it's a FeedbackResult instance
-            if isinstance(result, dict):
-                # Result is already serialized dict
-                result_dict = result
-            else:
-                # Result is FeedbackResult instance, serialize it
-                result_dict = result.model_dump(mode="json")
-
-            # Build payload
-            from datetime import datetime
-
-            payload = FeedbackCompletedPayload(
+            # Build payload from typed FeedbackResult
+            payload = FeedbackCompletedPayload.from_feedback(
                 request_id=request_id,
                 entity_id=entity_id,
                 input_type=input_type,
                 user_id=user_id,
-                result=result_dict,
-                timestamp=datetime.utcnow().isoformat(),
+                result=result,
             )
 
             # Wrap in event envelope
