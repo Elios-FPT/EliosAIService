@@ -215,7 +215,7 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             skills=skills,
             embedding=None,
             summary=merged_results.get("summary"),
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now().isoformat(),
         )
 
     def _ensure_skill_objects(
