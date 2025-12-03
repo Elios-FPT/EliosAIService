@@ -1,5 +1,7 @@
 """Event publisher port interface."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from uuid import UUID
 
@@ -34,6 +36,33 @@ class EventPublisherPort(ABC):
         Note:
             This method should NOT raise exceptions (fire-and-forget).
             Errors should be logged and swallowed.
+        """
+        pass
+
+    @abstractmethod
+    async def publish_feedback_completed(
+        self,
+        request_id: UUID,
+        entity_id: UUID,
+        input_type: str,  # InputType enum value as string
+        user_id: UUID | None,
+        result: "FeedbackResult | dict",  # Forward reference - FeedbackResult or dict
+        correlation_id: UUID,
+    ) -> None:
+        """Publish FEEDBACK_COMPLETED event to Kafka.
+
+        Args:
+            request_id: Feedback request UUID
+            entity_id: Entity UUID that was analyzed
+            input_type: Type of entity (INTERVIEW/CV/CODE)
+            user_id: Optional user who requested analysis
+            result: Typed feedback result
+            correlation_id: Request correlation ID for tracing
+
+        Note:
+            This method should NOT raise exceptions (fire-and-forget).
+            Errors should be logged and swallowed.
+            Implementation will be added in Phase 06.
         """
         pass
 
