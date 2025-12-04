@@ -212,6 +212,7 @@ class InterviewMapper:
         return Interview(
             id=db_model.id,
             candidate_id=db_model.candidate_id,
+            title=db_model.title or "General Interview",
             status=InterviewStatus(db_model.status),
             cv_analysis_id=db_model.cv_analysis_id,
             current_question_index=db_model.current_question_index,
@@ -233,6 +234,7 @@ class InterviewMapper:
         return InterviewModel(
             id=domain_model.id,
             candidate_id=domain_model.candidate_id,
+            title=domain_model.title,
             status=domain_model.status.value,
             cv_analysis_id=domain_model.cv_analysis_id,
             current_question_index=domain_model.current_question_index,
@@ -252,6 +254,7 @@ class InterviewMapper:
         Note: interview_questions relationship handled separately via repository.
         """
         db_model.status = domain_model.status.value
+        db_model.title = domain_model.title
         db_model.cv_analysis_id = domain_model.cv_analysis_id
         db_model.current_question_index = domain_model.current_question_index
         db_model.plan_metadata = domain_model.plan_metadata

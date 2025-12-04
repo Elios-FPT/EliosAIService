@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
@@ -99,6 +99,52 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             )
             db_model = result.scalar_one_or_none()
             return InterviewMapper.to_domain(db_model) if db_model else None
+
+    async def list_by_candidate_paginated(
+        self,
+        candidate_id: UUID,
+        limit: int,
+        offset: int,
+        *,
+        status: InterviewStatus | None = None,
+        include_active: bool = True,
+        include_deleted: bool = False,
+    ) -> tuple[list[Interview], int]:
+        """Retrieve paginated interviews for a candidate along with total count."""
+
+        filters = [InterviewModel.candidate_id == candidate_id]
+
+        if not include_deleted:
+            filters.append(InterviewModel.deleted_at.is_(None))
+
+        if status is not None:
+            filters.append(InterviewModel.status == status.value)
+        elif not include_active:
+            terminal_statuses = [
+                InterviewStatus.COMPLETE.value,
+                InterviewStatus.CANCELLED.value,
+            ]
+            filters.append(InterviewModel.status.in_(terminal_statuses))
+
+        async with self._session_provider() as session:
+            count_result = await session.execute(
+                select(func.count()).select_from(InterviewModel).where(*filters)
+            )
+            total = count_result.scalar_one()
+
+            query = (
+                select(InterviewModel)
+                .where(*filters)
+                .order_by(InterviewModel.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+
+            rows = await session.execute(query)
+            db_models = rows.scalars().all()
+            interviews = [InterviewMapper.to_domain(db_model) for db_model in db_models]
+
+        return interviews, int(total)
 
     async def get_by_status(
         self,

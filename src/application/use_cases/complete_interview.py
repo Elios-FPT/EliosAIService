@@ -560,6 +560,7 @@ class CompleteInterviewUseCase:
                 overall_score=summary.overall_score,
                 theoretical_score_avg=summary.theoretical_score_avg,
                 speaking_score_avg=summary.speaking_score_avg,
+                title=getattr(interview, "title", None),
             )
         except Exception as e:
             # Log error but DO NOT raise (fire-and-forget)

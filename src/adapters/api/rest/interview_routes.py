@@ -6,12 +6,13 @@ import time
 import uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
 from ....application.dto.interview_dto import (
+    InterviewHistoryListResponse,
     InterviewResponse,
     InterviewSummaryResponse,
     PlanInterviewRequest,
@@ -240,6 +241,58 @@ async def get_current_question(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get(
+    "/users/{user_id}/history",
+    response_model=InterviewHistoryListResponse,
+    summary="List interview history for a user",
+)
+async def list_interview_history(
+    user_id: UUID,
+    status_filter: InterviewStatus | None = Query(
+        default=None,
+        description="Optional status filter",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of items to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of items to skip",
+    ),
+    include_active: bool = Query(
+        default=True,
+        description="Whether active (non-terminal) interviews should be included",
+    ),
+    include_deleted: bool = Query(
+        default=False,
+        description="Include soft-deleted interviews when true",
+    ),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """List interview history for the provided user."""
+
+    container = get_container()
+    settings = get_settings()
+    use_case = container.list_interview_history_use_case(session=session)
+
+    try:
+        return await use_case.execute(
+            candidate_id=user_id,
+            ws_base_url=settings.ws_base_url,
+            status=status_filter,
+            limit=limit,
+            offset=offset,
+            include_active=include_active,
+            include_deleted=include_deleted,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 # NEW: Adaptive Planning Endpoints

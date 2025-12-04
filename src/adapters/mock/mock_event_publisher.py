@@ -29,6 +29,7 @@ class MockEventPublisher(EventPublisherPort):
         overall_score: float,
         theoretical_score_avg: float,
         speaking_score_avg: float,
+        title: str | None = None,
     ) -> None:
         """Log event and store in memory (no actual publish).
 
@@ -48,6 +49,7 @@ class MockEventPublisher(EventPublisherPort):
             "overall_score": round(overall_score, 2),
             "theoretical_score_avg": round(theoretical_score_avg, 2),
             "speaking_score_avg": round(speaking_score_avg, 2),
+            "title": title,
         }
 
         self.published_events.append(event_data)

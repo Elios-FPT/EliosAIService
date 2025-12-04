@@ -45,6 +45,8 @@ class Interview(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     candidate_id: UUID
+    # Human-friendly title for interview history and UI display
+    title: str = "General Interview"
     status: InterviewStatus = InterviewStatus.IDLE
     cv_analysis_id: UUID | None = None
     current_question_index: int = 0

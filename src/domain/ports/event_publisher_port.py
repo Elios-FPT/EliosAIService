@@ -24,6 +24,7 @@ class EventPublisherPort(ABC):
         overall_score: float,
         theoretical_score_avg: float,
         speaking_score_avg: float,
+        title: str | None = None,
     ) -> None:
         """Publish INTERVIEW_ATTEMPTED event to User Service.
 

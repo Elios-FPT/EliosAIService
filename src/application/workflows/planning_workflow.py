@@ -492,6 +492,7 @@ class PlanningWorkflow(BaseWorkflow):
             candidate_id = state["candidate_id"]
             question_ids = state["stored_question_ids"]
             cv_analysis_id = state["cv_analysis_id"]
+            question_specs = state.get("question_specs") or []
 
             if not question_ids:
                 # Provide context about why question IDs are missing
@@ -502,9 +503,12 @@ class PlanningWorkflow(BaseWorkflow):
                 return {"errors": ["No question IDs to attach to interview"]}
 
             from ...domain.models.interview import Interview, InterviewStatus
+            # Build a human-friendly, non-date-based title using skills from planned questions.
+            title = self._build_interview_title(question_specs)
             interview = Interview(
                 id=uuid.uuid4(),
                 candidate_id=candidate_id,
+                title=title,
                 status=InterviewStatus.IDLE,
                 cv_analysis_id=cv_analysis_id,
             )
@@ -582,3 +586,28 @@ class PlanningWorkflow(BaseWorkflow):
         if retry_count < 3:
             return "retry"
         return "end"
+
+    def _build_interview_title(self, question_specs: list[dict[str, Any]] | None) -> str:
+        """Build a simple, human-friendly interview title from planned question skills.
+
+        Prefer the most common or first skill from question specs; otherwise fall back
+        to a generic label. Avoids including dates to keep titles stable and clean.
+        """
+        if not question_specs:
+            return "General Interview"
+
+        # Extract ordered, unique skill names from specs
+        skills = [spec.get("skill") for spec in question_specs if spec.get("skill")]
+        if not skills:
+            return "General Interview"
+
+        # Deduplicate while preserving order
+        seen = set()
+        ordered_skills = []
+        for skill in skills:
+            if skill not in seen:
+                seen.add(skill)
+                ordered_skills.append(skill)
+
+        skills_str = ", ".join(ordered_skills)
+        return f"Interview – {skills_str}"

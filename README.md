@@ -638,6 +638,22 @@ async with httpx.AsyncClient() as client:
     print(f"Feedback: {evaluation['feedback']}")
 ```
 
+### 5. Fetch Interview History
+
+```python
+async with httpx.AsyncClient() as client:
+    response = await client.get(
+        f"http://localhost:8000/api/interviews/users/{candidate['id']}/history",
+        params={
+            "limit": 10,
+            "offset": 0,
+            "include_active": False,  # Optional: show completed interviews only
+        },
+    )
+    history = response.json()
+    print(f"Found {history['pagination']['total']} interviews")
+```
+
 ---
 
 ## 📦 Project Structure

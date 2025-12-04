@@ -1,5 +1,6 @@
 """Tests for interview_routes token deduction logic."""
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -11,6 +12,11 @@ from fastapi.testclient import TestClient
 from src.adapters.api.rest.interview_routes import (
     router,
     _emit_token_delta_event,
+)
+from src.application.dto.interview_dto import (
+    InterviewHistoryItemResponse,
+    InterviewHistoryListResponse,
+    InterviewHistoryPagination,
 )
 from src.domain.models.interview import InterviewStatus
 
@@ -94,4 +100,64 @@ def test_plan_interview_emits_token_event(
 
     assert response.status_code == 202
     publisher.publish_token_delta.assert_awaited_once()
+
+
+@patch("src.adapters.api.rest.interview_routes.get_container")
+@patch("src.adapters.api.rest.interview_routes.get_async_session")
+def test_list_interview_history_success(mock_get_session, mock_get_container):
+    mock_get_session.return_value = AsyncMock()
+
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_use_case = AsyncMock()
+    mock_container.list_interview_history_use_case.return_value = mock_use_case
+
+    history_response = InterviewHistoryListResponse(
+        items=[
+            InterviewHistoryItemResponse(
+                id=uuid4(),
+                title="Mock Interview",
+                status=InterviewStatus.COMPLETE.value,
+                cv_analysis_id=None,
+                planned_question_count=5,
+                current_question_index=5,
+                question_count=5,
+                progress_percentage=100.0,
+                ws_url="ws://localhost:8000/ws/interviews/123",
+                started_at=None,
+                completed_at=None,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+        ],
+        pagination=InterviewHistoryPagination(limit=20, offset=0, total=1),
+    )
+    mock_use_case.execute.return_value = history_response
+
+    user_id = uuid4()
+    response = client.get(f"/interviews/users/{user_id}/history?limit=20&offset=0")
+
+    assert response.status_code == 200
+    assert response.json()["pagination"]["total"] == 1
+    mock_use_case.execute.assert_awaited_once()
+
+
+@patch("src.adapters.api.rest.interview_routes.get_container")
+@patch("src.adapters.api.rest.interview_routes.get_async_session")
+def test_list_interview_history_validation_error(mock_get_session, mock_get_container):
+    mock_get_session.return_value = AsyncMock()
+
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_use_case = AsyncMock()
+    mock_use_case.execute.side_effect = ValueError("limit must be between 1 and 100")
+    mock_container.list_interview_history_use_case.return_value = mock_use_case
+
+    user_id = uuid4()
+    response = client.get(f"/interviews/users/{user_id}/history?limit=20")
+
+    assert response.status_code == 400
+    assert "limit" in response.json()["detail"]
 

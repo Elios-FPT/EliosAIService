@@ -104,6 +104,7 @@ class KafkaEventPublisher(EventPublisherPort):
         overall_score: float,
         theoretical_score_avg: float,
         speaking_score_avg: float,
+        title: str | None = None,
     ) -> None:
         """Publish INTERVIEW_ATTEMPTED event to Kafka.
 
@@ -130,6 +131,7 @@ class KafkaEventPublisher(EventPublisherPort):
                 overall_score=overall_score,
                 theoretical_score_avg=theoretical_score_avg,
                 speaking_score_avg=speaking_score_avg,
+                title=title,
             )
 
             # Wrap in event envelope

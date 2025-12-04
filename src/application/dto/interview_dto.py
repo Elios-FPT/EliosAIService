@@ -13,6 +13,7 @@ class InterviewResponse(BaseModel):
 
     id: UUID
     candidate_id: UUID
+    title: str
     status: str
     cv_analysis_id: UUID | None
     question_count: int
@@ -41,6 +42,7 @@ class InterviewResponse(BaseModel):
         return InterviewResponse(
             id=interview.id,
             candidate_id=interview.candidate_id,
+            title=getattr(interview, "title", "General Interview"),
             status=interview.status.value,
             cv_analysis_id=interview.cv_analysis_id,
             question_count=question_count,
@@ -113,3 +115,36 @@ class InterviewSummaryResponse(BaseModel):
     study_recommendations: list[str]
     technique_tips: list[str]
     completion_time: str
+
+
+class InterviewHistoryPagination(BaseModel):
+    """Pagination metadata for interview history list."""
+
+    limit: int
+    offset: int
+    total: int
+
+
+class InterviewHistoryItemResponse(BaseModel):
+    """Single interview history entry."""
+
+    id: UUID
+    title: str
+    status: str
+    cv_analysis_id: UUID | None
+    planned_question_count: int
+    current_question_index: int
+    question_count: int
+    progress_percentage: float
+    ws_url: str
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InterviewHistoryListResponse(BaseModel):
+    """Paginated interview history response."""
+
+    items: list[InterviewHistoryItemResponse]
+    pagination: InterviewHistoryPagination

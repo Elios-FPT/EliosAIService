@@ -103,6 +103,7 @@ debug_print("container.py: Domain ports imported")
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
 from ...infrastructure.database import session_scope
+from ...application.use_cases.list_interview_history import ListInterviewHistoryUseCase
 from ...infrastructure.background.checkpointer_heartbeat import (
     HeartbeatHandle,
     start_checkpointer_heartbeat,
@@ -343,6 +344,19 @@ class Container:
         """
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLInterviewRepository(provider)
+
+    def list_interview_history_use_case(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> ListInterviewHistoryUseCase:
+        """Get configured ListInterviewHistoryUseCase."""
+
+        interview_repo = self.interview_repository_port(
+            session=session,
+            session_provider=session_provider,
+        )
+        return ListInterviewHistoryUseCase(interview_repository=interview_repo)
 
     def answer_repository_port(
         self,

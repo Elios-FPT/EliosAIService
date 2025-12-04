@@ -73,6 +73,32 @@ class InterviewRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    async def list_by_candidate_paginated(
+        self,
+        candidate_id: UUID,
+        limit: int,
+        offset: int,
+        *,
+        status: InterviewStatus | None = None,
+        include_active: bool = True,
+        include_deleted: bool = False,
+    ) -> tuple[list[Interview], int]:
+        """Retrieve interviews for a candidate with pagination and total count.
+
+        Args:
+            candidate_id: Candidate identifier
+            limit: Maximum number of rows to return
+            offset: Number of rows to skip
+            status: Optional status filter
+            include_active: Whether to keep interviews in active (non-terminal) states
+            include_deleted: Whether to include soft-deleted interviews
+
+        Returns:
+            Tuple of (interviews, total_count) matching filters
+        """
+        pass
+
+    @abstractmethod
     async def get_by_status(
         self,
         status: InterviewStatus,

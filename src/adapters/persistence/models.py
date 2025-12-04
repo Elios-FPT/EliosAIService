@@ -171,6 +171,8 @@ class InterviewModel(Base):
         nullable=False,
         index=True,
     )
+    # Human-friendly interview title for history and UI display
+    title: Mapped[str | None] = mapped_column(String(150), nullable=True)
     status: Mapped[str] = mapped_column(
         SQLEnum(InterviewStatus, native_enum=False, length=50),
         nullable=False,
