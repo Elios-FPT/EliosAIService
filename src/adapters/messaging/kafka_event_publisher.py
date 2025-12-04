@@ -11,6 +11,7 @@ from ...application.dto.event import (
     EventWrapper,
     FeedbackCompletedPayload,
     InterviewAttemptedPayload,
+    TokenDeltaPayload,
 )
 from ...domain.models.feedback_result import FeedbackResult
 from ...domain.ports.event_publisher_port import EventPublisherPort
@@ -30,6 +31,7 @@ class KafkaEventPublisher(EventPublisherPort):
         bootstrap_servers: str,
         interview_topic: str = "interview-user-interview",
         feedback_topic: str = "ai-feedback-results",
+        token_topic: str = "user-token-updates",
     ):
         """Initialize Kafka publisher (not started yet).
 
@@ -41,6 +43,7 @@ class KafkaEventPublisher(EventPublisherPort):
         self.bootstrap_servers = bootstrap_servers
         self.interview_topic = interview_topic
         self.feedback_topic = feedback_topic
+        self.token_topic = token_topic
         self.producer: AIOKafkaProducer | None = None
         logger.info(
             "KafkaEventPublisher initialized",
@@ -48,6 +51,7 @@ class KafkaEventPublisher(EventPublisherPort):
                 "bootstrap_servers": bootstrap_servers,
                 "interview_topic": interview_topic,
                 "feedback_topic": feedback_topic,
+                "token_topic": token_topic,
             }
         )
 
@@ -261,6 +265,54 @@ class KafkaEventPublisher(EventPublisherPort):
                     "request_id": str(request_id),
                     "entity_id": str(entity_id),
                 },
+                exc_info=True,
+            )
+
+    async def publish_token_delta(
+        self,
+        user_id: UUID,
+        tokens: int,
+        correlation_id: UUID,
+    ) -> None:
+        """Publish token delta event to Kafka."""
+        if self.producer is None:
+            logger.error("Cannot publish: KafkaEventPublisher not started")
+            return
+
+        try:
+            payload = TokenDeltaPayload(user_id=user_id, tokens=tokens)
+            event = EventWrapper(
+                correlation_id=correlation_id,
+                event_type="UPDATE",
+                payload=payload,
+            )
+            event_dict = event.model_dump(mode="json", by_alias=True)
+
+            await self.producer.send(
+                self.token_topic,
+                value=event_dict,
+                key=str(user_id),
+            )
+
+            logger.info(
+                "Published TOKEN_DELTA event",
+                extra={
+                    "user_id": str(user_id),
+                    "tokens": tokens,
+                    "correlation_id": str(correlation_id),
+                    "topic": self.token_topic,
+                },
+            )
+        except KafkaError as e:
+            logger.error(
+                f"Kafka error publishing TOKEN_DELTA: {e}",
+                extra={"user_id": str(user_id), "tokens": tokens},
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.error(
+                f"Unexpected error publishing TOKEN_DELTA: {e}",
+                extra={"user_id": str(user_id), "tokens": tokens},
                 exc_info=True,
             )
 

@@ -21,6 +21,7 @@ from ....application.dto.interview_dto import (
 from ....application.use_cases.analyze_cv import AnalyzeCVUseCase
 from ....application.use_cases.get_next_question import GetNextQuestionUseCase
 from ....domain.models.interview import InterviewStatus
+from ....domain.ports.event_publisher_port import EventPublisherPort
 from ....infrastructure.config.settings import get_settings
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
@@ -285,6 +286,12 @@ async def plan_interview(
         # Get settings for WebSocket URL
         settings = get_settings()
 
+        await _emit_token_delta_event(
+            publisher=container.event_publisher_port(),
+            user_id=request.candidate_id,
+            tokens=settings.token_delta_per_plan,
+        )
+
         # Use LangGraph workflow for interview planning
         from ....application.workflows.planning_workflow import PlanningWorkflow
 
@@ -385,6 +392,36 @@ async def get_planning_status(
         message=message,
         ws_url=ws_url,  # WebSocket URL for real-time interview session
     )
+
+
+async def _emit_token_delta_event(
+    publisher: EventPublisherPort,
+    user_id: UUID,
+    tokens: int,
+) -> None:
+    """Emit Kafka event to adjust user tokens (fire-and-forget)."""
+    if tokens == 0:
+        return
+
+    correlation_id = uuid.uuid4()
+
+    try:
+        await publisher.publish_token_delta(
+            user_id=user_id,
+            tokens=tokens,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to emit token delta event",
+            extra={
+                "user_id": str(user_id),
+                "tokens": tokens,
+                "correlation_id": str(correlation_id),
+            },
+            exc_info=True,
+        )
+
 
 
 @router.get(

@@ -97,3 +97,24 @@ async def test_mock_publishes_feedback_completed_serialized_result():
     assert event["user_id"] == str(user_id)
     assert isinstance(event["result"], dict)
     assert event["result"]["interview_id"] == str(entity_id)
+
+
+@pytest.mark.asyncio
+async def test_mock_publishes_token_delta_event():
+    """Token delta events should be stored with user and tokens."""
+    publisher = MockEventPublisher()
+    user_id = uuid4()
+    correlation_id = uuid4()
+
+    await publisher.publish_token_delta(
+        user_id=user_id,
+        tokens=-10,
+        correlation_id=correlation_id,
+    )
+
+    events = publisher.get_events("TOKEN_DELTA")
+    assert len(events) == 1
+    event = events[0]
+    assert event["user_id"] == str(user_id)
+    assert event["tokens"] == -10
+    assert event["correlation_id"] == str(correlation_id)

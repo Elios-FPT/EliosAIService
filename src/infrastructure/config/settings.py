@@ -174,12 +174,14 @@ class Settings(BaseSettings):
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
+    token_delta_per_plan: int = -10  # Tokens deducted per plan_interview call
 
     # Kafka Configuration (Event Publishing)
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_interview_topic: str = "interview-user-interview"
     kafka_candidate_topic: str = "user-interview-candidate"
     kafka_feedback_topic: str = "ai-feedback-results"
+    kafka_token_topic: str = "ai-user-usertokenupdate"
     kafka_candidate_consumer_group: str = "interview-service-candidate-events"
 
     # Logging

@@ -123,3 +123,28 @@ class MockEventPublisher(EventPublisherPort):
             },
         )
 
+    async def publish_token_delta(
+        self,
+        user_id: UUID,
+        tokens: int,
+        correlation_id: UUID,
+    ) -> None:
+        """Log token delta event and store in memory."""
+        event_data = {
+            "event_type": "TOKEN_DELTA",
+            "user_id": str(user_id),
+            "tokens": tokens,
+            "correlation_id": str(correlation_id),
+        }
+
+        self.published_events.append(event_data)
+
+        logger.info(
+            "MockEventPublisher: TOKEN_DELTA event",
+            extra={
+                "user_id": str(user_id),
+                "tokens": tokens,
+                "correlation_id": str(correlation_id),
+            },
+        )
+

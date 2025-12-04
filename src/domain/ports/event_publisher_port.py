@@ -66,3 +66,22 @@ class EventPublisherPort(ABC):
             Errors should be logged and swallowed.
         """
         pass
+
+    @abstractmethod
+    async def publish_token_delta(
+        self,
+        user_id: UUID,
+        tokens: int,
+        correlation_id: UUID,
+    ) -> None:
+        """Publish token balance delta event.
+
+        Args:
+            user_id: User UUID (partition + payload)
+            tokens: Token delta (negative to deduct)
+            correlation_id: Correlation ID for tracing/idempotency
+
+        Note:
+            Fire-and-forget: log failures and swallow to avoid blocking API flows.
+        """
+        pass

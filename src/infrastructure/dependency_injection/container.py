@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 def debug_print(msg: str):
     """Helper function to print debug messages with timestamps."""
@@ -107,6 +108,10 @@ from ...infrastructure.background.checkpointer_heartbeat import (
     start_checkpointer_heartbeat,
 )
 debug_print("container.py: Settings imported")
+
+if TYPE_CHECKING:
+    from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+    from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 
 debug_print("container.py: All imports completed, defining Container class...")
 
@@ -522,6 +527,7 @@ class Container:
                     bootstrap_servers=self.settings.kafka_bootstrap_servers,
                     interview_topic=self.settings.kafka_interview_topic,
                     feedback_topic=self.settings.kafka_feedback_topic,
+                    token_topic=self.settings.kafka_token_topic,
                 )
 
         return self._event_publisher
