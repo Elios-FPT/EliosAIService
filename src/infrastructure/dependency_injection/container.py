@@ -312,7 +312,7 @@ class Container:
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLQuestionRepository(provider)
 
-    def follow_up_question_repository(
+    def follow_up_question_repository_port(
         self,
         session: AsyncSession | None = None,
         session_provider: SessionProvider | None = None,
@@ -795,7 +795,7 @@ class Container:
         question_repo = self.question_repository_port(session=session, session_provider=session_provider)
         answer_repo = self.answer_repository_port(session=session, session_provider=session_provider)
         evaluation_repo = self.evaluation_repository_port(session=session, session_provider=session_provider)
-        followup_repo = self.follow_up_question_repository(session=session, session_provider=session_provider)
+        followup_repo = self.follow_up_question_repository_port(session=session, session_provider=session_provider)
         llm = self.llm_port(session=session)
         event_publisher = self.event_publisher_port()
 

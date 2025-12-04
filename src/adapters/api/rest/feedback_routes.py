@@ -132,6 +132,7 @@ async def get_feedback_history(
     user_id: UUID,
     limit: int = 50,
     offset: int = 0,
+    session: AsyncSession = Depends(get_async_session),
     use_case: AnalyzeFeedbackUseCase = Depends(get_analyze_feedback_use_case),
 ) -> list[FeedbackHistoryResponse]:
     """Get feedback history for user (frontend dashboard).
