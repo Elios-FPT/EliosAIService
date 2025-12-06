@@ -275,6 +275,8 @@ class Settings(BaseSettings):
     use_mock_analytics: bool = True
     use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
+    # Phase 2: Unified LLM Prompt (Performance Optimization)
+
     # Hybrid CV Analyzer Configuration (always enabled)
     hybrid_confidence_threshold: float = 0.7  # LLM fallback trigger
     hybrid_enable_llm_fallback: bool = True  # Allow LLM when confidence low

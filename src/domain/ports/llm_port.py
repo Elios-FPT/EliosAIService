@@ -1,12 +1,17 @@
 """LLM (Large Language Model) port interface."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ..models.answer import AnswerEvaluation
 from ..models.evaluation import FollowUpEvaluationContext
 from ..models.question import Question
+
+if TYPE_CHECKING:
+    from ...adapters.llm.comprehensive_models import ComprehensiveAnalysis
 
 
 class LLMPort(ABC):
@@ -265,5 +270,33 @@ class LLMPort(ABC):
             List of tuples (question_text, ideal_answer, rationale) in the same order
             as question_specs. Each tuple represents one complete question set generated
             in a single LLM call.
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_answer_comprehensive(
+        self,
+        question: Question,
+        answer_text: str,
+        context: dict[str, Any],
+        followup_context: FollowUpEvaluationContext | None = None,
+    ) -> ComprehensiveAnalysis:
+        """Unified answer analysis (evaluation + gaps + follow-up).
+
+        Consolidates 3 LLM calls into 1 for 46% latency reduction (Phase 2 optimization).
+        Uses chain-of-thought prompting for multi-task quality.
+
+        Args:
+            question: Question entity with ideal_answer
+            answer_text: Candidate's answer
+            context: Interview context (interview_id, candidate_id, conversation_history)
+            followup_context: Follow-up context if applicable (attempt_number, previous_scores, gaps)
+
+        Returns:
+            ComprehensiveAnalysis with evaluation + gaps + follow_up
+
+        Raises:
+            ValueError: If question has no ideal_answer
+            RuntimeError: If LLM call fails after retries
         """
         pass

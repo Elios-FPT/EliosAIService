@@ -48,6 +48,7 @@ colorlog>=6.10.0
 pyyaml>=6.0.0
 python-dotenv>=1.0.0
 deepdiff>=6.7.0
+async-lru>=2.0.0  # Phase 3: LRU cache for QuestionRepository
 
 # Background Jobs
 apscheduler>=3.10.0

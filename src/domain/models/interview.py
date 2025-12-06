@@ -69,7 +69,10 @@ class Interview(BaseModel):
         frozen = False
 
     def transition_to(self, new_status: InterviewStatus) -> None:
-        """Validate and perform state transition.
+        """Validate and perform state transition only.
+
+        Pure status transition method. Domain methods (ask_followup, mark_evaluating, etc.)
+        call this for status changes and handle their own business logic separately.
 
         Args:
             new_status: Target status to transition to
@@ -77,11 +80,14 @@ class Interview(BaseModel):
         Raises:
             ValueError: If transition is invalid
         """
+        # Validate transition
         if new_status not in self.VALID_TRANSITIONS.get(self.status, []):
             raise ValueError(
                 f"Invalid transition: {self.status} → {new_status}. "
                 f"Valid transitions from {self.status}: {self.VALID_TRANSITIONS.get(self.status, [])}"
             )
+
+        # Apply transition
         self.status = new_status
         self.updated_at = datetime.utcnow()
 
@@ -142,6 +148,9 @@ class Interview(BaseModel):
     def ask_followup(self, followup_id: UUID, parent_question_id: UUID) -> None:
         """Add follow-up question with count tracking.
 
+        Handles business logic: parent question tracking, follow-up count validation,
+        then transitions status via transition_to().
+
         Args:
             followup_id: UUID of follow-up question
             parent_question_id: UUID of main question that spawned this follow-up
@@ -149,7 +158,7 @@ class Interview(BaseModel):
         Raises:
             ValueError: If max 3 follow-ups per question exceeded
         """
-        # Handle parent question change
+        # Business logic: Handle parent question change
         if self.current_parent_question_id != parent_question_id:
             self.current_parent_question_id = parent_question_id
             self.current_followup_count = 1
@@ -161,6 +170,7 @@ class Interview(BaseModel):
                 )
             self.current_followup_count += 1
 
+        # Status transition (pure transition, no business logic)
         self.transition_to(InterviewStatus.FOLLOW_UP)
         self.updated_at = datetime.utcnow()
 
