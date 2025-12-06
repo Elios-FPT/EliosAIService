@@ -360,9 +360,16 @@ async def _generate_tts_audio(
         Base64-encoded audio data, or None if generation fails
     """
     try:
+        import time
+        start = time.perf_counter()
         tts = container.text_to_speech_port()
         audio_bytes = await tts.synthesize_speech(text)
+        duration_ms = (time.perf_counter() - start) * 1000
         audio_data = base64.b64encode(audio_bytes).decode("utf-8")
+        logger.info(
+            f"[TIMING] tts_generation: {duration_ms:.2f}ms",
+            extra={"phase": "tts_generation", "duration_ms": duration_ms, "audio_bytes": len(audio_bytes)},
+        )
         logger.debug(f"Generated TTS audio: {len(audio_bytes)} bytes")
         return audio_data
     except Exception as exc:

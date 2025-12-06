@@ -10,6 +10,8 @@ Uses PostgreSQL checkpointing for state persistence across reconnects.
 """
 
 import logging
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
@@ -88,6 +90,9 @@ class ConversationState(TypedDict):
     _cached_interview: dict[str, Any] | None  # Interview.model_dump(mode="json")
     _interview_version: float | None  # interview.updated_at.timestamp() for cache invalidation
 
+    # Performance optimization: Follow-up caching (Phase 2)
+    _followup_suggestion: dict[str, Any] | None  # Cached follow-up from unified analysis
+
 
 class InterviewConversationWorkflow(BaseWorkflow):
     """LangGraph workflow for interview conversation (QA phase).
@@ -132,6 +137,28 @@ class InterviewConversationWorkflow(BaseWorkflow):
         self.llm = llm
         self.event_publisher = event_publisher
         self.app = self._build_graph()
+
+    @asynccontextmanager
+    async def _timing_context(self, phase_name: str, interview_id: UUID | None = None):
+        """Context manager for timing operations.
+
+        Args:
+            phase_name: Name of the phase being timed
+            interview_id: Optional interview ID for context
+        """
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            logger.info(
+                f"[TIMING] {phase_name}: {duration_ms:.2f}ms",
+                extra={
+                    "phase": phase_name,
+                    "duration_ms": duration_ms,
+                    "interview_id": str(interview_id) if interview_id else None,
+                },
+            )
 
     def _build_graph(self) -> CompiledStateGraph[ConversationState]:
         """Build LangGraph StateGraph with all nodes and edges.
@@ -366,7 +393,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
             # Transition from QUESTIONING to EVALUATING if needed
             if interview.status == InterviewStatus.QUESTIONING:
                 interview.mark_evaluating()
-                await self.interview_repo.update(interview)
+                async with self._timing_context("db_update_interview_status", interview_id):
+                    await self.interview_repo.update(interview)
                 logger.info(f"Interview {interview_id} transitioned to EVALUATING status")
                 # Refresh cache after update
                 _, cache_updates = await self._get_or_refresh_interview(state, force_refresh=True)
@@ -374,7 +402,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
             # Transition from FOLLOW_UP to EVALUATING when processing follow-up answer
             if interview.status == InterviewStatus.FOLLOW_UP:
                 interview.answer_followup()
-                await self.interview_repo.update(interview)
+                async with self._timing_context("db_update_interview_status", interview_id):
+                    await self.interview_repo.update(interview)
                 logger.info(f"Interview {interview_id} transitioned from FOLLOW_UP to EVALUATING status")
                 # Refresh cache after update
                 _, cache_updates = await self._get_or_refresh_interview(state, force_refresh=True)
@@ -460,12 +489,13 @@ class InterviewConversationWorkflow(BaseWorkflow):
             }
 
             # Unified comprehensive analysis (consolidates 3→1 LLM call)
-            analysis = await self.llm.analyze_answer_comprehensive(
-                question=question,
-                answer_text=answer_text,
-                context=context,
-                followup_context=followup_context,
-            )
+            async with self._timing_context("llm_comprehensive_analysis", interview_id):
+                analysis = await self.llm.analyze_answer_comprehensive(
+                    question=question,
+                    answer_text=answer_text,
+                    context=context,
+                    followup_context=followup_context,
+                )
 
             # Step 7: Extract evaluation from analysis
             # Map comprehensive analysis dimensions to AnswerEvaluation
@@ -557,7 +587,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 )
 
             # Step 13: Save answer first (to get ID)
-            saved_answer = await self.answer_repo.save(answer)
+            async with self._timing_context("db_save_answer", interview_id):
+                saved_answer = await self.answer_repo.save(answer)
 
             # Step 14: Update evaluation with correct answer_id and gap evaluation_ids
             evaluation.answer_id = saved_answer.id
@@ -565,11 +596,13 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 gap.evaluation_id = evaluation.id
 
             # Step 15: Save evaluation
-            saved_evaluation = await self.evaluation_repo.save(evaluation)
+            async with self._timing_context("db_save_evaluation", interview_id):
+                saved_evaluation = await self.evaluation_repo.save(evaluation)
 
             # Step 16: Link answer to evaluation (bidirectional link)
             saved_answer.evaluation_id = saved_evaluation.id
-            saved_answer = await self.answer_repo.update(saved_answer)
+            async with self._timing_context("db_update_answer", interview_id):
+                saved_answer = await self.answer_repo.update(saved_answer)
 
             logger.info(
                 f"Answer processed (unified): score={saved_evaluation.final_score:.1f}, "
@@ -843,16 +876,27 @@ class InterviewConversationWorkflow(BaseWorkflow):
                     )
                     severity = highest.get("severity", "moderate")
 
-            # Generate follow-up text
-            followup_text = await self.llm.generate_followup_question(
-                parent_question=parent_question.text,
-                answer_text=latest_answer["text"],
-                missing_concepts=state["cumulative_gaps"],
-                severity=severity,
-                order=followup_count + 1,
-                cumulative_gaps=state["cumulative_gaps"],
-                context={"interview_id": str(interview_id)},
-            )
+            # Check for cached follow-up from unified analysis (Phase 2 optimization)
+            followup_suggestion = state.get("_followup_suggestion")
+            if followup_suggestion and followup_suggestion.get("question_text"):
+                async with self._timing_context("followup_cached", interview_id):
+                    followup_text = followup_suggestion["question_text"]
+                    logger.info(
+                        f"Using cached follow-up from unified analysis (reason: {followup_suggestion.get('reason', 'N/A')})"
+                    )
+            else:
+                # Fallback: Generate follow-up via separate LLM call (legacy path)
+                logger.warning("No cached follow-up found, generating via separate LLM call")
+                async with self._timing_context("followup_llm_call", interview_id):
+                    followup_text = await self.llm.generate_followup_question(
+                        parent_question=parent_question.text,
+                        answer_text=latest_answer["text"],
+                        missing_concepts=state["cumulative_gaps"],
+                        severity=severity,
+                        order=followup_count + 1,
+                        cumulative_gaps=state["cumulative_gaps"],
+                        context={"interview_id": str(interview_id)},
+                    )
 
             # Create FollowUpQuestion entity
             followup_reason = state.get("followup_reason") or "Gap detected"
@@ -863,7 +907,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 generated_reason=followup_reason,
                 order_in_sequence=followup_count + 1,
             )
-            await self.followup_repo.save(followup)
+            async with self._timing_context("db_save_followup", interview_id):
+                await self.followup_repo.save(followup)
 
             # Update interview state (FOLLOW_UP transition) - use cache
             interview, cache_updates = await self._get_or_refresh_interview(state, force_refresh=False)
@@ -877,7 +922,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 followup_id=followup.id,
                 parent_question_id=parent_question_id,
             )
-            await self.interview_repo.update(interview)
+            async with self._timing_context("db_update_interview_followup", interview_id):
+                await self.interview_repo.update(interview)
             # Refresh cache after update
             _, cache_updates = await self._get_or_refresh_interview(state, force_refresh=True)
 
