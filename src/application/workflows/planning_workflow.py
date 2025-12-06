@@ -249,22 +249,31 @@ class PlanningWorkflow(BaseWorkflow):
     async def _load_cv_node(self, state: PlanningState) -> dict[str, Any]:
         """Load CV analysis from repository.
 
+        Delegates to LoadCVAnalysisUseCase.
+
         Args:
             state: Current workflow state
 
         Returns:
             State updates
         """
+        from ..use_cases.planning.load_cv_analysis import LoadCVAnalysisUseCase
+        from ..dto.planning.load_cv_analysis_dto import LoadCVAnalysisInput
+
         try:
-            cv_analysis = await self.cv_repo.get_by_id(state["cv_analysis_id"])
+            # Construct use case on-demand
+            load_uc = LoadCVAnalysisUseCase(cv_analysis_repo=self.cv_repo)
 
-            if not cv_analysis:
-                return {
-                    "errors": [f"CV analysis not found: {state['cv_analysis_id']}"]
-                }
+            # Hydrate DTO from state
+            input_dto = LoadCVAnalysisInput(cv_analysis_id=state["cv_analysis_id"])
 
-            logger.info(f"Loaded CV analysis: {cv_analysis.id}")
-            return {"cv_analysis": cv_analysis}
+            # Execute use case
+            output = await load_uc.execute(input_dto)
+
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
+            return {"cv_analysis": output.cv_analysis}
 
         except Exception as e:
             error_msg = self.format_error(e, {"node": "load_cv"})
@@ -274,7 +283,7 @@ class PlanningWorkflow(BaseWorkflow):
     async def _calculate_count_node(self, state: PlanningState) -> dict[str, Any]:
         """Calculate number of questions based on skill diversity.
 
-        Formula: n = min(5, max(2, unique_skills // 3))
+        Delegates to CalculateQuestionCountUseCase.
 
         Args:
             state: Current workflow state
@@ -282,17 +291,23 @@ class PlanningWorkflow(BaseWorkflow):
         Returns:
             State updates
         """
+        from ..use_cases.planning.calculate_question_count import CalculateQuestionCountUseCase
+        from ..dto.planning.calculate_question_count_dto import CalculateQuestionCountInput
+
         try:
-            cv_analysis = state["cv_analysis"]
-            if not cv_analysis:
-                return {"errors": ["CV analysis missing in state"]}
+            # Construct use case on-demand
+            calculate_uc = CalculateQuestionCountUseCase()
 
-            # Calculate based on skill diversity
-            unique_skills = len(cv_analysis.skills)
-            question_count = min(5, max(2, unique_skills // 3))
+            # Hydrate DTO from state
+            input_dto = CalculateQuestionCountInput(cv_analysis=state.get("cv_analysis"))
 
-            logger.info(f"Calculated question count: {question_count} (from {unique_skills} skills)")
-            return {"question_count": question_count}
+            # Execute use case
+            output = await calculate_uc.execute(input_dto)
+
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
+            return {"question_count": output.question_count}
 
         except Exception as e:
             error_msg = self.format_error(e, {"node": "calculate_count"})
@@ -302,66 +317,34 @@ class PlanningWorkflow(BaseWorkflow):
     async def _prepare_specs_node(self, state: PlanningState) -> dict[str, Any]:
         """Prepare question specifications with exemplar search.
 
+        Delegates to PrepareQuestionSpecsUseCase.
+
         Args:
             state: Current workflow state
 
         Returns:
             State updates
         """
+        from ..use_cases.planning.prepare_question_specs import PrepareQuestionSpecsUseCase
+        from ..dto.planning.prepare_question_specs_dto import PrepareQuestionSpecsInput
+
         try:
-            cv_analysis = state["cv_analysis"]
-            question_count = state["question_count"]
+            # Construct use case on-demand
+            prepare_uc = PrepareQuestionSpecsUseCase(vector_search=self.vector_search)
 
-            if not cv_analysis or question_count == 0:
-                return {"errors": ["Missing CV analysis or question count"]}
+            # Hydrate DTO from state
+            input_dto = PrepareQuestionSpecsInput(
+                cv_analysis=state.get("cv_analysis"),
+                question_count=state.get("question_count", 0),
+            )
 
-            # Build question specs
-            specs = []
-            skills = cv_analysis.skills
+            # Execute use case
+            output = await prepare_uc.execute(input_dto)
 
-            if not skills:
-                return {"errors": ["No skills found in CV analysis"]}
-
-            for i in range(question_count):
-                # Rotate through skills
-                skill_obj = skills[i % len(skills)]
-                skill_name = skill_obj.skill_name  # CVSkill uses 'skill_name'
-
-                # Determine difficulty based on proficiency
-                difficulty_map = {
-                    "beginner": "easy",
-                    "intermediate": "medium",
-                    "advanced": "hard",
-                    "expert": "hard",
-                }
-                proficiency_value = skill_obj.proficiency_level.value if skill_obj.proficiency_level else "intermediate"
-                difficulty = difficulty_map.get(proficiency_value, "medium")
-
-                # Search for exemplar questions (if vector search available)
-                exemplars = []
-                try:
-                    # Vector search for similar questions
-                    search_results = await self.vector_search.search(
-                        query_text=f"{skill_name} technical interview question",
-                        top_k=3,
-                        filter_metadata={"skill": skill_name}
-                    )
-                    exemplars = [
-                        {"text": r.get("text"), "difficulty": r.get("difficulty")}
-                        for r in search_results
-                    ]
-                except Exception as ve:
-                    logger.warning(f"Exemplar search failed for {skill_name}: {ve}")
-                    # Continue without exemplars
-
-                specs.append({
-                    "skill": skill_name,
-                    "difficulty": difficulty,
-                    "exemplars": exemplars
-                })
-
-            logger.info(f"Prepared {len(specs)} question specs")
-            return {"question_specs": specs}
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
+            return {"question_specs": [spec.model_dump() for spec in output.question_specs]}
 
         except Exception as e:
             error_msg = self.format_error(e, {"node": "prepare_specs"})
@@ -371,8 +354,7 @@ class PlanningWorkflow(BaseWorkflow):
     async def _generate_batch_node(self, state: PlanningState) -> dict[str, Any]:
         """Generate questions with ideal answers and rationales in a single LLM call per spec.
 
-        Uses unified LLM method to ensure question, ideal_answer, and rationale are generated
-        together in one call for consistency.
+        Delegates to GenerateQuestionsBatchUseCase.
 
         Args:
             state: Current workflow state
@@ -380,40 +362,34 @@ class PlanningWorkflow(BaseWorkflow):
         Returns:
             State updates
         """
+        from ..use_cases.planning.generate_questions_batch import GenerateQuestionsBatchUseCase
+        from ..dto.planning.generate_questions_batch_dto import GenerateQuestionsBatchInput
+        from ..dto.planning.prepare_question_specs_dto import QuestionSpec
+
         try:
-            specs = state["question_specs"]
-            cv_analysis = state["cv_analysis"]
+            # Construct use case on-demand
+            generate_uc = GenerateQuestionsBatchUseCase(llm=self.llm)
 
-            if not specs or not cv_analysis:
-                return {"errors": ["Missing question specs or CV analysis"]}
+            # Hydrate DTO from state
+            # Convert dict specs back to QuestionSpec objects
+            specs_dict = state.get("question_specs", [])
+            question_specs = [QuestionSpec(**spec) for spec in specs_dict]
 
-            # Prepare context
-            context = {
-                "cv_summary": cv_analysis.summary,
-                "covered_topics": [],
-                "stage": "planning"
-            }
+            input_dto = GenerateQuestionsBatchInput(
+                question_specs=question_specs,
+                cv_summary=state.get("cv_analysis").summary if state.get("cv_analysis") else None,
+            )
 
-            # Generate complete question sets (question, ideal_answer, rationale) in parallel
-            # Each spec generates all three components in a single LLM call
-            logger.info(f"Generating {len(specs)} complete question sets (question, answer, rationale) in parallel...")
-            question_sets = await self.llm.generate_questions_with_answers_and_rationales_batch(specs, context)
+            # Execute use case
+            output = await generate_uc.execute(input_dto)
 
-            # Unpack tuples into separate lists
-            questions = []
-            answers = []
-            rationales = []
-            for question_text, ideal_answer, rationale in question_sets:
-                questions.append(question_text)
-                answers.append(ideal_answer)
-                rationales.append(rationale)
-
-            logger.info(f"Successfully generated {len(questions)} complete question sets")
-
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
             return {
-                "generated_questions": questions,
-                "generated_answers": answers,
-                "generated_rationales": rationales,
+                "generated_questions": output.generated_questions,
+                "generated_answers": output.generated_answers,
+                "generated_rationales": output.generated_rationales,
             }
 
         except Exception as e:
@@ -424,50 +400,45 @@ class PlanningWorkflow(BaseWorkflow):
     async def _store_questions_node(self, state: PlanningState) -> dict[str, Any]:
         """Store generated questions in database.
 
+        Delegates to StoreQuestionsUseCase.
+
         Args:
             state: Current workflow state
 
         Returns:
             State updates
         """
+        from ..use_cases.planning.store_questions import StoreQuestionsUseCase
+        from ..dto.planning.store_questions_dto import StoreQuestionsInput
+        from ..dto.planning.prepare_question_specs_dto import QuestionSpec
+
         # Early check for existing errors
         if state.get("errors"):
             logger.warning("Skipping store_questions node due to existing errors in state")
-            return {}  # Return empty update to preserve existing errors
+            return {}
 
         try:
-            questions = state["generated_questions"]
-            answers = state["generated_answers"]
-            rationales = state["generated_rationales"]
-            specs = state["question_specs"]
+            # Construct use case on-demand
+            store_uc = StoreQuestionsUseCase(question_repo=self.question_repo)
 
-            if not questions:
-                # Check if questions were supposed to be generated
-                if not state.get("generated_questions") and state.get("question_specs"):
-                    return {"errors": ["No questions generated in previous step (generate_batch). Question generation may have failed."]}
-                return {"errors": ["No questions to store"]}
+            # Hydrate DTO from state
+            specs_dict = state.get("question_specs", [])
+            question_specs = [QuestionSpec(**spec) for spec in specs_dict]
 
-            # Create Question objects
-            question_objects = []
-            for i, (q_text, ideal_answer, rationale, spec) in enumerate(
-                zip(questions, answers, rationales, specs)
-            ):
-                question = Question(
-                    text=q_text,
-                    question_type=QuestionType.TECHNICAL,
-                    difficulty=DifficultyLevel(spec["difficulty"]),
-                    skills=[spec["skill"]],
-                    ideal_answer=ideal_answer,
-                    rationale=rationale,
-                )
-                question_objects.append(question)
+            input_dto = StoreQuestionsInput(
+                generated_questions=state.get("generated_questions", []),
+                generated_answers=state.get("generated_answers", []),
+                generated_rationales=state.get("generated_rationales", []),
+                question_specs=question_specs,
+            )
 
-            # Save all questions in one atomic transaction
-            saved_questions = await self.question_repo.save_batch(question_objects)
-            question_ids = [q.id for q in saved_questions]
+            # Execute use case
+            output = await store_uc.execute(input_dto)
 
-            logger.info(f"Stored {len(question_ids)} questions in single transaction")
-            return {"stored_question_ids": question_ids}
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
+            return {"stored_question_ids": [str(qid) for qid in output.stored_question_ids]}
 
         except Exception as e:
             error_msg = self.format_error(e, {"node": "store_questions"})
@@ -477,53 +448,46 @@ class PlanningWorkflow(BaseWorkflow):
     async def _update_interview_node(self, state: PlanningState) -> dict[str, Any]:
         """Update interview with generated question IDs and mark as QUESTIONING.
 
+        Delegates to CreateInterviewUseCase.
+
         Args:
             state: Current workflow state
 
         Returns:
             State updates
         """
+        from ..use_cases.planning.create_interview import CreateInterviewUseCase
+        from ..dto.planning.create_interview_dto import CreateInterviewInput
+
         # Early check for existing errors
         if state.get("errors"):
             logger.warning("Skipping update_interview node due to existing errors in state")
-            return {}  # Return empty update to preserve existing errors
+            return {}
 
         try:
-            candidate_id = state["candidate_id"]
-            question_ids = state["stored_question_ids"]
-            cv_analysis_id = state["cv_analysis_id"]
+            # Construct use case on-demand
+            create_uc = CreateInterviewUseCase(
+                interview_repo=self.interview_repo,
+            )
+
+            # Hydrate DTO from state
+            question_ids = [UUID(qid) if isinstance(qid, str) else qid for qid in state.get("stored_question_ids", [])]
             question_specs = state.get("question_specs") or []
 
-            if not question_ids:
-                # Provide context about why question IDs are missing
-                if not state.get("stored_question_ids") and state.get("generated_questions"):
-                    return {"errors": ["No question IDs to attach to interview. Questions were generated but failed to be stored in previous step (store_questions)."]}
-                elif not state.get("generated_questions"):
-                    return {"errors": ["No question IDs to attach to interview. No questions were generated in the workflow."]}
-                return {"errors": ["No question IDs to attach to interview"]}
-
-            from ...domain.models.interview import Interview, InterviewStatus
-            # Build a human-friendly, non-date-based title using skills from planned questions.
-            title = self._build_interview_title(question_specs)
-            interview = Interview(
-                id=uuid.uuid4(),
-                candidate_id=candidate_id,
-                title=title,
-                status=InterviewStatus.IDLE,
-                cv_analysis_id=cv_analysis_id,
+            input_dto = CreateInterviewInput(
+                candidate_id=state["candidate_id"],
+                cv_analysis_id=state["cv_analysis_id"],
+                question_ids=question_ids,
+                question_specs=question_specs,
             )
-            interview = await self.interview_repo.save(interview)
 
-            # Add questions to interview via junction table
-            for idx, question_id in enumerate(question_ids):
-                await self.interview_repo.add_question(
-                    interview_id=interview.id,
-                    question_id=question_id,
-                    sequence_order=idx,
-                )
+            # Execute use case
+            output = await create_uc.execute(input_dto)
 
-            logger.info(f"Updated interview {interview.id} with {len(question_ids)} questions")
-            return {"interview": interview}
+            # Return state updates
+            if output.errors:
+                return {"errors": output.errors}
+            return {"interview": output.interview}
 
         except Exception as e:
             error_msg = self.format_error(e, {"node": "update_interview"})
