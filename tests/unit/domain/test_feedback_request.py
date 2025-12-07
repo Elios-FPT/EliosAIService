@@ -16,6 +16,7 @@ class TestFeedbackRequestCreation:
         request = FeedbackRequest(
             entity_id=entity_id,
             input_type=InputType.INTERVIEW,
+            feedback_input='{"questions": []}',
         )
 
         assert request.entity_id == entity_id
@@ -23,6 +24,7 @@ class TestFeedbackRequestCreation:
         assert request.status == FeedbackStatus.PENDING
         assert request.user_id is None
         assert request.error_message is None
+        assert request.feedback_input == '{"questions": []}'
         assert request.id is not None
         assert request.created_at is not None
         assert request.updated_at is not None
@@ -35,10 +37,12 @@ class TestFeedbackRequestCreation:
             entity_id=entity_id,
             input_type=InputType.CV,
             user_id=user_id,
+            feedback_input='{"summary": "test"}',
         )
 
         assert request.user_id == user_id
         assert request.input_type == InputType.CV
+        assert request.feedback_input == '{"summary": "test"}'
 
     def test_create_feedback_request_all_types(self):
         """Test creating FeedbackRequest for all input types."""
@@ -48,8 +52,10 @@ class TestFeedbackRequestCreation:
             request = FeedbackRequest(
                 entity_id=entity_id,
                 input_type=input_type,
+                feedback_input='{"test": "data"}',
             )
             assert request.input_type == input_type
+            assert request.feedback_input == '{"test": "data"}'
 
 
 class TestFeedbackRequestStateTransitions:
@@ -61,6 +67,7 @@ class TestFeedbackRequestStateTransitions:
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.SUCCESS,
+            feedback_input='{"questions": []}',
         )
 
         assert request.is_terminal_state() is True
@@ -71,6 +78,7 @@ class TestFeedbackRequestStateTransitions:
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.FAILED,
+            feedback_input='{"questions": []}',
         )
 
         assert request.is_terminal_state() is True
@@ -81,6 +89,7 @@ class TestFeedbackRequestStateTransitions:
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.PENDING,
+            feedback_input='{"questions": []}',
         )
 
         assert request.is_terminal_state() is False
@@ -91,6 +100,7 @@ class TestFeedbackRequestStateTransitions:
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.PROCESSING,
+            feedback_input='{"questions": []}',
         )
 
         assert request.is_terminal_state() is False
@@ -101,6 +111,7 @@ class TestFeedbackRequestStateTransitions:
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.RETRYING,
+            feedback_input='{"questions": []}',
         )
 
         assert request.can_retry() is True
@@ -117,8 +128,19 @@ class TestFeedbackRequestStateTransitions:
                 entity_id=uuid4(),
                 input_type=InputType.INTERVIEW,
                 status=status,
+                feedback_input='{"questions": []}',
             )
             assert request.can_retry() is False
+
+    def test_feedback_request_with_input(self):
+        """Test FeedbackRequest creation with feedback_input."""
+        request = FeedbackRequest(
+            entity_id=uuid4(),
+            input_type=InputType.INTERVIEW,
+            feedback_input='{"questions": []}'
+        )
+        assert request.feedback_input == '{"questions": []}'
+        assert request.entity_id is not None
 
     def test_error_message_on_failed(self):
         """Test that error_message can be set for FAILED status."""
@@ -127,6 +149,7 @@ class TestFeedbackRequestStateTransitions:
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.FAILED,
             error_message="Analysis failed: LLM timeout",
+            feedback_input='{"questions": []}',
         )
 
         assert request.error_message == "Analysis failed: LLM timeout"
@@ -141,6 +164,7 @@ class TestFeedbackRequestImmutability:
         request = FeedbackRequest(
             entity_id=uuid4(),
             input_type=InputType.INTERVIEW,
+            feedback_input='{"questions": []}',
         )
 
         # Should be able to modify fields

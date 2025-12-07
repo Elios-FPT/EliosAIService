@@ -83,6 +83,7 @@ async def analyze_feedback(
             entity_id=request.entity_id,
             input_type=input_type,
             user_id=request.user_id,
+            feedback_input=request.feedback_input,
         )
 
         return AnalyzeFeedbackResponse(

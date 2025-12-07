@@ -15,6 +15,10 @@ class AnalyzeFeedbackRequest(BaseModel):
     user_id: UUID | None = Field(
         default=None, description="User requesting analysis"
     )
+    feedback_input: str | None = Field(
+        default=None,
+        description="Optional direct content to analyze (for direct submission)"
+    )
 
     class Config:
         json_schema_extra = {
@@ -22,6 +26,7 @@ class AnalyzeFeedbackRequest(BaseModel):
                 "entity_id": "110e8400-e29b-41d4-a716-446655440000",
                 "input_type": "INTERVIEW",
                 "user_id": "220e8400-e29b-41d4-a716-446655440000",
+                "feedback_input": '{"questions": [...]}'  # Optional
             }
         }
 

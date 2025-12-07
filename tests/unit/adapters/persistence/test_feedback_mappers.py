@@ -35,6 +35,7 @@ class TestFeedbackRequestMapper:
             user_id=uuid4(),
             status="PENDING",
             error_message=None,
+            feedback_input='{"questions": []}',
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -46,6 +47,7 @@ class TestFeedbackRequestMapper:
         assert domain_model.input_type == InputType.INTERVIEW
         assert domain_model.status == FeedbackStatus.PENDING
         assert domain_model.user_id == db_model.user_id
+        assert domain_model.feedback_input == '{"questions": []}'
 
     def test_to_db_model(self):
         """Test converting domain model to DB model."""
@@ -56,6 +58,7 @@ class TestFeedbackRequestMapper:
             user_id=uuid4(),
             status=FeedbackStatus.PROCESSING,
             error_message=None,
+            feedback_input='{"summary": "test"}',
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -66,6 +69,7 @@ class TestFeedbackRequestMapper:
         assert db_model.entity_id == domain_model.entity_id
         assert db_model.input_type == "CV"
         assert db_model.status == "PROCESSING"
+        assert db_model.feedback_input == '{"summary": "test"}'
 
     def test_update_db_model(self):
         """Test updating DB model from domain model."""
@@ -74,6 +78,7 @@ class TestFeedbackRequestMapper:
             entity_id=uuid4(),
             input_type="INTERVIEW",
             status="PENDING",
+            feedback_input='{"questions": []}',
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -84,6 +89,7 @@ class TestFeedbackRequestMapper:
             input_type=InputType.INTERVIEW,
             status=FeedbackStatus.SUCCESS,
             error_message="Test error",
+            feedback_input='{"questions": [{"id": 1}]}',
             created_at=db_model.created_at,
             updated_at=datetime.utcnow(),
         )
@@ -92,6 +98,7 @@ class TestFeedbackRequestMapper:
 
         assert db_model.status == "SUCCESS"
         assert db_model.error_message == "Test error"
+        assert db_model.feedback_input == '{"questions": [{"id": 1}]}'
 
 
 class TestFeedbackResponseMapper:

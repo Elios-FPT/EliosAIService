@@ -41,6 +41,11 @@ class FeedbackRequest(BaseModel):
         description="Human-readable error when status=FAILED",
     )
 
+    # Content to be analyzed (for audit trail and direct submission)
+    feedback_input: str = Field(
+        description="Content to be analyzed (JSON string for INTERVIEW/CV, text for CODE)"
+    )
+
     # Audit timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

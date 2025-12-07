@@ -666,6 +666,7 @@ class FeedbackRequestMapper:
             user_id=db_model.user_id,
             status=FeedbackStatus(db_model.status),
             error_message=db_model.error_message,
+            feedback_input=db_model.feedback_input,
             created_at=db_model.created_at,
             updated_at=db_model.updated_at,
         )
@@ -687,6 +688,7 @@ class FeedbackRequestMapper:
             user_id=domain_model.user_id,
             status=domain_model.status.value,
             error_message=domain_model.error_message,
+            feedback_input=domain_model.feedback_input,
             created_at=domain_model.created_at,
             updated_at=domain_model.updated_at,
         )
@@ -703,6 +705,7 @@ class FeedbackRequestMapper:
         """
         db_model.status = domain_model.status.value
         db_model.error_message = domain_model.error_message
+        db_model.feedback_input = domain_model.feedback_input
         db_model.updated_at = domain_model.updated_at
 
 

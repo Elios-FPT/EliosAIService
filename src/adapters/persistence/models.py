@@ -640,6 +640,7 @@ class FeedbackRequestModel(Base):
         server_default="PENDING",
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_input: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 

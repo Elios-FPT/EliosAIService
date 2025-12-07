@@ -19,6 +19,7 @@ from ...domain.ports.feedback_repository_port import (
     FeedbackRequestRepositoryPort,
     FeedbackResponseRepositoryPort,
 )
+from ...domain.models.interview import InterviewStatus
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from ..dto.detailed_feedback_dto import DetailedInterviewFeedback
 from .complete_interview import CompleteInterviewUseCase
@@ -81,6 +82,7 @@ class AnalyzeFeedbackUseCase:
         entity_id: UUID,
         input_type: InputType,
         user_id: UUID | None = None,
+        feedback_input: str | None = None,
     ) -> tuple[FeedbackRequest, FeedbackResult]:
         """Analyze entity and return feedback with retry.
 
@@ -88,6 +90,7 @@ class AnalyzeFeedbackUseCase:
             entity_id: UUID of entity to analyze
             input_type: Type of entity (INTERVIEW/CV/CODE)
             user_id: Optional user who requested analysis
+            feedback_input: Optional direct content (for direct submission)
 
         Returns:
             Tuple of (FeedbackRequest, FeedbackResult)
@@ -98,11 +101,12 @@ class AnalyzeFeedbackUseCase:
         """
         correlation_id = uuid4()
 
-        # Create request
+        # Create request (repository handles feedback_input extraction if not provided)
         feedback_request = await self.request_repo.create(
             entity_id=entity_id,
             input_type=input_type,
             user_id=user_id,
+            feedback_input=feedback_input,
         )
 
         try:
