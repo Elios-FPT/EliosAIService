@@ -21,8 +21,6 @@ services:
       AZURE_OPENAI_API_KEY: "sk-of9ih3zl1tJI0lvU37arFQ"
       # Sensitive: Pinecone API Key
       PINECONE_API_KEY: "pcsk_3ebE3k_9RQXC9SYUpTfgAfmkEfsksipxrp73j5Gj8PC2bnnyTYJpDoMZMSToomZTGZYPfB"
-      # Sensitive: Azure Speech Key
-      AZURE_SPEECH_KEY: "nqEgp1cRRTWIbG7GD7gvNlxaFActZT8wMCXx9JBaETEb1kEhCiziJQQJ99BKAC3pKaRXJ3w3AAAYACOG02dV"
       # Google Cloud Speech Configuration
       GOOGLE_CLOUD_PROJECT_ID: "elios-speech-service"
       GOOGLE_APPLICATION_CREDENTIALS: "/app/secrets/elios-speech-service-b6ba8997cc4c.json"

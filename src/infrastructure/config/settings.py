@@ -156,15 +156,6 @@ class Settings(BaseSettings):
     google_stt_language: str = "en-US"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
 
-    # ================================================
-    # Azure Speech (DEPRECATED - for rollback only)
-    # ================================================
-    azure_speech_key: str | None = None
-    azure_speech_region: str = "eastus"
-    azure_speech_language: str = "en-US"
-    azure_speech_voice: str = "en-US-AriaNeural"
-    azure_speech_cache_size: int = 128  # LRU cache size for TTS
-
     # File Storage
     upload_dir: str = "./uploads"
     cv_dir: str = "./uploads/cvs"

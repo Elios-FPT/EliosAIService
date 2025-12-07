@@ -83,12 +83,6 @@ ENV POSTGRES_PORT=5432
 ENV POSTGRES_USER=elios
 ENV POSTGRES_DB=elios_interviews
 
-# Speech Services
-ENV AZURE_SPEECH_REGION=eastasia
-ENV AZURE_SPEECH_LANGUAGE=en-US
-ENV AZURE_SPEECH_VOICE=en-US-AriaNeural
-ENV AZURE_SPEECH_CACHE_SIZE=128
-
 # File Storage (absolute paths for Docker)
 ENV UPLOAD_DIR=/app/uploads
 ENV CV_DIR=/app/uploads/cvs
