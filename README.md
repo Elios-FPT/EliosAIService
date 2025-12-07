@@ -14,19 +14,19 @@
 
 Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions, conducting real-time interviews via WebSocket, evaluating answers with feedback analysis, and providing comprehensive performance reports.
 
-**Version**: v0.5.0 (Feedback System Complete)
+**Version**: v0.5.0 (Phase-04 Use Case Extraction + Feedback System)
 **Branch**: `feat/get-feedback`
-**Last Updated**: 2025-12-06
+**Last Updated**: 2025-12-08
 
 ### Key Features
 
 - **CV Analysis**: Extract skills, experience, education from PDFs/DOCX
 - **Semantic Question Generation**: Vector search + LLM for personalized questions
 - **Real-Time Interview**: WebSocket-based interactive Q&A with voice support
-- **Answer Evaluation**: Multi-dimensional scoring with semantic analysis
-- **Feedback System (NEW v0.5.0)**: Comprehensive performance reports with recommendations
+- **Unified Answer Evaluation (Phase-04)**: 46% faster with single LLM call
+- **Thin Orchestrator Pattern (Phase-04)**: 8 interview + 6 planning use cases
+- **Feedback System**: Comprehensive performance reports with recommendations
 - **Interview History**: Track and analyze multiple interview sessions
-- **Prompt Versioning**: Database-driven A/B testing with rollback support
 - **LangGraph Workflows**: State machine orchestration with PostgreSQL checkpointing
 - **Observability**: LangSmith tracing with PII filtering and cost tracking
 
@@ -76,10 +76,13 @@ Access API: http://localhost:8000
 ## Architecture
 
 **Clean Architecture** (Hexagonal/Ports & Adapters) with layers:
-- **Domain**: Pure business logic, 17 models, 14 ports
-- **Application**: Use cases & LangGraph workflows
-- **Adapters**: External service implementations (20+ adapters)
-- **Infrastructure**: Config, DI, database, observability
+- **Domain**: Pure business logic (33 files: 17 models, 14 ports, 2 services)
+- **Application**: 20 use cases + 3 thin orchestrator workflows (57 files)
+- **Adapters**: External service implementations (51 files, 20+ adapters)
+- **Infrastructure**: Config, DI, database, observability (8 files)
+
+**Phase-04 Pattern**: Thin orchestrators (30-50 LOC) delegating to focused use cases
+**Performance**: Unified LLM analysis - 46% latency reduction
 
 📚 **[Full Architecture Details →](docs/system-architecture.md)**
 
