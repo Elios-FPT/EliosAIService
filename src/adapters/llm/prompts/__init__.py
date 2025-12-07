@@ -441,20 +441,10 @@ JSON structure:
 
 
 # Prompt registry for easy access
+# Only includes prompts for methods that are in LLMPort interface
 PROMPT_REGISTRY = {
-    "generate_question": GENERATE_QUESTION_PROMPT,
-    "evaluate_answer": EVALUATE_ANSWER_PROMPT,
-    "generate_ideal_answer": IDEAL_ANSWER_PROMPT,
-    "generate_rationale": RATIONALE_PROMPT,
-    "detect_concept_gaps": DETECT_GAPS_PROMPT,
     "generate_followup_question": FOLLOWUP_QUESTION_PROMPT,
-    "generate_feedback_report": FEEDBACK_REPORT_PROMPT,
-    "summarize_cv": SUMMARIZE_CV_PROMPT,
-    "extract_skills_from_text": EXTRACT_SKILLS_PROMPT,
     "generate_interview_recommendations": RECOMMENDATIONS_PROMPT,
-    "generate_questions_batch": BATCH_QUESTIONS_PROMPT,
-    "generate_ideal_answers_batch": BATCH_IDEAL_ANSWERS_PROMPT,
-    "generate_rationales_batch": BATCH_RATIONALES_PROMPT,
     "generate_questions_with_answers_and_rationales_batch": GENERATE_QUESTION_WITH_ANSWER_AND_RATIONALE_PROMPT,
     "comprehensive_answer_analysis": COMPREHENSIVE_ANALYSIS_PROMPT,  # Phase 2: Unified prompt
 }

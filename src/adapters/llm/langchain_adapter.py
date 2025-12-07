@@ -17,8 +17,7 @@ from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 
-from ...domain.models.answer import AnswerEvaluation
-from ...domain.models.evaluation import FollowUpEvaluationContext, Evaluation
+from ...domain.models.evaluation import FollowUpEvaluationContext
 from ...domain.models.prompt_template import PromptTemplate
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
@@ -124,18 +123,23 @@ class LangChainAdapter(LLMPort):
         self._db_chain_cache: dict[str, Runnable] = {}
 
     def _build_chains(self) -> dict[str, Any]:
-        """Build all LCEL chains for the 12 LLMPort methods.
+        """Build all LCEL chains for LLMPort methods in PROMPT_REGISTRY.
 
         Returns:
             Dictionary of method_name -> chain
         """
         chains = {}
 
-        # Build chain for each method
+        # Build chain for each method in registry
         for method_name, prompt_template in PROMPT_REGISTRY.items():
-            # Simple chain: prompt | model | json_parser
-            parser = self._get_output_parser(method_name)
-            chains[method_name] = prompt_template | self.model | parser
+            # Use structured output for comprehensive_answer_analysis to enforce Pydantic schema
+            if method_name == "comprehensive_answer_analysis":
+                structured_model = self.model.with_structured_output(ComprehensiveAnalysis)
+                chains[method_name] = prompt_template | structured_model
+            else:
+                # Simple chain: prompt | model | json_parser
+                parser = self._get_output_parser(method_name)
+                chains[method_name] = prompt_template | self.model | parser
 
         return chains
 
@@ -161,8 +165,15 @@ class LangChainAdapter(LLMPort):
                 ("human", prompt_template.user_template),
             ]
         )
-        parser = self._get_output_parser(method_name)
-        chain = prompt_template_obj | self.model | parser
+
+        # Use structured output for comprehensive_answer_analysis to enforce Pydantic schema
+        if method_name == "comprehensive_answer_analysis":
+            structured_model = self.model.with_structured_output(ComprehensiveAnalysis)
+            chain = prompt_template_obj | structured_model
+        else:
+            parser = self._get_output_parser(method_name)
+            chain = prompt_template_obj | self.model | parser
+
         self._db_chain_cache[cache_identifier] = chain
         return chain
 
@@ -340,492 +351,6 @@ class LangChainAdapter(LLMPort):
 
         return result, metadata
 
-    async def evaluate_answer(
-        self,
-        question: Question,
-        answer_text: str,
-        context: dict[str, Any],
-        followup_context: FollowUpEvaluationContext | None = None,
-    ) -> AnswerEvaluation:
-        """Evaluate a candidate's answer using LangChain."""
-        start_time = time.time()
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "answer_evaluation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("evaluate_answer", prompt_template, cache_key)
-
-        # Format followup context if present
-        followup_context_section = ""
-        if followup_context:
-            followup_context_section = f"""
-This is a follow-up question (attempt #{followup_context.attempt_number}).
-
-Previous Evaluations:
-{self._format_previous_evaluations(followup_context.previous_evaluations)}
-
-Cumulative Gaps: {', '.join([str(gap.concept) for gap in followup_context.cumulative_gaps]) if followup_context.cumulative_gaps else 'None'}
-
-Apply attempt-based penalty:
-- Attempt 2: Reduce score by 10% (gaps should be addressed)
-- Attempt 3+: Reduce score by 20% (repeated failure to address gaps)
-"""
-
-        # Format ideal answer section (if available from followup_context)
-        ideal_answer_section = ""
-        if followup_context and followup_context.parent_ideal_answer:
-            ideal_answer_section = f"""
-Ideal Answer Reference:
-{followup_context.parent_ideal_answer}
-"""
-
-        # Format semantic similarity section (only if ideal answer exists)
-        semantic_similarity_section = ""
-        semantic_similarity_key = ""
-        if ideal_answer_section:
-            semantic_similarity_section = "\n9. Semantic similarity to ideal answer (0.0-1.0)"
-            semantic_similarity_key = ", semantic_similarity"
-
-        # Prepare variables - must match DB template or hardcoded prompt
-        variables = {
-            "question_text": question.text,
-            "question_type": question.question_type.value if hasattr(question.question_type, "value") else str(question.question_type),
-            "difficulty": question.difficulty.value if hasattr(question.difficulty, "value") else str(question.difficulty),
-            "skills": ", ".join(question.skills) if question.skills else "General",
-            "answer_text": answer_text,
-            "ideal_answer_section": ideal_answer_section,
-            "followup_context_section": followup_context_section,
-            "semantic_similarity_section": semantic_similarity_section,
-            "semantic_similarity_key": semantic_similarity_key,
-        }
-
-        # Create config with metadata
-        config = self._create_config(
-            context=context,
-            question_id=str(question.id) if question.id else None,
-            difficulty=(
-                question.difficulty.value
-                if hasattr(question.difficulty, "value")
-                else str(question.difficulty)
-            ),
-            skills=", ".join(question.skills) if question.skills else "General",
-            method="evaluate_answer",
-        )
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=str(result),  # JSON result
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            # Map to domain model with required fields
-            # semantic_similarity, completeness, relevance extracted from score if not provided
-            semantic_similarity = result.get("semantic_similarity", result["score"] / 100.0)
-            completeness = result.get("completeness", result["score"] / 100.0)
-            relevance = result.get("relevance", 1.0)  # Assume relevant if LLM provided feedback
-
-            return AnswerEvaluation(
-                score=result["score"],
-                semantic_similarity=max(0.0, min(1.0, semantic_similarity)),
-                completeness=max(0.0, min(1.0, completeness)),
-                relevance=max(0.0, min(1.0, relevance)),
-                sentiment=result.get("sentiment"),
-                reasoning=result.get("feedback"),  # Map feedback to reasoning
-                strengths=result.get("strengths", []),
-                weaknesses=result.get("weaknesses", []),
-                improvement_suggestions=result.get(
-                    "missing_concepts", []
-                ),  # Map missing_concepts to improvements
-            )
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def generate_feedback_report(
-        self,
-        interview_id: UUID,
-        questions: list[Question],
-        answers: list[dict[str, Any]],
-    ) -> str:
-        """Generate comprehensive feedback report."""
-        start_time = time.time()
-        context = {"interview_id": str(interview_id)}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "feedback_report"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_feedback_report", prompt_template, cache_key)
-
-        # Format questions and answers
-        qa_formatted = self._format_questions_answers(questions, answers)
-
-        # Prepare variables
-        variables = {
-            "interview_id": str(interview_id),
-            "total_questions": len(questions),
-            "questions_and_answers": qa_formatted,
-        }
-
-        # Create config with metadata
-        config = self._create_config(
-            context=context,
-            method="generate_feedback_report",
-            question_count=len(questions),
-        )
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=result["report_text"],
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return result["report_text"]
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def summarize_cv(self, cv_text: str, context: dict[str, Any] | None = None) -> str:
-        """Generate a summary of a CV."""
-        start_time = time.time()
-        context = context or {}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db("cv_summary")
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("summarize_cv", prompt_template, cache_key)
-
-        # Prepare variables
-        variables = {"cv_text": cv_text}
-
-        # Create config with metadata
-        config = self._create_config(context=context, method="summarize_cv")
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=result["summary_text"],
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return result["summary_text"]
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def extract_skills_from_text(
-        self, text: str, context: dict[str, Any] | None = None
-    ) -> list[dict[str, str]]:
-        """Extract skills from CV text using LLM."""
-        start_time = time.time()
-        context = context or {}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "skill_extraction"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("extract_skills_from_text", prompt_template, cache_key)
-
-        # Prepare variables
-        variables = {"text": text}
-
-        # Create config with metadata
-        config = self._create_config(context=context, method="extract_skills_from_text")
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
-
-            # Convert to expected format
-            skills = []
-            for skill_item in result.get("skills", []):
-                skills.append(
-                    {
-                        "skill": skill_item["name"],
-                        "category": skill_item.get("category", ""),
-                        "proficiency": skill_item.get("proficiency", ""),
-                    }
-                )
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=str(skills),  # JSON result
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return skills
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def generate_ideal_answer(
-        self,
-        question_text: str,
-        context: dict[str, Any],
-    ) -> str:
-        """Generate ideal answer for a question."""
-        start_time = time.time()
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "ideal_answer_generation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_ideal_answer", prompt_template, cache_key)
-
-        variables = {
-            "question_text": question_text,
-            "summary": context.get("summary", context.get("cv_summary", "Not provided")),
-            "skills": (
-                ", ".join(context.get("skills", [])[:5])
-                if context.get("skills")
-                else "Not specified"
-            ),
-            "experience": str(context.get("experience", "Not specified")),
-            "cv_summary": context.get("cv_summary", "Not provided"),
-            "skill_level": context.get("skill_level", "intermediate"),
-        }
-
-        config = self._create_config(
-            context=context,
-            method="generate_ideal_answer",
-        )
-
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
-
-            output_text = result.get("answer_text") or result.get("answer")
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=output_text,
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return output_text
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def generate_rationale(
-        self,
-        question_text: str,
-        ideal_answer: str,
-        context: dict[str, Any] | None = None,
-    ) -> str:
-        """Generate rationale explaining why answer is ideal."""
-        start_time = time.time()
-        context = context or {}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "rationale_generation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_rationale", prompt_template, cache_key)
-
-        # Prepare variables
-        variables = {
-            "question_text": question_text,
-            "ideal_answer": ideal_answer,
-        }
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=result["rationale_text"],
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return result["rationale_text"]
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
-    async def detect_concept_gaps(
-        self,
-        answer_text: str,
-        ideal_answer: str,
-        question_text: str,
-        keyword_gaps: list[str],
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Detect missing concepts in answer using LLM."""
-        start_time = time.time()
-        context = context or {}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db("gap_detection")
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("detect_concept_gaps", prompt_template, cache_key)
-
-        # Prepare variables
-        variables = {
-            "question_text": question_text,
-            "ideal_answer": ideal_answer,
-            "answer_text": answer_text,
-            "keyword_gaps": ", ".join(keyword_gaps),
-        }
-
-        # Execute chain
-        try:
-            result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
-
-            output = {
-                "concepts": result.get("concepts", []),
-                "keywords": result.get("keywords", []),
-                "confirmed": result.get("confirmed", False),
-                "severity": result.get("severity", "minor"),
-            }
-
-            # Log execution
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=str(result),
-                    start_time=start_time,
-                    success=True,
-                    model_response_metadata=metadata,
-                )
-
-            return output
-
-        except Exception as exc:
-            if prompt_template:
-                await self._log_execution(
-                    prompt_template=prompt_template,
-                    context=context,
-                    input_variables=variables,
-                    output_text=None,
-                    start_time=start_time,
-                    success=False,
-                    error_message=str(exc),
-                )
-            raise
-
     async def analyze_answer_comprehensive(
         self,
         question: Question,
@@ -899,8 +424,12 @@ Ideal Answer Reference:
         try:
             result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
 
-            # Parse into ComprehensiveAnalysis
-            analysis = ComprehensiveAnalysis(**result)
+            # Result is already ComprehensiveAnalysis instance when using structured output
+            if isinstance(result, ComprehensiveAnalysis):
+                analysis = result
+            else:
+                # Fallback: parse dict if structured output not available
+                analysis = ComprehensiveAnalysis(**result)
 
             # Log execution
             if prompt_template:
@@ -1156,169 +685,6 @@ Ideal Answer Reference:
                 )
             raise
 
-    async def generate_questions_batch(
-        self,
-        question_specs: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate multiple questions using aggregated batch prompt expected by DB template."""
-        start_time = time.time()
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "question_generation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_questions_batch", prompt_template, cache_key)
-
-        # Build aggregated questions section (mirrors OpenAI adapter format)
-        questions_section = ""
-        for idx, spec in enumerate(question_specs, 1):
-            skill = spec.get("skill", "general knowledge")
-            difficulty = spec.get("difficulty", "medium")
-            exemplars = spec.get("exemplars") or []
-
-            questions_section += f"\n\nQuestion {idx}:\n"
-            questions_section += f"- Skill to test: {skill}\n"
-            questions_section += f"- Difficulty: {difficulty}\n"
-
-            if exemplars:
-                questions_section += "- Similar questions for inspiration (do NOT copy exactly):\n"
-                for j, exemplar in enumerate(exemplars[:3], 1):
-                    questions_section += (
-                        f"  {j}. \"{exemplar.get('text', '')}\" ({exemplar.get('difficulty', 'UNKNOWN')})\n"
-                    )
-
-        # Aggregate top-level variables expected by DB prompt
-        chain_input = {
-            "question_count": len(question_specs),
-            "summary": context.get("summary") or context.get("cv_summary", "Not provided"),
-            "skills": ", ".join(context.get("skills", [])[:10]) or "Not provided",
-            "experience": context.get("experience", context.get("experience_years", "Not specified")),
-            "questions_section": questions_section.strip(),
-        }
-
-        # Execute single chain invocation
-        result, metadata = await self._invoke_chain_with_metadata(chain, chain_input, None)
-
-        questions = result.get("questions", [])
-        if len(questions) != len(question_specs):
-            raise ValueError(
-                f"Expected {len(question_specs)} questions, got {len(questions)}"
-            )
-
-        # Log execution (if DB prompt was used)
-        if prompt_template:
-            await self._log_execution(
-                prompt_template=prompt_template,
-                context=context,
-                input_variables={"question_specs_count": len(question_specs)},
-                output_text=str(questions),
-                start_time=start_time,
-                success=True,
-                model_response_metadata=metadata,
-            )
-
-        return [q.strip() if isinstance(q, str) else "" for q in questions]
-
-    async def generate_ideal_answers_batch(
-        self,
-        question_texts: list[str],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate ideal answers in parallel."""
-        start_time = time.time()
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "ideal_answer_generation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_ideal_answers_batch", prompt_template, cache_key)
-
-        # Build coroutines for all answers with metadata capture
-        coroutines = []
-        for question_text in question_texts:
-            chain_input = {
-                "question_text": question_text,
-                "cv_summary": context.get("cv_summary", "Not provided"),
-                "skill_level": context.get("skill_level", "intermediate"),
-            }
-            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
-
-        # Execute all in parallel
-        results_with_metadata = await asyncio.gather(*coroutines)
-
-        # Extract answers and aggregate metadata
-        answers = []
-        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
-        for result, _ in results_with_metadata:
-            answers.append(result["answer_text"])
-
-        # Log execution (if DB prompt was used)
-        if prompt_template:
-            await self._log_execution(
-                prompt_template=prompt_template,
-                context=context,
-                input_variables={"question_count": len(question_texts)},
-                output_text=str(answers),
-                start_time=start_time,
-                success=True,
-                model_response_metadata=aggregated_metadata,
-            )
-
-        return answers
-
-    async def generate_rationales_batch(
-        self,
-        question_ideal_pairs: list[tuple[str, str]],
-    ) -> list[str]:
-        """Generate rationales in parallel."""
-        start_time = time.time()
-        context = {}
-
-        # Load DB prompt
-        prompt_template, cache_key = await self._load_prompt_from_db(
-            "rationale_generation"
-        )
-
-        # Get chain (DB or fallback)
-        chain = self._get_or_build_chain("generate_rationales_batch", prompt_template, cache_key)
-
-        # Build coroutines for all rationales with metadata capture
-        coroutines = []
-        for question_text, ideal_answer in question_ideal_pairs:
-            chain_input = {
-                "question_text": question_text,
-                "ideal_answer": ideal_answer,
-            }
-            coroutines.append(self._invoke_chain_with_metadata(chain, chain_input, None))
-
-        # Execute all in parallel
-        results_with_metadata = await asyncio.gather(*coroutines)
-
-        # Extract rationales and aggregate metadata
-        rationales = []
-        aggregated_metadata = self._aggregate_metadata([meta for _, meta in results_with_metadata])
-        for result, _ in results_with_metadata:
-            rationales.append(result["rationale_text"])
-
-        # Log execution (if DB prompt was used)
-        if prompt_template:
-            await self._log_execution(
-                prompt_template=prompt_template,
-                context=context,
-                input_variables={"pairs_count": len(question_ideal_pairs)},
-                output_text=str(rationales),
-                start_time=start_time,
-                success=True,
-                model_response_metadata=aggregated_metadata,
-            )
-
-        return rationales
-
     async def generate_questions_with_answers_and_rationales_batch(
         self,
         question_specs: list[dict[str, Any]],
@@ -1534,42 +900,6 @@ Ideal Answer Reference:
         return aggregated if aggregated else None
 
     # Helper methods
-    def _format_previous_evaluations(self, evaluations: list[Evaluation]) -> str:
-        """Format previous evaluations for context."""
-        if not evaluations:
-            return "None"
-
-        formatted = []
-        for i, eval_obj in enumerate(evaluations, 1):
-            formatted.append(f"Attempt {i}: Score {eval_obj.final_score:.1f}/100")
-            # Check if it's an Evaluation (has concept_gaps) or AnswerEvaluation (has improvement_suggestions)
-            if hasattr(eval_obj, "concept_gaps") and eval_obj.concept_gaps:
-                gaps = [gap.concept for gap in eval_obj.concept_gaps[:3]]
-                formatted.append(f"  Gaps: {', '.join(gaps)}")
-            elif hasattr(eval_obj, "improvement_suggestions") and eval_obj.improvement_suggestions:
-                formatted.append(f"  Gaps: {', '.join(eval_obj.improvement_suggestions[:3])}")
-
-        return "\n".join(formatted)
-
-    def _format_questions_answers(
-        self, questions: list[Question], answers: list[dict[str, Any]]
-    ) -> str:
-        """Format questions and answers for report generation."""
-        formatted = []
-        for i, (q, a) in enumerate(zip(questions, answers, strict=True), 1):
-            formatted.append(f"\n--- Question {i} ---")
-            formatted.append(f"Q: {q.text}")
-            # Use first skill from skills list, or "General" if empty
-            skill = q.skills[0] if q.skills else "General"
-            # Convert difficulty enum to string value
-            difficulty = q.difficulty.value if hasattr(q.difficulty, "value") else str(q.difficulty)
-            formatted.append(f"Skill: {skill} | Difficulty: {difficulty}")
-            formatted.append(f"\nA: {a.get('answer_text', 'No answer provided')[:200]}...")
-            formatted.append(f"Score: {a.get('score', 0):.1f}/100")
-            formatted.append(f"Feedback: {a.get('feedback', '')[:150]}...")
-
-        return "\n".join(formatted)
-
     async def _log_execution(
         self,
         prompt_template: PromptTemplate,

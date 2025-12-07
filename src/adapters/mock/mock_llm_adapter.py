@@ -8,6 +8,7 @@ from ...domain.models.answer import AnswerEvaluation
 from ...domain.models.evaluation import FollowUpEvaluationContext
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
+from ...adapters.llm.comprehensive_models import ComprehensiveAnalysis, EvaluationOutput, EvaluationDimension, ConceptGapOutput, FollowUpOutput
 
 
 class MockLLMAdapter(LLMPort):
@@ -16,183 +17,6 @@ class MockLLMAdapter(LLMPort):
     This adapter simulates LLM behavior for development and testing
     without requiring actual API calls to external services.
     """
-
-    async def evaluate_answer(
-        self,
-        question: Question,
-        answer_text: str,
-        context: dict[str, Any],
-        followup_context: FollowUpEvaluationContext | None = None,
-    ) -> AnswerEvaluation:
-        """Generate mock evaluation with realistic scores."""
-        # Adjust score based on follow-up context (if provided)
-        if followup_context:
-            # Mock: Lower scores for later attempts (simulate declining patience)
-            base_score = random.uniform(65.0, 85.0)
-            attempt_penalty = (followup_context.attempt_number - 1) * 5
-            score = max(50.0, base_score - attempt_penalty)
-        else:
-            # Random score between 70-95 for realistic feel
-            score = random.uniform(70.0, 95.0)
-
-        # Simulate different evaluation patterns based on score
-        if score >= 85:
-            strengths = [
-                "Clear and comprehensive explanation",
-                "Good use of examples",
-                "Strong technical understanding",
-            ]
-            weaknesses = ["Could provide more edge case handling"]
-            improvements = ["Consider discussing performance implications"]
-            sentiment = "confident"
-        elif score >= 75:
-            strengths = [
-                "Solid understanding of concepts",
-                "Relevant examples provided",
-            ]
-            weaknesses = [
-                "Missing some technical details",
-                "Could be more structured",
-            ]
-            improvements = [
-                "Add more specific examples",
-                "Elaborate on implementation details",
-            ]
-            sentiment = "positive"
-        else:
-            strengths = ["Basic understanding demonstrated"]
-            weaknesses = [
-                "Lacks depth",
-                "Missing key concepts",
-                "Limited examples",
-            ]
-            improvements = [
-                "Study the fundamentals more thoroughly",
-                "Provide concrete examples",
-                "Explain reasoning more clearly",
-            ]
-            sentiment = "uncertain"
-
-        return AnswerEvaluation(
-            score=score,
-            semantic_similarity=random.uniform(0.7, 0.95),
-            completeness=random.uniform(0.7, 0.95),
-            relevance=random.uniform(0.8, 1.0),
-            sentiment=sentiment,
-            reasoning=f"Mock evaluation: Answer demonstrates {sentiment} understanding of {question.text[:50]}...",
-            strengths=strengths,
-            weaknesses=weaknesses,
-            improvement_suggestions=improvements,
-        )
-
-    async def generate_feedback_report(
-        self,
-        interview_id: UUID,
-        questions: list[Question],
-        answers: list[dict[str, Any]],
-    ) -> str:
-        """Generate mock feedback report."""
-        avg_score = sum(a.get("score", 75) for a in answers) / len(answers) if answers else 75
-        return f"""
-Mock Feedback Report for Interview {interview_id}
-
-Overall Performance: {avg_score:.1f}/100
-
-Questions Answered: {len(answers)} of {len(questions)}
-
-Strengths:
-- Good understanding of fundamental concepts
-- Clear communication skills
-- Relevant examples provided
-
-Areas for Improvement:
-- Dive deeper into technical details
-- Practice explaining complex concepts
-- Add more real-world examples
-
-Recommendations:
-- Review advanced topics in your field
-- Practice mock interviews
-- Study best practices and design patterns
-"""
-
-    async def summarize_cv(self, cv_text: str) -> str:
-        """Generate mock CV summary."""
-        return "Mock CV summary: Experienced professional with strong technical skills in software development."
-
-    async def extract_skills_from_text(self, text: str) -> list[dict[str, str]]:
-        """Extract mock skills."""
-        return [
-            {"name": "Python", "category": "programming", "proficiency": "expert"},
-            {"name": "FastAPI", "category": "framework", "proficiency": "advanced"},
-            {"name": "PostgreSQL", "category": "database", "proficiency": "intermediate"},
-        ]
-
-    async def generate_ideal_answer(
-        self,
-        question_text: str,
-        context: dict[str, Any],
-    ) -> str:
-        """Generate mock ideal answer."""
-        return f"""Mock ideal answer for '{question_text[:50]}...':
-This demonstrates comprehensive understanding of the concept with clear explanation,
-relevant examples, and practical application. The answer covers all key aspects
-including fundamental principles, real-world use cases, and potential edge cases."""
-
-    async def generate_rationale(
-        self,
-        question_text: str,
-        ideal_answer: str,
-    ) -> str:
-        """Generate mock rationale."""
-        return """This answer demonstrates mastery by covering fundamental concepts,
-providing practical examples, and explaining the reasoning behind technical choices.
-A weaker answer would miss these comprehensive details."""
-
-    async def generate_questions_batch(
-        self,
-        question_specs: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate mock questions in batch, mirroring single-question behavior."""
-        questions = []
-        for spec in question_specs:
-            skill = spec.get("skill", "general knowledge")
-            difficulty = spec.get("difficulty", "medium")
-            question = f"Explain the trade-offs when using {skill} at {difficulty} level"
-
-            exemplars = spec.get("exemplars") or []
-            if exemplars:
-                question += f" [Generated with {len(exemplars)} exemplar(s)]"
-
-            questions.append(question)
-
-        return questions
-
-    async def generate_ideal_answers_batch(
-        self,
-        question_texts: list[str],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate mock ideal answers for multiple questions."""
-        return [
-            f"Mock ideal answer for '{question[:50]}...':\n"
-            "Covers fundamental principles, practical considerations, and trade-offs."
-            for question in question_texts
-        ]
-
-    async def generate_rationales_batch(
-        self,
-        question_ideal_pairs: list[tuple[str, str]],
-    ) -> list[str]:
-        """Generate mock rationales for multiple question/answer pairs."""
-        rationales = []
-        for question, _ideal in question_ideal_pairs:
-            rationales.append(
-                "This question evaluates conceptual understanding of "
-                f"{question[:40]}... and expects structured reasoning."
-            )
-        return rationales
 
     async def generate_questions_with_answers_and_rationales_batch(
         self,
@@ -232,44 +56,6 @@ level complexity required for this question."""
             question_sets.append((question, ideal_answer, rationale))
 
         return question_sets
-
-    async def detect_concept_gaps(
-        self,
-        answer_text: str,
-        ideal_answer: str,
-        question_text: str,
-        keyword_gaps: list[str],
-    ) -> dict[str, Any]:
-        """Mock gap detection based on answer length.
-
-        Args:
-            answer_text: Candidate's answer
-            ideal_answer: Reference ideal answer
-            question_text: The question that was asked
-            keyword_gaps: Potential missing keywords from keyword analysis
-
-        Returns:
-            Dict with concept gap analysis
-        """
-        # Simple heuristic: short answers have gaps
-        word_count = len(answer_text.split())
-
-        if word_count < 30:
-            # Simulate gaps for short answers
-            return {
-                "concepts": keyword_gaps[:2] if keyword_gaps else ["depth", "examples"],
-                "keywords": keyword_gaps[:5],
-                "confirmed": True,
-                "severity": "moderate",
-            }
-        else:
-            # Good answer, no gaps
-            return {
-                "concepts": [],
-                "keywords": [],
-                "confirmed": False,
-                "severity": "minor",
-            }
 
     async def generate_followup_question(
         self,
@@ -410,3 +196,77 @@ level complexity required for this question."""
             "study_topics": study_topics,
             "technique_tips": technique_tips,
         }
+
+    async def analyze_answer_comprehensive(
+        self,
+        question: Question,
+        answer_text: str,
+        context: dict[str, Any],
+        followup_context: FollowUpEvaluationContext | None = None,
+    ) -> ComprehensiveAnalysis:
+        """Generate mock comprehensive analysis (evaluation + gaps + follow-up)."""
+        # Calculate base score
+        attempt_number = followup_context.attempt_number if followup_context else 1
+        base_score = random.uniform(70.0, 95.0)
+        if attempt_number > 1:
+            attempt_penalty = (attempt_number - 1) * 5
+            base_score = max(50.0, base_score - attempt_penalty)
+
+        # Create evaluation dimensions
+        dimensions = [
+            EvaluationDimension(
+                dimension_name="technical_accuracy",
+                score=min(40.0, base_score * 0.4),
+                reasoning="Mock: Technical accuracy assessment"
+            ),
+            EvaluationDimension(
+                dimension_name="depth_of_understanding",
+                score=min(30.0, base_score * 0.3),
+                reasoning="Mock: Depth of understanding assessment"
+            ),
+            EvaluationDimension(
+                dimension_name="clarity_of_communication",
+                score=min(20.0, base_score * 0.2),
+                reasoning="Mock: Clarity assessment"
+            ),
+            EvaluationDimension(
+                dimension_name="practical_application",
+                score=min(10.0, base_score * 0.1),
+                reasoning="Mock: Practical application assessment"
+            ),
+        ]
+
+        # Create evaluation output
+        evaluation = EvaluationOutput(
+            dimensions=dimensions,
+            total_score=base_score,
+            strengths=["Clear explanation", "Good examples"] if base_score >= 75 else ["Basic understanding"],
+            weaknesses=["Could be more detailed"] if base_score >= 75 else ["Lacks depth", "Missing key concepts"],
+            improvement_suggestions=["Add more examples", "Elaborate on details"],
+            reasoning=f"Mock comprehensive evaluation: Score {base_score:.1f}/100"
+        )
+
+        # Create gaps (simulate some gaps for lower scores)
+        gaps = []
+        if base_score < 80:
+            gaps.append(ConceptGapOutput(
+                concept="Advanced concepts",
+                severity="moderate",
+                explanation="Mock: Missing advanced concepts"
+            ))
+
+        # Create follow-up (if gaps exist and attempt < 3)
+        follow_up = None
+        if gaps and attempt_number < 3:
+            follow_up = FollowUpOutput(
+                question_text=f"Can you elaborate more on {gaps[0].concept}?",
+                reason="Mock: Major gaps detected",
+                target_gaps=[gaps[0].concept]
+            )
+
+        return ComprehensiveAnalysis(
+            evaluation=evaluation,
+            gaps=gaps,
+            follow_up=follow_up,
+            confidence=0.85
+        )
