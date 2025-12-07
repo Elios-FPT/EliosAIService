@@ -1,6 +1,5 @@
 """Domain ports (interfaces) package."""
 
-from .analytics_port import AnalyticsPort
 from .answer_repository_port import AnswerRepositoryPort
 from .cv_analysis_repository_port import CVAnalysisRepositoryPort
 from .cv_analyzer_port import CVAnalyzerPort
@@ -31,7 +30,6 @@ __all__ = [
     "CVAnalyzerPort",
     "SpeechToTextPort",
     "TextToSpeechPort",
-    "AnalyticsPort",
     "PromptRepositoryPort",
     "EventPublisherPort",
     "FeedbackRequestRepositoryPort",

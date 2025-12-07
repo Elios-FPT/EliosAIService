@@ -287,6 +287,7 @@ class EvaluateAnswerUseCase:
                     f"final_score={evaluation.final_score:.1f}, attempt={attempt_number}"
                 )
 
+            # TODO: save answer and evaluation at the same time
             # Step 14: Save answer first
             async with self._timing_context("db_save_answer", input_dto.interview_id):
                 saved_answer = await self.answer_repo.save(answer)

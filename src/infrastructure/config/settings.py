@@ -272,7 +272,6 @@ class Settings(BaseSettings):
     use_mock_vector_search: bool = True
     use_mock_stt: bool = True
     use_mock_tts: bool = True
-    use_mock_analytics: bool = True
     use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
     # Phase 2: Unified LLM Prompt (Performance Optimization)

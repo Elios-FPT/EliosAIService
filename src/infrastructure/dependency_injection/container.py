@@ -38,7 +38,6 @@ debug_print("container.py: LangChainAdapter imported")
 # Import mock adapters
 debug_print("container.py: About to import mock adapters...")
 from ...adapters.mock import (
-    MockAnalyticsAdapter,
     MockEventPublisher,
     MockLLMAdapter,
     MockSTTAdapter,
@@ -79,7 +78,6 @@ debug_print("container.py: KafkaEventPublisher imported")
 
 debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
-    AnalyticsPort,
     AnswerRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
@@ -630,24 +628,6 @@ class Container:
                 "This may cause a delay (~12s) on the first TTS call.",
                 exc_info=True
             )
-
-    def analytics_port(self) -> AnalyticsPort:
-        """Get analytics port implementation.
-
-        Returns:
-            Configured analytics service
-
-        Raises:
-            NotImplementedError: Real implementation pending
-        """
-        if self.settings.use_mock_analytics:
-            return MockAnalyticsAdapter()
-        else:
-            # TODO: Implement real analytics service
-            # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
-            # IMPORTANT: Use async_database_url, not database_url for async operations
-            # return AnalyticsAdapter(database_url=self.settings.async_database_url)
-            raise NotImplementedError("Real analytics adapter not yet implemented")
 
     def _create_langchain_adapter(
         self, prompt_repository: PromptRepositoryPort | None = None
