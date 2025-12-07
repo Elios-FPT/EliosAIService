@@ -213,7 +213,7 @@ class Settings(BaseSettings):
     ws_base_url: str = "ws://localhost:8000"
 
     # LangChain Integration (Phase 1)
-    use_langchain: bool = False  # Feature flag to enable LangChain adapter
+    use_langchain: bool = True  # Feature flag to enable LangChain adapter (default enabled)
     langchain_temperature: float = 0.7  # Default temperature for LangChain models
     langchain_max_tokens: int = 2000  # Max tokens per LLM call
     langchain_enable_fallback: bool = False  # Multi-provider fallback

@@ -28,10 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import adapters
 debug_print("container.py: About to import LLM adapters...")
-from ...adapters.llm.azure_openai_adapter import AzureOpenAIAdapter
-debug_print("container.py: AzureOpenAIAdapter imported")
-from ...adapters.llm.openai_adapter import OpenAIAdapter
-debug_print("container.py: OpenAIAdapter imported")
 from ...adapters.llm.langchain_adapter import LangChainAdapter
 debug_print("container.py: LangChainAdapter imported")
 
@@ -178,34 +174,9 @@ class Container:
         if session is not None:
             if self.settings.use_mock_llm:
                 return MockLLMAdapter()
-            if self.settings.use_langchain:
+            if self.settings.use_langchain or self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
-            if self.settings.llm_provider == "openai":
-                if self.settings.use_azure_openai:
-                    if not self.settings.azure_openai_api_key:
-                        raise ValueError("Azure OpenAI API key not configured")
-                    if not self.settings.azure_openai_endpoint:
-                        raise ValueError("Azure OpenAI endpoint not configured")
-                    if not self.settings.azure_openai_deployment_name:
-                        raise ValueError("Azure OpenAI deployment name not configured")
-
-                    return AzureOpenAIAdapter(
-                        api_key=self.settings.azure_openai_api_key,
-                        azure_endpoint=self.settings.azure_openai_endpoint,
-                        api_version=self.settings.azure_openai_api_version,
-                        deployment_name=self.settings.azure_openai_deployment_name,
-                        temperature=self.settings.openai_temperature,
-                    )
-
-                if not self.settings.openai_api_key:
-                    raise ValueError("OpenAI API key not configured")
-
-                return OpenAIAdapter(
-                    api_key=self.settings.openai_api_key,
-                    model=self.settings.openai_model,
-                    temperature=self.settings.openai_temperature,
-                )
 
             if self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
@@ -218,34 +189,9 @@ class Container:
         if self._llm_port is None:
             if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
-            elif self.settings.use_langchain:
+            elif self.settings.use_langchain or self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port()
                 self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
-            elif self.settings.llm_provider == "openai":
-                if self.settings.use_azure_openai:
-                    if not self.settings.azure_openai_api_key:
-                        raise ValueError("Azure OpenAI API key not configured")
-                    if not self.settings.azure_openai_endpoint:
-                        raise ValueError("Azure OpenAI endpoint not configured")
-                    if not self.settings.azure_openai_deployment_name:
-                        raise ValueError("Azure OpenAI deployment name not configured")
-
-                    self._llm_port = AzureOpenAIAdapter(
-                        api_key=self.settings.azure_openai_api_key,
-                        azure_endpoint=self.settings.azure_openai_endpoint,
-                        api_version=self.settings.azure_openai_api_version,
-                        deployment_name=self.settings.azure_openai_deployment_name,
-                        temperature=self.settings.openai_temperature,
-                    )
-                else:
-                    if not self.settings.openai_api_key:
-                        raise ValueError("OpenAI API key not configured")
-
-                    self._llm_port = OpenAIAdapter(
-                        api_key=self.settings.openai_api_key,
-                        model=self.settings.openai_model,
-                        temperature=self.settings.openai_temperature,
-                    )
             elif self.settings.llm_provider == "claude":
                 if not self.settings.anthropic_api_key:
                     raise ValueError("Anthropic API key not configured")
