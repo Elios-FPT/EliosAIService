@@ -174,14 +174,9 @@ class Container:
         if session is not None:
             if self.settings.use_mock_llm:
                 return MockLLMAdapter()
-            if self.settings.use_langchain or self.settings.llm_provider == "openai":
+            if self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
-
-            if self.settings.llm_provider == "claude":
-                if not self.settings.anthropic_api_key:
-                    raise ValueError("Anthropic API key not configured")
-                raise NotImplementedError("Claude adapter not yet implemented")
 
             raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
@@ -189,13 +184,9 @@ class Container:
         if self._llm_port is None:
             if self.settings.use_mock_llm:
                 self._llm_port = MockLLMAdapter()
-            elif self.settings.use_langchain or self.settings.llm_provider == "openai":
+            elif self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port()
                 self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
-            elif self.settings.llm_provider == "claude":
-                if not self.settings.anthropic_api_key:
-                    raise ValueError("Anthropic API key not configured")
-                raise NotImplementedError("Claude adapter not yet implemented")
             else:
                 raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
@@ -592,15 +583,6 @@ class Container:
         # Import LangChain models
         from langchain_openai import ChatOpenAI, AzureChatOpenAI
         from langchain_anthropic import ChatAnthropic
-        from ..observability.langsmith_config import create_pii_filtering_callback
-
-        # Configure LangSmith tracing if enabled
-        if self.settings.enable_langsmith:
-            import os
-            os.environ["LANGCHAIN_TRACING_V2"] = "true"
-            if self.settings.langsmith_api_key:
-                os.environ["LANGCHAIN_API_KEY"] = self.settings.langsmith_api_key
-            os.environ["LANGCHAIN_PROJECT"] = self.settings.langchain_project
 
         # Create primary model (OpenAI or Azure OpenAI)
         primary_model = None
@@ -649,8 +631,8 @@ class Container:
         else:
             model = primary_model
 
-        # Create callbacks (includes PII filtering tracer if enabled)
-        callbacks = create_pii_filtering_callback(self.settings)
+        # No callbacks (LangSmith removed)
+        callbacks = []
 
         return LangChainAdapter(
             model=model, callbacks=callbacks, prompt_repository=prompt_repository
@@ -767,9 +749,7 @@ class Container:
         )
 
     async def _start_checkpointer_heartbeat(self, checkpointer) -> None:
-        """Start heartbeat loop if enabled."""
-        if not self.settings.langgraph_checkpointer_heartbeat_enabled:
-            return
+        """Start heartbeat loop (enabled by default)."""
         if self._checkpointer_heartbeat:
             return
 

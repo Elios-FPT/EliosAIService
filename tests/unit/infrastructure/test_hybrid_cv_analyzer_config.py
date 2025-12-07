@@ -30,7 +30,6 @@ class TestSettingsHybridCVAnalyzer:
         with patch.dict(
             os.environ,
             {
-                "USE_HYBRID_CV_ANALYZER": "true",
                 "HYBRID_CONFIDENCE_THRESHOLD": "0.8",
                 "HYBRID_ENABLE_LLM_FALLBACK": "false",
                 "SPACY_MODEL_EN": "en_core_web_lg",
@@ -55,7 +54,6 @@ class TestSettingsHybridCVAnalyzer:
         with patch.dict(
             os.environ,
             {
-                "USE_HYBRID_CV_ANALYZER": "1",  # Should parse as True
                 "HYBRID_ENABLE_LLM_FALLBACK": "0",  # Should parse as False
             },
             clear=False,

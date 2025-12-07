@@ -156,11 +156,6 @@ class Settings(BaseSettings):
     google_stt_language: str = "en-US"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
 
-    # File Storage
-    upload_dir: str = "./uploads"
-    cv_dir: str = "./uploads/cvs"
-    audio_dir: str = "./uploads/audio"
-
     # Interview Configuration
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
@@ -213,25 +208,12 @@ class Settings(BaseSettings):
     ws_base_url: str = "ws://localhost:8000"
 
     # LangChain Integration (Phase 1)
-    use_langchain: bool = True  # Feature flag to enable LangChain adapter (default enabled)
     langchain_temperature: float = 0.7  # Default temperature for LangChain models
     langchain_max_tokens: int = 2000  # Max tokens per LLM call
     langchain_enable_fallback: bool = False  # Multi-provider fallback
     langchain_fallback_provider: str = "anthropic"  # claude fallback
 
-    # LangSmith Observability (Phase 4)
-    enable_langsmith: bool = False  # Enable LangSmith tracing
-    langchain_tracing_v2: bool = False  # LangChain v2 tracing protocol
-    langsmith_api_key: str | None = None  # LangSmith API key
-    langchain_project: str = "elios-interviews-dev"  # LangSmith project name
-    langchain_endpoint: str = "https://api.smith.langchain.com"  # LangSmith API endpoint
-    langsmith_filter_pii: bool = True  # Enable PII filtering in traces
-    langsmith_sample_rate: float = 1.0  # Trace sampling rate (0.0-1.0, 1.0 = 100%)
-    langsmith_max_trace_size_kb: int = 1024  # Max trace size in KB (prevent large traces)
-
     # LangGraph Planning Workflow (Phase 2)
-    # DEPRECATED: This flag will be removed in v0.5.0 - LangGraph is now the default implementation
-    use_langgraph_planning: bool = True  # Feature flag for LangGraph planning workflow (deprecated)
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
     langgraph_checkpointer_pool_size: int = 5  # Connection pool size for AsyncPostgresSaver
     # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
@@ -243,19 +225,9 @@ class Settings(BaseSettings):
     langgraph_checkpointer_setup_timeout: float = (
         20.0  # Timeout in seconds for checkpointer setup (default: 120s)
     )
-    langgraph_checkpointer_heartbeat_enabled: bool = True
+    # Checkpointer heartbeat is enabled by default (no flag needed)
     langgraph_checkpointer_heartbeat_interval_seconds: int = 240
     langgraph_checkpointer_ensure_timeout_seconds: float = 10.0
-
-    # LangGraph Adaptive Evaluation Workflow (Phase 3A)
-    use_langgraph_adaptive_simple: bool = (
-        False  # Feature flag for adaptive evaluation workflow (no interrupts)
-    )
-
-    # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
-    use_langgraph_adaptive_interrupt: bool = (
-        False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
-    )
 
     # Mock Adapters (for development/testing)
     # Individual flags for each adapter - set to False to use real implementations

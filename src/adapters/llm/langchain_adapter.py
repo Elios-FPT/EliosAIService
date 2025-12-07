@@ -264,14 +264,20 @@ class LangChainAdapter(LLMPort):
         Returns:
             RunnableConfig with metadata and callbacks
         """
-        from ...infrastructure.observability.langsmith_config import create_metadata_for_tracing
+        # Build metadata dictionary (LangSmith removed, but metadata still useful for logging)
+        metadata: dict[str, Any] = {}
 
-        # Extract common fields from context
-        metadata = create_metadata_for_tracing(
-            interview_id=context.get("interview_id") if context else None,
-            candidate_id=context.get("candidate_id") if context else None,
-            **metadata_kwargs,
-        )
+        # Add UUIDs from context
+        if context:
+            if context.get("interview_id"):
+                metadata["interview_id"] = str(context["interview_id"])
+            if context.get("candidate_id"):
+                metadata["candidate_id"] = str(context["candidate_id"])
+
+        # Add any additional metadata
+        for key, value in metadata_kwargs.items():
+            if value is not None:
+                metadata[key] = str(value) if isinstance(value, UUID) else value
 
         return RunnableConfig(metadata=metadata, callbacks=self.callbacks)
 

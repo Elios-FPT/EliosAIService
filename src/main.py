@@ -284,7 +284,7 @@ async def lifespan(app: FastAPI):
 
     # Optionally initialize LangGraph checkpointer at startup
     # This prevents first-request timeouts when the feature is enabled
-    if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
+    if settings.langgraph_checkpointer_init_on_startup:
         debug_print("Initializing LangGraph checkpointer at startup...")
         logger.info("Initializing LangGraph checkpointer at startup (to prevent first-request timeout)...")
         try:
