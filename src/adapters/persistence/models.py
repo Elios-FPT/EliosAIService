@@ -260,14 +260,6 @@ class AnswerModel(Base):
     audio_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(ARRAY(Float), nullable=True)
 
-    # Link to Evaluation entity
-    evaluation_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("evaluations.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-
     # Note: voice_metrics is not stored in database yet (will be stored in Evaluation entity in future)
     # It exists in the domain model but is handled by the mapper (set to None when reading from DB)
 

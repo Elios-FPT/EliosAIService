@@ -280,7 +280,6 @@ class AnswerMapper:
             is_voice=db_model.is_voice,
             audio_file_path=db_model.audio_file_path,
             embedding=list(db_model.embedding) if db_model.embedding else None,
-            evaluation_id=db_model.evaluation_id,
             voice_metrics=None,  # Not persisted yet
             created_at=db_model.created_at,
         )
@@ -297,7 +296,6 @@ class AnswerMapper:
             is_voice=domain_model.is_voice,
             audio_file_path=domain_model.audio_file_path,
             embedding=domain_model.embedding,
-            evaluation_id=domain_model.evaluation_id,
             created_at=domain_model.created_at,
         )
 
@@ -307,7 +305,6 @@ class AnswerMapper:
         db_model.text = domain_model.text
         db_model.is_voice = domain_model.is_voice
         db_model.audio_file_path = domain_model.audio_file_path
-        db_model.evaluation_id = domain_model.evaluation_id
         db_model.embedding = domain_model.embedding
         db_model.follow_up_question_id = domain_model.follow_up_question_id
 

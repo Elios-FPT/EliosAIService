@@ -53,22 +53,11 @@ class PromptDiffService:
     """Service for calculating JSON diffs between prompt versions."""
 
     @staticmethod
-    def calculate_diff(
-        old_template_json: dict,
-        new_template_json: dict,
-    ) -> dict:
-        """Calculate diff between two prompt templates.
-
-        Args:
-            old_template_json: Previous version content
-            new_template_json: New version content
-
-        Returns:
-            Diff dictionary from DeepDiff, empty dict if no changes
-        """
+    def calculate_diff(old_data: dict, new_data: dict) -> dict:
+        """Calculate diff between two prompt payloads."""
         diff = DeepDiff(
-            old_template_json,
-            new_template_json,
+            old_data,
+            new_data,
             ignore_order=True,
             verbose_level=2,
         )

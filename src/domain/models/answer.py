@@ -43,7 +43,7 @@ class Answer(BaseModel):
     - Main question: follow_up_question_id is None
     - Follow-up answer: follow_up_question_id points to follow_up_questions table
 
-    NOTE: Evaluation moved to separate Evaluation entity (linked via evaluation_id).
+    NOTE: Evaluation moved to separate Evaluation entity (linked by answer_id).
     """
 
     id: UUID = Field(default_factory=uuid4)
@@ -54,9 +54,6 @@ class Answer(BaseModel):
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
     embedding: list[float] | None = None  # Vector embedding of answer
-
-    # UPDATED: Link to separate Evaluation entity (Phase 1 refactoring)
-    evaluation_id: UUID | None = None  # FK to evaluations table
 
     # REMOVED: evaluation, similarity_score, gaps, speaking_score, overall_score
     # These fields now exist in Evaluation entity
@@ -70,14 +67,6 @@ class Answer(BaseModel):
         """Pydantic configuration."""
 
         frozen = False
-
-    def is_evaluated(self) -> bool:
-        """Check if answer has been evaluated.
-
-        Returns:
-            True if evaluation_id is set, False otherwise
-        """
-        return self.evaluation_id is not None
 
     def is_complete(self) -> bool:
         """Check if answer is considered complete.

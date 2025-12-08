@@ -301,11 +301,6 @@ class EvaluateAnswerUseCase:
             async with self._timing_context("db_save_evaluation", input_dto.interview_id):
                 saved_evaluation = await self.evaluation_repo.save(evaluation)
 
-            # Step 17: Link answer to evaluation
-            saved_answer.evaluation_id = saved_evaluation.id
-            async with self._timing_context("db_update_answer", input_dto.interview_id):
-                saved_answer = await self.answer_repo.update(saved_answer)
-
             logger.info(
                 f"Answer processed (unified): score={saved_evaluation.final_score:.1f}, "
                 f"similarity={f'{similarity_score:.2f}' if similarity_score is not None else 'N/A'}, "

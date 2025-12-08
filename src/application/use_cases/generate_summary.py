@@ -199,10 +199,9 @@ class GenerateSummaryUseCase:
         """
         evaluations_map = {}
         for answer in answers:
-            if answer.evaluation_id:
-                evaluation = await self.evaluation_repo.get_by_id(answer.evaluation_id)
-                if evaluation:
-                    evaluations_map[answer.id] = evaluation
+            evaluation = await self.evaluation_repo.get_by_answer_id(answer.id)
+            if evaluation:
+                evaluations_map[answer.id] = evaluation
         return evaluations_map
 
     def _calculate_aggregate_metrics(
@@ -224,7 +223,7 @@ class GenerateSummaryUseCase:
         """
         evaluated_answers = [
             a for a in all_answers
-            if a.is_evaluated() and a.id in evaluations_map
+            if a.id in evaluations_map
         ]
 
         if not evaluated_answers:
@@ -361,7 +360,7 @@ class GenerateSummaryUseCase:
                     "weaknesses": evaluations_map[a.id].weaknesses,
                 }
                 for a in all_answers
-                if a.is_evaluated() and a.id in evaluations_map
+                if a.id in evaluations_map
             ],
         }
 

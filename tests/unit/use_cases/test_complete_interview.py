@@ -68,10 +68,6 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation1)
 
-        # Link evaluation to answer
-        answer1.evaluation_id = evaluation1.id
-        await mock_answer_repo.save(answer1)
-
         # Execute use case (NEW: all dependencies required)
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
@@ -202,9 +198,6 @@ class TestCompleteInterviewUseCase:
             )
             await mock_evaluation_repo.save(evaluation)
 
-            answer.evaluation_id = evaluation.id
-            await mock_answer_repo.save(answer)
-
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -269,9 +262,6 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation)
 
-        answer.evaluation_id = evaluation.id
-        await mock_answer_repo.save(answer)
-
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -333,9 +323,6 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation)
 
-        answer.evaluation_id = evaluation.id
-        await mock_answer_repo.save(answer)
-
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -393,9 +380,6 @@ class TestCompleteInterviewUseCase:
             relevance=0.85,
         )
         await mock_evaluation_repo.save(evaluation)
-
-        answer.evaluation_id = evaluation.id
-        await mock_answer_repo.save(answer)
 
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,

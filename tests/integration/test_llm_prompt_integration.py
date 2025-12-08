@@ -1,5 +1,6 @@
 """Integration tests for LLM adapter with prompt management."""
 
+from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -17,14 +18,19 @@ async def test_langchain_adapter_with_prompt_repository(async_session):
     # Create and activate a prompt
     prompt = await repo.create_initial_prompt(
         name="ideal_answer_generation",
-        template_json={
-            "system": "You are a test assistant.",
-            "user_template": "Generate ideal answer for: {question_text}\nBackground: {summary}, Skills: {skills}, Experience: {experience}",
-            "variables": ["question_text", "summary", "skills", "experience"],
-        },
+        system_prompt="You are a test assistant.",
+        user_template="Generate ideal answer for: {question_text}\nBackground: {summary}, Skills: {skills}, Experience: {experience}",
+        input_variables=["question_text", "summary", "skills", "experience"],
+        partial_variables={},
+        output_schema={},
+        temperature=Decimal("0.3"),
+        max_tokens=256,
+        top_p=Decimal("0.95"),
+        frequency_penalty=Decimal("0"),
+        presence_penalty=Decimal("0"),
         created_by="test",
     )
-    await repo.activate_version(prompt.id, "test", "Test activation", traffic_percentage=100)
+    await repo.activate_version(prompt.id, "test", "Test activation")
 
     # Create LangChain model
     mock_model = ChatOpenAI(model="gpt-4", api_key="test-key")

@@ -89,7 +89,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         user_template: str,
         input_variables: list[str],
         partial_variables: dict[str, Any],
-        output_parser_type: str,
         output_schema: dict[str, Any],
         temperature: Decimal,
         max_tokens: int,
@@ -121,7 +120,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 user_template=user_template,
                 input_variables=input_variables,
                 partial_variables=partial_variables,
-                output_parser_type=output_parser_type,
                 output_schema=output_schema,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -146,7 +144,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
         user_template: str,
         input_variables: list[str],
         partial_variables: dict[str, Any],
-        output_parser_type: str,
         output_schema: dict[str, Any],
         temperature: Decimal,
         max_tokens: int,
@@ -182,7 +179,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 user_template=user_template,
                 input_variables=input_variables,
                 partial_variables=partial_variables,
-                output_parser_type=output_parser_type,
                 output_schema=output_schema,
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -220,7 +216,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
             user_template=target.user_template,
             input_variables=target.input_variables,
             partial_variables=target.partial_variables,
-            output_parser_type=target.output_parser_type,
             output_schema=target.output_schema,
             temperature=target.temperature,
             max_tokens=target.max_tokens,
@@ -322,7 +317,6 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                 "user_template",
                 "input_variables",
                 "partial_variables",
-                "output_parser_type",
                 "output_schema",
                 "temperature",
                 "max_tokens",
@@ -376,14 +370,7 @@ class PostgreSQLPromptRepository(PromptRepositoryPort):
                     "diff": None,
                 }
 
-                if prev_version and version.template_json and prev_version.template_json:
-                    diff = DeepDiff(
-                        prev_version.template_json,
-                        version.template_json,
-                        ignore_order=True,
-                    )
-                    diff_dict = diff.to_dict() if diff else {}
-                    entry["diff"] = _make_diff_serializable(diff_dict)
+                # template_json removed; keep diff empty for now
 
                 history.append(entry)
                 prev_version = version

@@ -20,7 +20,6 @@ class CreatePromptRequest(BaseModel):
     user_template: str = Field(..., description="User message template with {variables}")
     input_variables: list[str] = Field(default_factory=list, description="Variables to interpolate")
     partial_variables: dict[str, Any] | None = Field(default=None, description="Pre-filled variables")
-    output_parser_type: str = Field(default="json_output_parser", description="Parser type")
     output_schema: dict[str, Any] | None = Field(default=None, description="Expected output schema")
     temperature: float = Field(..., ge=0.0, le=2.0, description="Sampling temperature (0-2)")
     max_tokens: int = Field(..., ge=1, le=100000, description="Maximum tokens to generate")
@@ -42,7 +41,6 @@ class CreateVersionRequest(BaseModel):
     user_template: str = Field(..., description="User message template with {variables}")
     input_variables: list[str] = Field(default_factory=list, description="Variables to interpolate")
     partial_variables: dict[str, Any] | None = Field(default=None, description="Pre-filled variables")
-    output_parser_type: str = Field(default="json_output_parser", description="Parser type")
     output_schema: dict[str, Any] | None = Field(default=None, description="Expected output schema")
     temperature: float = Field(..., ge=0.0, le=2.0, description="Sampling temperature (0-2)")
     max_tokens: int = Field(..., ge=1, le=100000, description="Maximum tokens to generate")
@@ -60,7 +58,6 @@ class UpdateDraftPromptRequest(BaseModel):
     user_template: str = Field(..., description="User message template with {variables}")
     input_variables: list[str] = Field(default_factory=list, description="Variables to interpolate")
     partial_variables: dict[str, Any] | None = Field(default=None, description="Pre-filled variables")
-    output_parser_type: str = Field(default="json_output_parser", description="Parser type")
     output_schema: dict[str, Any] | None = Field(default=None, description="Expected output schema")
     temperature: float = Field(..., ge=0.0, le=2.0, description="Sampling temperature (0-2)")
     max_tokens: int = Field(..., ge=1, le=100000, description="Maximum tokens to generate")
@@ -104,7 +101,6 @@ class PromptTemplateResponse(BaseModel):
     user_template: str
     input_variables: list[str]
     partial_variables: dict[str, Any]
-    output_parser_type: str
     output_schema: dict[str, Any]
     # Model parameters
     temperature: float
@@ -112,8 +108,6 @@ class PromptTemplateResponse(BaseModel):
     top_p: float
     frequency_penalty: float
     presence_penalty: float
-    # Denormalized JSON storage
-    template_json: dict[str, Any] | None = None
     # Timestamps
     created_at: datetime
     deleted_at: datetime | None
@@ -143,7 +137,6 @@ class PromptTemplateResponse(BaseModel):
             user_template=prompt.user_template,
             input_variables=prompt.input_variables,
             partial_variables=prompt.partial_variables or {},
-            output_parser_type=prompt.output_parser_type,
             output_schema=prompt.output_schema or {},
             # Model parameters
             temperature=float(prompt.temperature),
@@ -151,8 +144,6 @@ class PromptTemplateResponse(BaseModel):
             top_p=float(prompt.top_p),
             frequency_penalty=float(prompt.frequency_penalty),
             presence_penalty=float(prompt.presence_penalty),
-            # Denormalized JSON storage
-            template_json=prompt.template_json,
             # Timestamps
             created_at=prompt.created_at,
             deleted_at=prompt.deleted_at,
