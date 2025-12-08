@@ -22,6 +22,7 @@ from ...domain.models.prompt_template import PromptTemplate
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
 from ...domain.ports.prompt_repository_port import PromptRepositoryPort
+from .execution_logger import ExecutionLogger
 from .prompts import PROMPT_REGISTRY
 from .comprehensive_models import ComprehensiveAnalysis
 
@@ -332,7 +333,7 @@ class LangChainAdapter(LLMPort):
         # Extract metadata from callback or response
         metadata = metadata_callback.metadata
         if not metadata:
-            metadata = self._extract_response_metadata(result)
+            metadata = ExecutionLogger.extract_response_metadata(result)
 
         # Debug logging to help diagnose token extraction issues
         if not metadata or not metadata.get("usage"):
@@ -425,13 +426,15 @@ class LangChainAdapter(LLMPort):
 
             # Log execution
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=analysis.model_dump_json(),
                     start_time=start_time,
                     success=True,
+                    model=self.model,
                     model_response_metadata=metadata,
                 )
 
@@ -445,13 +448,15 @@ class LangChainAdapter(LLMPort):
 
         except Exception as exc:
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=None,
                     start_time=start_time,
                     success=False,
+                    model=self.model,
                     error_message=str(exc),
                 )
             logger.error(f"Comprehensive analysis failed: {exc}", exc_info=True)
@@ -542,7 +547,7 @@ class LangChainAdapter(LLMPort):
             result = await chain.ainvoke(variables, config=config_with_callbacks)
             metadata = metadata_callback.metadata
             if not metadata:
-                metadata = self._extract_response_metadata(result)
+                metadata = ExecutionLogger.extract_response_metadata(result)
 
             question_text = self._extract_followup_question_text(result)
             if not question_text:
@@ -551,13 +556,15 @@ class LangChainAdapter(LLMPort):
 
             # Log execution
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=question_text,
                     start_time=start_time,
                     success=True,
+                    model=self.model,
                     model_response_metadata=metadata,
                 )
 
@@ -585,17 +592,19 @@ class LangChainAdapter(LLMPort):
                     # Get metadata from callback (LLM call completed, just parsing failed)
                     metadata = metadata_callback.metadata
                     if not metadata:
-                        metadata = self._extract_response_metadata(None)
+                        metadata = ExecutionLogger.extract_response_metadata(None)
 
                     # Log as successful with plain text
                     if prompt_template:
-                        await self._log_execution(
+                        await ExecutionLogger.log_execution(
+                            prompt_repo=self.prompt_repo,
                             prompt_template=prompt_template,
                             context=context,
                             input_variables=variables,
                             output_text=plain_text,
                             start_time=start_time,
                             success=True,
+                            model=self.model,
                             model_response_metadata=metadata,
                         )
 
@@ -603,13 +612,15 @@ class LangChainAdapter(LLMPort):
 
             # Log other exceptions as failures
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=None,
                     start_time=start_time,
                     success=False,
+                    model=self.model,
                     error_message=str(exc),
                 )
             raise
@@ -652,13 +663,15 @@ class LangChainAdapter(LLMPort):
 
             # Log execution
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=str(result),
                     start_time=start_time,
                     success=True,
+                    model=self.model,
                     model_response_metadata=metadata,
                 )
 
@@ -666,13 +679,15 @@ class LangChainAdapter(LLMPort):
 
         except Exception as exc:
             if prompt_template:
-                await self._log_execution(
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
                     output_text=None,
                     start_time=start_time,
                     success=False,
+                    model=self.model,
                     error_message=str(exc),
                 )
             raise
@@ -775,13 +790,15 @@ class LangChainAdapter(LLMPort):
                     f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
                 )
 
-            await self._log_execution(
+            await ExecutionLogger.log_execution(
+                prompt_repo=self.prompt_repo,
                 prompt_template=prompt_template,
                 context=context,
                 input_variables={"question_specs_count": len(question_specs)},
                 output_text=str(question_sets),
                 start_time=start_time,
                 success=True,
+                model=self.model,
                 model_response_metadata=metadata,
             )
 
@@ -891,335 +908,3 @@ class LangChainAdapter(LLMPort):
 
         return aggregated if aggregated else None
 
-    # Helper methods
-    async def _log_execution(
-        self,
-        prompt_template: PromptTemplate,
-        context: dict[str, Any],
-        input_variables: dict,
-        output_text: str | None,
-        start_time: float,
-        success: bool,
-        model_response_metadata: dict | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        """Log prompt execution to database with token tracking.
-
-        Args:
-            prompt_template: The PromptTemplate used
-            context: Execution context (interview_id, candidate_id)
-            input_variables: Variables passed to prompt
-            output_text: LLM output (None if failed)
-            start_time: Start timestamp
-            success: Whether execution succeeded
-            model_response_metadata: LangChain response metadata (for tokens)
-            error_message: Error message if failed
-        """
-        if not self.prompt_repo:
-            return  # No repository available, skip logging
-
-        try:
-            # Calculate latency
-            latency_ms = int((time.time() - start_time) * 1000)
-
-            # Get model name (try multiple sources)
-            model_name = self._get_model_name(model_response_metadata)
-
-            # Extract token usage
-            total_tokens, prompt_tokens, completion_tokens = self._extract_token_usage(
-                model_response_metadata, model_name
-            )
-
-            # Calculate estimated cost
-            estimated_cost = self._estimate_cost(model_name, prompt_tokens, completion_tokens)
-
-            # Sanitize input variables (remove PII if present)
-            sanitized_input = self._sanitize_variables(input_variables)
-
-            # Prepare execution data
-            execution_data = {
-                "interview_id": context.get("interview_id"),
-                "input_variables": sanitized_input,
-                "output_text": output_text[:10000] if output_text else None,  # Truncate
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "latency_ms": latency_ms,
-                "model_name": model_name,
-                "success": success,
-                "error_message": error_message,
-            }
-
-            # Log to database
-            await self.prompt_repo.log_execution(
-                prompt_template_id=prompt_template.id,
-                execution_data=execution_data,
-            )
-
-            # Log to application logs (INFO for success, WARNING for failure)
-            if success:
-                logger.info(
-                    "Prompt execution: %s (v%d) | Tokens: %s | Latency: %dms | Cost: $%.6f",
-                    prompt_template.prompt_name,
-                    prompt_template.version,
-                    total_tokens or "N/A",
-                    latency_ms,
-                    estimated_cost or 0.0,
-                )
-            else:
-                logger.warning(
-                    "Prompt execution FAILED: %s (v%d) | Error: %s | Latency: %dms",
-                    prompt_template.prompt_name,
-                    prompt_template.version,
-                    error_message,
-                    latency_ms,
-                )
-
-        except Exception as log_error:
-            # Don't fail the main operation if logging fails
-            logger.error(
-                "Failed to log prompt execution for %s: %s",
-                prompt_template.prompt_name,
-                log_error,
-                exc_info=True,
-            )
-
-    def _get_model_name(self, model_response_metadata: dict[str, Any] | None = None) -> str:
-        """Extract model name from LangChain model object.
-
-        Checks multiple possible attributes and metadata sources.
-
-        Args:
-            model_response_metadata: Optional metadata from response (may contain model name)
-
-        Returns:
-            Model name string, or "unknown" if not found
-        """
-        # Try to get from response metadata first
-        if model_response_metadata:
-            model_name = model_response_metadata.get("model_name") or model_response_metadata.get("model")
-            if model_name:
-                return model_name
-
-        # Try common model attributes
-        if hasattr(self.model, "model_name"):
-            return self.model.model_name
-        if hasattr(self.model, "model"):
-            return self.model.model
-        if hasattr(self.model, "model_id"):
-            return self.model.model_id
-
-        # Try to get from model's __dict__ (some models store it differently)
-        if hasattr(self.model, "__dict__"):
-            model_dict = self.model.__dict__
-            if "model_name" in model_dict:
-                return model_dict["model_name"]
-            if "model" in model_dict:
-                return model_dict["model"]
-
-        # Fallback to class name
-        return type(self.model).__name__
-
-    def _extract_response_metadata(self, chain_response: Any) -> dict | None:
-        """Extract metadata from LangChain chain response.
-
-        LangChain responses may include token usage, model info in various formats.
-        This method standardizes extraction across different model providers.
-
-        Args:
-            chain_response: Response from chain.ainvoke()
-
-        Returns:
-            Dict with keys: usage (token_usage), model_name, etc.
-            None if no metadata available
-        """
-        # LangChain responses can be dict, AIMessage, or raw JSON
-        if isinstance(chain_response, dict):
-            # Direct dict response (JSON output parser)
-            return chain_response.get("_metadata")
-
-        # AIMessage (structured output)
-        if hasattr(chain_response, "response_metadata"):
-            return chain_response.response_metadata
-
-        # Check for usage_metadata (newer LangChain versions)
-        if hasattr(chain_response, "usage_metadata"):
-            return {"usage": chain_response.usage_metadata}
-
-        return None
-
-    def _extract_token_usage(
-        self,
-        model_response_metadata: dict | None,
-        model_name: str,
-    ) -> tuple[int | None, int | None, int | None]:
-        """Extract token usage from LangChain response metadata.
-
-        Supports multiple token formats:
-        - OpenAI: usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
-        - Anthropic: usage.input_tokens, usage.output_tokens
-        - Generic: token_usage.total, token_usage.prompt, token_usage.completion
-
-        Args:
-            model_response_metadata: Response metadata from LangChain
-            model_name: Model identifier (for provider detection)
-
-        Returns:
-            Tuple of (total_tokens, prompt_tokens, completion_tokens)
-            Returns (None, None, None) if no token data available
-        """
-        if not model_response_metadata:
-            logger.debug("No model_response_metadata provided for token extraction")
-            return None, None, None
-
-        # Try multiple paths to find usage data
-        # Priority: token_usage (OpenAI format) > usage (Anthropic format)
-        token_usage = None
-        usage = None
-
-        # Path 1: token_usage key (OpenAI format: prompt_tokens, completion_tokens)
-        if "token_usage" in model_response_metadata:
-            token_usage = model_response_metadata["token_usage"]
-        # Path 2: usage key (Anthropic format: input_tokens, output_tokens)
-        if "usage" in model_response_metadata:
-            usage = model_response_metadata["usage"]
-        # Path 3: Check if nested in response_metadata
-        elif isinstance(model_response_metadata.get("response_metadata"), dict):
-            nested_meta = model_response_metadata["response_metadata"]
-            token_usage = nested_meta.get("token_usage") or token_usage
-            usage = nested_meta.get("usage") or usage
-
-        # Prefer token_usage (OpenAI format) as it has prompt_tokens/completion_tokens directly
-        if token_usage and isinstance(token_usage, dict):
-            # OpenAI format: total_tokens, prompt_tokens, completion_tokens
-            if "prompt_tokens" in token_usage or "completion_tokens" in token_usage:
-                return (
-                    token_usage.get("total_tokens"),
-                    token_usage.get("prompt_tokens"),
-                    token_usage.get("completion_tokens"),
-                )
-
-        # Fall back to usage (Anthropic format)
-        if usage and isinstance(usage, dict):
-            # Anthropic format: input_tokens, output_tokens
-            if "input_tokens" in usage:
-                input_tokens = usage.get("input_tokens")
-                output_tokens = usage.get("output_tokens")
-                total = (
-                    (input_tokens or 0) + (output_tokens or 0)
-                    if input_tokens is not None and output_tokens is not None
-                    else usage.get("total_tokens")
-                )
-                return total, input_tokens, output_tokens
-
-            # Also check for OpenAI format in usage dict (some providers use this)
-            if "prompt_tokens" in usage or "completion_tokens" in usage:
-                return (
-                    usage.get("total_tokens"),
-                    usage.get("prompt_tokens"),
-                    usage.get("completion_tokens"),
-                )
-
-            # Generic format: total, prompt, completion
-            if "total" in usage or "prompt" in usage or "completion" in usage:
-                return (
-                    usage.get("total"),
-                    usage.get("prompt"),
-                    usage.get("completion"),
-                )
-
-        logger.debug(f"No usage data found in metadata. Keys: {list(model_response_metadata.keys())}")
-        return None, None, None
-
-    def _estimate_cost(
-        self,
-        model_name: str,
-        prompt_tokens: int | None,
-        completion_tokens: int | None,
-    ) -> float | None:
-        """Estimate LLM cost based on token usage.
-
-        Uses approximate pricing (as of 2025-11):
-        - GPT-4: $0.03/1K prompt, $0.06/1K completion
-        - GPT-3.5: $0.0005/1K prompt, $0.0015/1K completion
-        - Claude 3 Opus: $0.015/1K prompt, $0.075/1K completion
-        - Claude 3 Sonnet: $0.003/1K prompt, $0.015/1K completion
-
-        Args:
-            model_name: Model identifier
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
-
-        Returns:
-            Estimated cost in USD, or None if tokens unavailable
-        """
-        if not prompt_tokens or not completion_tokens:
-            return None
-
-        # Pricing table (cents per 1K tokens)
-        PRICING = {
-            "gpt-4": (3.0, 6.0),
-            "gpt-3.5-turbo": (0.05, 0.15),
-            "claude-3-opus": (1.5, 7.5),
-            "claude-3-sonnet": (0.3, 1.5),
-            "claude-3-haiku": (0.025, 0.125),
-        }
-
-        # Match model name (case-insensitive, partial match)
-        model_lower = model_name.lower()
-        for key, (prompt_cost, completion_cost) in PRICING.items():
-            if key in model_lower:
-                cost_usd = (prompt_tokens / 1000 * prompt_cost / 100) + (
-                    completion_tokens / 1000 * completion_cost / 100
-                )
-                return round(cost_usd, 6)  # 6 decimal places ($0.000001 precision)
-
-        # Unknown model
-        logger.warning("Unknown model '%s' for cost estimation", model_name)
-        return None
-
-    def _sanitize_variables(self, input_variables: dict) -> dict:
-        """Sanitize input variables to remove PII.
-
-        Removes or redacts:
-        - Email addresses
-        - Phone numbers
-        - Long text fields (truncate to 500 chars)
-
-        Args:
-            input_variables: Raw input variables
-
-        Returns:
-            Sanitized dict safe for logging
-        """
-        import re
-
-        sanitized = {}
-        for key, value in input_variables.items():
-            if value is None:
-                sanitized[key] = None
-                continue
-
-            # Convert to string for processing
-            str_value = str(value)
-
-            # Redact emails
-            str_value = re.sub(
-                r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-                "[EMAIL_REDACTED]",
-                str_value,
-            )
-
-            # Redact phone numbers
-            str_value = re.sub(
-                r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b",
-                "[PHONE_REDACTED]",
-                str_value,
-            )
-
-            # Truncate long text (preserve structure for debugging)
-            if len(str_value) > 500:
-                str_value = str_value[:500] + f"... [TRUNCATED {len(str_value)-500} chars]"
-
-            sanitized[key] = str_value
-
-        return sanitized
