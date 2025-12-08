@@ -15,6 +15,7 @@ from ...domain.ports.feedback_repository_port import (
     FeedbackResponseRepositoryPort,
 )
 from ...domain.ports.llm_port import LLMPort
+from ...domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,8 @@ class AnalyzeFeedbackUseCase:
         input_type: InputType,
         user_id: UUID | None = None,
         feedback_input: str | None = None,
-    ) -> tuple[FeedbackRequest, FeedbackResult]:
-        """Analyze entity and return feedback.
+    ) -> tuple[FeedbackRequest, FeedbackResult, str | None]:
+        """Analyze entity and return feedback with markdown.
 
         Args:
             entity_id: UUID of entity to analyze
@@ -64,7 +65,8 @@ class AnalyzeFeedbackUseCase:
             feedback_input: Required JSON string with entity content
 
         Returns:
-            Tuple of (FeedbackRequest, FeedbackResult)
+            Tuple of (FeedbackRequest, FeedbackResult, result_markdown)
+            result_markdown is None if markdown generation fails
 
         Raises:
             ValueError: If input_type is INTERVIEW or feedback_input is missing/invalid
@@ -112,6 +114,23 @@ class AnalyzeFeedbackUseCase:
                 context=context,
             )
 
+            # Generate markdown (fail gracefully if generation fails)
+            result_markdown = None
+            try:
+                formatter = FeedbackMarkdownFormatter()
+                result_markdown = formatter.format(result)
+            except Exception as e:
+                # Log error but don't fail use case
+                logger.warning(
+                    f"Failed to generate markdown for feedback: {e}",
+                    extra={
+                        "request_id": str(feedback_request.id),
+                        "entity_id": str(entity_id),
+                        "input_type": input_type.value,
+                    },
+                    exc_info=True,
+                )
+
             # Save response
             await self.response_repo.create(
                 request_id=feedback_request.id,
@@ -147,7 +166,7 @@ class AnalyzeFeedbackUseCase:
 
             feedback_request.status = FeedbackStatus.SUCCESS
 
-            return feedback_request, result
+            return feedback_request, result, result_markdown
 
         except Exception as e:
             # Update request with failure

@@ -106,7 +106,7 @@ async def test_execute_success_cv(use_case, mock_dependencies, mock_llm):
     mock_llm.analyze_feedback.return_value = mock_cv_result
 
     # Act
-    request, result = await use_case.execute(
+    request, result, result_markdown = await use_case.execute(
         entity_id=cv_analysis_id,
         input_type=InputType.CV,
         user_id=user_id,
@@ -117,6 +117,10 @@ async def test_execute_success_cv(use_case, mock_dependencies, mock_llm):
     # Note: request object returned is the original, status updates happen in repo
     assert isinstance(result, CVFeedbackResult)
     assert result.cv_analysis_id == cv_analysis_id
+    assert result_markdown is not None
+    assert "# CV Feedback Analysis" in result_markdown
+    assert "75.0/100" in result_markdown
+    assert "Good CV with relevant experience" in result_markdown
     mock_dependencies["request_repo"].update_status.assert_any_call(
         request_id=request_id,
         status=FeedbackStatus.PROCESSING,
@@ -184,7 +188,7 @@ async def test_execute_success_code(use_case, mock_dependencies, mock_llm):
     mock_llm.analyze_feedback.return_value = mock_code_result
 
     # Act
-    request, result = await use_case.execute(
+    request, result, result_markdown = await use_case.execute(
         entity_id=code_id,
         input_type=InputType.CODE,
         feedback_input=feedback_input,
@@ -194,6 +198,8 @@ async def test_execute_success_code(use_case, mock_dependencies, mock_llm):
     # Note: request object returned is the original, status updates happen in repo
     assert isinstance(result, CodeReviewFeedbackResult)
     assert result.submission_id == str(code_id)
+    assert result_markdown is not None
+    assert "# Code Review Feedback" in result_markdown
     mock_llm.analyze_feedback.assert_called_once_with(
         input_type=InputType.CODE,
         feedback_input=feedback_input,
@@ -324,7 +330,7 @@ async def test_execute_publishes_event(use_case, mock_dependencies, mock_llm):
     mock_llm.analyze_feedback.return_value = mock_cv_result
 
     # Act
-    await use_case.execute(
+    _, _, result_markdown = await use_case.execute(
         entity_id=cv_id,
         input_type=InputType.CV,
         user_id=user_id,
@@ -401,7 +407,7 @@ async def test_execute_event_publish_failure_does_not_fail_use_case(
     )
 
     # Act (should not raise)
-    request, result = await use_case.execute(
+    request, result, result_markdown = await use_case.execute(
         entity_id=cv_id,
         input_type=InputType.CV,
         feedback_input=feedback_input,
@@ -409,6 +415,7 @@ async def test_execute_event_publish_failure_does_not_fail_use_case(
 
     # Assert use case still succeeds (request object is original, status updates in repo)
     assert result == mock_cv_result
+    assert result_markdown is not None
 
 
 @pytest.mark.asyncio

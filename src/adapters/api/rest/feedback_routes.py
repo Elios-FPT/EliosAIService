@@ -13,6 +13,7 @@ from ....application.dto.feedback_dto import (
 )
 from ....application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 from ....domain.models.feedback_result import FeedbackStatus, InputType
+from ....domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
 
@@ -81,7 +82,7 @@ async def analyze_feedback(
                 detail="feedback_input is required. Frontend must provide entity content as JSON string.",
             )
 
-        feedback_request, result = await use_case.execute(
+        feedback_request, result, result_markdown = await use_case.execute(
             entity_id=request.entity_id,
             input_type=input_type,
             user_id=request.user_id,
@@ -96,6 +97,7 @@ async def analyze_feedback(
             request_id=feedback_request.id,
             status=feedback_request.status.value,
             result=result_data,
+            result_markdown=result_markdown,
             error_message=feedback_request.error_message,
         )
 
@@ -162,11 +164,23 @@ async def get_feedback_history(
     for req in requests:
         # Fetch response if status=SUCCESS
         result = None
+        result_markdown = None
         if req.status == FeedbackStatus.SUCCESS:
             response = await response_repo.get_by_request_id(req.id)
-            if response:
+            if response and response.result:
                 # Explicitly serialize result to preserve subclass fields
-                result = response.result.model_dump(mode='json') if response.result else None
+                result = response.result.model_dump(mode='json')
+                # Generate markdown from stored result
+                try:
+                    formatter = FeedbackMarkdownFormatter()
+                    result_markdown = formatter.format(response.result)
+                except Exception as e:
+                    # Log but don't fail (markdown generation is optional)
+                    logger.warning(
+                        f"Failed to generate markdown for stored feedback: {e}",
+                        extra={"request_id": str(req.id)},
+                        exc_info=True,
+                    )
 
         responses.append(
             FeedbackHistoryResponse(
@@ -176,6 +190,7 @@ async def get_feedback_history(
                 status=req.status.value,
                 created_at=req.created_at.isoformat(),
                 result=result,
+                result_markdown=result_markdown,
                 error_message=req.error_message,
             )
         )
@@ -217,16 +232,29 @@ async def get_feedback_by_id(
 
     # Fetch response if status=SUCCESS
     result = None
+    result_markdown = None
     if feedback_request.status == FeedbackStatus.SUCCESS:
         response = await response_repo.get_by_request_id(request_id)
-        if response:
+        if response and response.result:
             # Explicitly serialize result to preserve subclass fields
-            result = response.result.model_dump(mode='json') if response.result else None
+            result = response.result.model_dump(mode='json')
+            # Generate markdown from stored result
+            try:
+                formatter = FeedbackMarkdownFormatter()
+                result_markdown = formatter.format(response.result)
+            except Exception as e:
+                # Log but don't fail (markdown generation is optional)
+                logger.warning(
+                    f"Failed to generate markdown for stored feedback: {e}",
+                    extra={"request_id": str(request_id)},
+                    exc_info=True,
+                )
 
     return AnalyzeFeedbackResponse(
         request_id=feedback_request.id,
         status=feedback_request.status.value,
         result=result,
+        result_markdown=result_markdown,
         error_message=feedback_request.error_message,
     )
 

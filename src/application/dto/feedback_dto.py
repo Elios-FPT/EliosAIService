@@ -41,6 +41,10 @@ class AnalyzeFeedbackResponse(BaseModel):
         default=None,
         description="Typed result serialized as dict (InterviewFeedbackResult/CodeReviewFeedbackResult/CVFeedbackResult)",
     )
+    result_markdown: str | None = Field(
+        default=None,
+        description="Markdown formatted feedback for frontend HTML rendering",
+    )
     error_message: str | None = None
 
     class Config:
@@ -70,5 +74,9 @@ class FeedbackHistoryResponse(BaseModel):
     status: str
     created_at: str
     result: dict[str, Any] | None = None
+    result_markdown: str | None = Field(
+        default=None,
+        description="Markdown formatted feedback for frontend HTML rendering",
+    )
     error_message: str | None = None
 
