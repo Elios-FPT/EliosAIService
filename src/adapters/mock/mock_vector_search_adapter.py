@@ -88,14 +88,6 @@ class MockVectorSearchAdapter(VectorSearchPort):
 
         return results
 
-    async def find_similar_answers(
-        self,
-        answer_embedding: list[float],
-        reference_embeddings: list[list[float]],
-    ) -> float:
-
-        return random.uniform(0.85, 0.9)
-
     async def get_embedding(
         self,
         text: str,
