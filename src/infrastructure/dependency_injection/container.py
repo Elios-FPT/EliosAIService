@@ -798,34 +798,16 @@ class Container:
             Configured AnalyzeFeedbackUseCase
         """
         from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
-        from ...application.use_cases.complete_interview import CompleteInterviewUseCase
 
         # Get repositories
         request_repo = self.feedback_request_repository_port(session=session)
         response_repo = self.feedback_response_repository_port(session=session)
-        interview_repo = self.interview_repository_port(session=session)
-        cv_analysis_repo = self.cv_analysis_repository_port(session=session)
-
-        # Create CompleteInterviewUseCase for interview analysis
-        complete_interview_use_case = CompleteInterviewUseCase(
-            interview_repository=interview_repo,
-            answer_repository=self.answer_repository_port(session=session),
-            question_repository=self.question_repository_port(session=session),
-            follow_up_question_repository=self.follow_up_question_repository_port(
-                session=session
-            ),
-            evaluation_repository=self.evaluation_repository_port(session=session),
-            llm=self.llm_port(session=session),
-            event_publisher=self.event_publisher_port(),
-        )
 
         return AnalyzeFeedbackUseCase(
             request_repo=request_repo,
             response_repo=response_repo,
             event_publisher=self.event_publisher_port(),
-            interview_repo=interview_repo,
-            cv_analysis_repo=cv_analysis_repo,
-            complete_interview_use_case=complete_interview_use_case,
+            llm=self.llm_port(session=session),
         )
 
 

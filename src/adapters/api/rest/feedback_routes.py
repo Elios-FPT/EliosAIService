@@ -11,10 +11,7 @@ from ....application.dto.feedback_dto import (
     AnalyzeFeedbackResponse,
     FeedbackHistoryResponse,
 )
-from ....application.use_cases.analyze_feedback import (
-    AnalyzeFeedbackUseCase,
-    LLMMaxRetriesError,
-)
+from ....application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 from ....domain.models.feedback_result import FeedbackStatus, InputType
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
@@ -47,17 +44,15 @@ async def analyze_feedback(
     """Analyze entity and return feedback (synchronous).
 
     **Processing Time:**
-    - INTERVIEW: 5-10s (LLM analysis)
-    - CODE: 3-8s (code review) - Not yet implemented
-    - CV: 2-5s (skill extraction)
+    - CV: 2-5s (LLM analysis)
+    - CODE: 3-8s (code review)
 
     **Note:** Frontend should show loading spinner during wait.
+    Frontend must provide `feedback_input` as JSON string.
 
     **Error Handling:**
-    - 400: Invalid entity_id or input_type
-    - 404: Entity not found
-    - 500: LLM failure after retries
-    - 503: Service temporarily unavailable
+    - 400: Invalid entity_id, input_type, or missing feedback_input
+    - 500: LLM failure (fail fast, no retry)
 
     Args:
         request: Analysis request DTO
@@ -70,13 +65,20 @@ async def analyze_feedback(
         HTTPException: On various error conditions
     """
     try:
-        # Validate input_type
+        # Validate input_type (only CV or CODE allowed)
         try:
             input_type = InputType(request.input_type.upper())
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid input_type: {request.input_type}. Must be INTERVIEW, CV, or CODE",
+                detail=f"Invalid input_type: {request.input_type}. Must be CV or CODE",
+            )
+
+        # Validate feedback_input is provided
+        if not request.feedback_input:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="feedback_input is required. Frontend must provide entity content as JSON string.",
             )
 
         feedback_request, result = await use_case.execute(
@@ -94,12 +96,8 @@ async def analyze_feedback(
         )
 
     except ValueError as e:
-        # Entity not found or validation error
+        # Validation error (INTERVIEW rejected, missing feedback_input, etc.)
         error_msg = str(e)
-        if "not found" in error_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=error_msg
-            ) from e
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg
         ) from e
@@ -108,15 +106,8 @@ async def analyze_feedback(
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e)
         ) from e
-    except LLMMaxRetriesError as e:
-        # LLM failed after retries
-        logger.error(f"LLM max retries exceeded: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Analysis service temporarily unavailable. Please try again later.",
-        ) from e
     except Exception as e:
-        # Unexpected error
+        # Unexpected error (including LLM failures - fail fast)
         logger.error(f"Unexpected error in analyze_feedback: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
