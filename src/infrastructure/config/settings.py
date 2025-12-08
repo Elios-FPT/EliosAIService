@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     pinecone_api_key: str | None = None
     pinecone_environment: str = "us-east-1"
     pinecone_index_name: str = "elios-interviews"
+    pinecone_namespace: str = "__default__"
 
     # PostgreSQL Configuration
     postgres_host: str = "localhost"

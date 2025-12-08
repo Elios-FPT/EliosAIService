@@ -12,6 +12,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 
 from ....infrastructure.database.session import session_scope
 from ....infrastructure.dependency_injection.container import Container, get_container
+from ....domain.models.interview import InterviewStatus
 from .connection_manager import manager
 from .workflow_guard import execute_with_workflow_guard
 

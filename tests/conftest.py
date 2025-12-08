@@ -381,36 +381,6 @@ class MockEvaluationRepository:
             del self.evaluations[evaluation_id]
 
 
-class MockVectorSearch:
-    """Mock vector search for testing."""
-
-    async def get_embedding(self, text: str) -> list[float]:
-        """Return mock embedding."""
-        # Simple hash-based mock embedding
-        hash_val = hash(text.lower()[:50])
-        return [float((hash_val >> i) & 1) for i in range(128)]
-
-    async def find_similar_questions(
-        self,
-        query_embedding: list[float],
-        top_k: int = 5,
-        filters: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return mock similar questions."""
-        # Return empty list by default (simulating empty vector DB)
-        # Tests can override this behavior
-        return []
-
-    async def store_question_embedding(
-        self,
-        question_id: UUID,
-        embedding: list[float],
-        metadata: dict[str, Any],
-    ) -> None:
-        """Mock embedding storage (no-op)."""
-        pass
-
-
 class MockLLM:
     """Mock LLM for testing."""
 
@@ -561,9 +531,13 @@ def mock_cv_analysis_repo() -> MockCVAnalysisRepository:
 
 
 @pytest.fixture
-def mock_vector_search() -> MockVectorSearch:
+def mock_vector_search():
     """Mock vector search fixture."""
-    return MockVectorSearch()
+    from src.adapters.mock.mock_vector_search_adapter import MockVectorSearchAdapter
+
+    adapter = MockVectorSearchAdapter()
+    yield adapter
+    adapter.reset()
 
 
 @pytest.fixture

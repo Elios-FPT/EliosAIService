@@ -48,7 +48,7 @@ scenarios:
       answer_strategy:
         type: degraded
         degrade_profile:
-          keep_ratio: 0.3
+          keep_ratio: 0.2
           min_sentences: 1
 
     assertions:

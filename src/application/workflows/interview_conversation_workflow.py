@@ -24,6 +24,7 @@ from ...domain.ports.event_publisher_port import EventPublisherPort
 from ...domain.ports.interview_repository_port import InterviewRepositoryPort
 from ...domain.ports.question_repository_port import QuestionRepositoryPort
 from ...domain.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
+from ...domain.ports.vector_search_port import VectorSearchPort
 from .base_workflow import BaseWorkflow
 
 
@@ -88,8 +89,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
     """LangGraph workflow for interview conversation (QA phase).
 
     Manages stateful interview flow with:
-    - 7 nodes (start session, evaluate answer, memory update, follow-up decision,
-      follow-up generation, next question, complete interview)
+    - 8 nodes (start session, evaluate answer, memory update, follow-up decision,
+      follow-up generation, next question, complete interview, index questions)
     - Conversation memory (truncated to 10 messages)
     - PostgreSQL checkpointing for state persistence
     - Conditional routing based on follow-up needs and question availability
@@ -103,6 +104,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         answer_repo: AnswerRepositoryPort,
         evaluation_repo: EvaluationRepositoryPort,
         followup_repo: FollowUpQuestionRepositoryPort,
+        vector_search: VectorSearchPort,
         llm: LLMPort,
         event_publisher: EventPublisherPort,
     ):
@@ -124,6 +126,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         self.answer_repo = answer_repo
         self.evaluation_repo = evaluation_repo
         self.followup_repo = followup_repo
+        self.vector_search = vector_search
         self.llm = llm
         self.event_publisher = event_publisher
         self.app = self._build_graph()
@@ -144,7 +147,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
                                                                            ↓
                                                                    generate_followup → END
                                                                            ↓
-                                                                   next_or_complete → [complete?] → complete → END
+                                                                   next_or_complete → [complete?] → complete → index_questions → END
                                                                            ↓
                                                                    [has_more?] → END
 
@@ -164,6 +167,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         graph.add_node("generate_followup", self._generate_followup_node)
         graph.add_node("next_or_complete", self._next_question_or_complete_node)
         graph.add_node("complete", self._complete_interview_node)
+        graph.add_node("index_questions", self._index_questions_node)
 
         # Add edges
         graph.set_entry_point("route_entry")
@@ -221,7 +225,8 @@ class InterviewConversationWorkflow(BaseWorkflow):
             },
         )
 
-        graph.add_edge("complete", END)
+        graph.add_edge("complete", "index_questions")
+        graph.add_edge("index_questions", END)
 
         # Compile with checkpointer
         return graph.compile(checkpointer=self.checkpointer)  # type: ignore[return-value]
@@ -607,7 +612,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
             thread_id = state.get("checkpoint_thread_id")
             if thread_id:
                 try:
-                    # Note: AsyncPostgresSaver doesn't have delete_thread method
+                    # TODO: Note: AsyncPostgresSaver doesn't have delete_thread method
                     # Checkpoints will be cleaned up by retention policy or manual cleanup
                     logger.info(f"Interview completed, checkpoint thread: {thread_id}")
                 except Exception as cleanup_exc:
@@ -630,6 +635,60 @@ class InterviewConversationWorkflow(BaseWorkflow):
                 "errors": state.get("errors", []) + [f"complete_interview: {str(exc)}"],
                 "complete": True,  # Mark as complete even on error
             }
+
+    async def _index_questions_node(self, state: ConversationState) -> dict[str, Any]:
+        """Index asked questions to vector database.
+
+        Called after interview completion to add generated questions
+        to vector DB for future exemplar search.
+
+        Args:
+            state: Current conversation state
+
+        Returns:
+            Empty dict (no state updates, non-blocking)
+        """
+        try:
+            from ..use_cases.planning.index_questions_to_vector import (
+                IndexQuestionsInput,
+                IndexQuestionsToVectorUseCase,
+            )
+
+            interview_id = UUID(state["interview_id"])
+
+            index_uc = IndexQuestionsToVectorUseCase(
+                vector_search=self.vector_search,
+                interview_repo=self.interview_repo,
+                question_repo=self.question_repo,
+            )
+
+            index_result = await index_uc.execute(IndexQuestionsInput(interview_id=interview_id))
+
+            if index_result.errors:
+                logger.warning(
+                    "Question indexing completed with errors for %s: %s",
+                    interview_id,
+                    index_result.errors,
+                )
+            else:
+                logger.info(
+                    "Indexed %s questions for interview %s",
+                    index_result.indexed_count,
+                    interview_id,
+                )
+
+            # Return empty dict - indexing is non-blocking
+            return {}
+
+        except Exception as exc:
+            # Log but don't fail workflow - indexing is optional
+            logger.warning(
+                "Question indexing skipped for %s: %s",
+                state.get("interview_id"),
+                exc,
+                exc_info=True,
+            )
+            return {}
 
     # ========== CONDITIONAL EDGE FUNCTIONS ==========
 

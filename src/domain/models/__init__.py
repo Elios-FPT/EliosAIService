@@ -20,6 +20,7 @@ from .interview_question import InterviewQuestion
 from .prompt_execution import PromptExecution
 from .prompt_metadata_change import PromptMetadataChange
 from .prompt_template import PromptTemplate
+from .exemplar_models import ExemplarFilters, ExemplarResult
 from .question import Difficulty, DifficultyLevel, Question, QuestionType
 
 __all__ = [
@@ -52,4 +53,6 @@ __all__ = [
     "DifficultyLevel",  # Alias for backward compatibility
     "InputType",
     "FeedbackStatus",
+    "ExemplarFilters",
+    "ExemplarResult",
 ]

@@ -196,14 +196,11 @@ class Container:
             elif self.settings.vector_db_provider == "pinecone":
                 if not self.settings.pinecone_api_key:
                     raise ValueError("Pinecone API key not configured")
-                if not self.settings.openai_api_key:
-                    raise ValueError("OpenAI API key required for embeddings")
 
                 self._vector_search_port = PineconeAdapter(
                     api_key=self.settings.pinecone_api_key,
-                    environment=self.settings.pinecone_environment,
                     index_name=self.settings.pinecone_index_name,
-                    openai_api_key=self.settings.openai_api_key,
+                    namespace=self.settings.pinecone_namespace,
                 )
             elif self.settings.vector_db_provider == "weaviate":
                 # Import Weaviate adapter when implemented
@@ -688,6 +685,7 @@ class Container:
         answer_repo = self.answer_repository_port(session=session, session_provider=session_provider)
         evaluation_repo = self.evaluation_repository_port(session=session, session_provider=session_provider)
         followup_repo = self.follow_up_question_repository_port(session=session, session_provider=session_provider)
+        vector_search = self.vector_search_port()
         llm = self.llm_port(session=session)
         event_publisher = self.event_publisher_port()
 
@@ -699,6 +697,7 @@ class Container:
             answer_repo=answer_repo,
             evaluation_repo=evaluation_repo,
             followup_repo=followup_repo,
+            vector_search=vector_search,
             llm=llm,
             event_publisher=event_publisher,
         )

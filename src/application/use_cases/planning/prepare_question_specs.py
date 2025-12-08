@@ -6,6 +6,8 @@ Extracted from PlanningWorkflow._prepare_specs_node (lines 302-369).
 import logging
 from typing import Any
 
+from ....domain.models.exemplar_models import ExemplarFilters
+from ....domain.models.question import Difficulty
 from ....domain.ports.vector_search_port import VectorSearchPort
 from ...dto.planning.prepare_question_specs_dto import (
     PrepareQuestionSpecsInput,
@@ -60,6 +62,11 @@ class PrepareQuestionSpecsUseCase:
                     errors=["No skills found in CV analysis"]
                 )
 
+            # Use CV summary as search query
+            cv_summary = cv_analysis.get("summary", "")
+            if not cv_summary:
+                cv_summary = "software developer technical interview"
+
             # Build question specs
             specs = []
             for i in range(question_count):
@@ -73,7 +80,11 @@ class PrepareQuestionSpecsUseCase:
                 )
 
                 # Search for exemplar questions
-                exemplars = await self._search_exemplars(skill_name)
+                exemplars = await self._search_exemplars(
+                    cv_summary=cv_summary,
+                    skill_name=skill_name,
+                    difficulty=difficulty,
+                )
 
                 specs.append(
                     QuestionSpec(
@@ -111,37 +122,37 @@ class PrepareQuestionSpecsUseCase:
             "advanced": "hard",
             "expert": "hard",
         }
-        proficiency_value = proficiency if proficiency else "intermediate"
+        proficiency_value = proficiency.lower() if proficiency else "intermediate"
         return difficulty_map.get(proficiency_value, "medium")
 
-    async def _search_exemplars(self, skill_name: str) -> list[dict[str, Any]]:
-        """Search for exemplar questions via vector search.
-
-        Args:
-            skill_name: Skill to search for
-
-        Returns:
-            List of exemplar question dictionaries
-        """
+    async def _search_exemplars(
+        self,
+        cv_summary: str,
+        skill_name: str,
+        difficulty: str,
+    ) -> list[dict[str, Any]]:
+        """Search for exemplar questions via vector search."""
         try:
-            # Generate embedding for the query
-            query_text = f"{skill_name} technical interview question"
-            query_embedding = await self.vector_search.get_embedding(query_text)
-
-            # Search for similar questions
-            search_results = await self.vector_search.find_similar_questions(
-                query_embedding=query_embedding,
-                top_k=3,
-                filters={"skill": skill_name}
+            filters = ExemplarFilters(
+                difficulty=Difficulty(difficulty) if difficulty else None,
+                skills=[skill_name] if skill_name else None,
             )
 
-            exemplars = [
-                {"text": r.get("text"), "difficulty": r.get("difficulty")}
-                for r in search_results
+            results = await self.vector_search.search_exemplars(
+                cv_summary=cv_summary,
+                filters=filters,
+                top_k=3,
+            )
+
+            return [
+                {
+                    "text": r.text,
+                    "difficulty": r.difficulty.value,
+                    "similarity_score": r.similarity_score,
+                }
+                for r in results
             ]
-            return exemplars
 
         except Exception as ve:
             logger.warning(f"Exemplar search failed for {skill_name}: {ve}")
-            # Continue without exemplars
             return []

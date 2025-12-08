@@ -303,6 +303,8 @@ class PlanningWorkflow(BaseWorkflow):
             question_count = state.get("question_count", 0)
 
             cv_dict = cv_analysis.model_dump(mode="json") if cv_analysis else None
+            if cv_analysis and cv_dict is not None and "summary" not in cv_dict:
+                cv_dict["summary"] = cv_analysis.summary
             input_dto = PrepareQuestionSpecsInput(
                 cv_analysis=cv_dict,
                 question_count=question_count
