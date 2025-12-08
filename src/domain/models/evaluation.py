@@ -43,8 +43,6 @@ class Evaluation(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     answer_id: UUID
-    question_id: UUID  # Main question OR follow-up question
-    interview_id: UUID
 
     # Scores
     raw_score: float = Field(ge=0.0, le=100.0)  # LLM score before penalty
@@ -75,6 +73,7 @@ class Evaluation(BaseModel):
         """Pydantic configuration."""
 
         frozen = False
+        extra = "ignore"
 
     def apply_penalty(self, attempt_number: int) -> None:
         """Apply penalty based on attempt number.

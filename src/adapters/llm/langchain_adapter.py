@@ -13,7 +13,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 
@@ -138,8 +138,7 @@ class LangChainAdapter(LLMPort):
                 chains[method_name] = prompt_template | structured_model
             else:
                 # Simple chain: prompt | model | json_parser
-                parser = self._get_output_parser(method_name)
-                chains[method_name] = prompt_template | self.model | parser
+                chains[method_name] = prompt_template | self.model | JsonOutputParser()
 
         return chains
 
@@ -171,17 +170,10 @@ class LangChainAdapter(LLMPort):
             structured_model = self.model.with_structured_output(ComprehensiveAnalysis)
             chain = prompt_template_obj | structured_model
         else:
-            parser = self._get_output_parser(method_name)
-            chain = prompt_template_obj | self.model | parser
+            chain = prompt_template_obj | self.model | JsonOutputParser()
 
         self._db_chain_cache[cache_identifier] = chain
         return chain
-
-    def _get_output_parser(self, method_name: str):
-        """Return parser for method (text for follow-ups, JSON elsewhere)."""
-        if method_name == "generate_followup_question":
-            return StrOutputParser()
-        return JsonOutputParser()
 
     def _extract_followup_question_text(self, raw_result: Any) -> str:
         """Normalize follow-up question output to plain text."""
@@ -990,51 +982,6 @@ class LangChainAdapter(LLMPort):
                 log_error,
                 exc_info=True,
             )
-
-    async def _log_execution_with_retry(
-        self,
-        prompt_template: PromptTemplate,
-        execution_data: dict,
-        max_retries: int = 3,
-    ) -> None:
-        """Log execution with exponential backoff retry.
-
-        Args:
-            prompt_template: The PromptTemplate used
-            execution_data: Execution data to log
-            max_retries: Maximum retry attempts
-        """
-        import asyncio
-
-        for attempt in range(max_retries):
-            try:
-                await self.prompt_repo.log_execution(
-                    prompt_template_id=prompt_template.id,
-                    execution_data=execution_data,
-                )
-                return  # Success
-
-            except Exception as exc:
-                if attempt == max_retries - 1:
-                    # Final attempt failed
-                    logger.error(
-                        "Failed to log execution after %d attempts: %s",
-                        max_retries,
-                        exc,
-                        exc_info=True,
-                    )
-                    raise
-
-                # Exponential backoff: 0.1s, 0.2s, 0.4s
-                wait_time = 0.1 * (2**attempt)
-                logger.warning(
-                    "Logging failed (attempt %d/%d), retrying in %.1fs: %s",
-                    attempt + 1,
-                    max_retries,
-                    wait_time,
-                    exc,
-                )
-                await asyncio.sleep(wait_time)
 
     def _get_model_name(self, model_response_metadata: dict[str, Any] | None = None) -> str:
         """Extract model name from LangChain model object.

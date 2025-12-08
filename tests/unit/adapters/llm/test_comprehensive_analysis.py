@@ -173,7 +173,7 @@ class TestAnalyzeAnswerComprehensive:
 
         followup_context = FollowUpEvaluationContext(
             attempt_number=2,
-            previous_evaluations=[Evaluation(id=None, answer_id=None, question_id=None, interview_id=None, raw_score=70.0)],
+            previous_evaluations=[Evaluation(id=None, answer_id=None, raw_score=70.0)],
             previous_scores=[70.0],
             cumulative_gaps=[],
         )

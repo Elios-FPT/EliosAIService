@@ -518,7 +518,7 @@ class CompleteInterviewUseCase:
 
         return EvaluationDetail(
             answer_id=answer.id,
-            question_id=evaluation.question_id,
+            question_id=answer.question_id,
             question_text=question_text,
             attempt_number=evaluation.attempt_number,
             raw_score=evaluation.raw_score,

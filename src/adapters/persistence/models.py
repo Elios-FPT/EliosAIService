@@ -368,13 +368,6 @@ class EvaluationModel(Base):
         nullable=False,
         index=True,
     )
-    question_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
-    interview_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("interviews.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
 
     # Scores
     raw_score: Mapped[float] = mapped_column(Float, nullable=False)
@@ -419,8 +412,6 @@ class EvaluationModel(Base):
 
     __table_args__ = (
         Index("idx_evaluations_answer_id", "answer_id"),
-        Index("idx_evaluations_question_id", "question_id"),
-        Index("idx_evaluations_interview_id", "interview_id"),
         Index("idx_evaluations_parent_id", "parent_evaluation_id"),
         Index("idx_evaluations_attempt_number", "attempt_number"),
     )

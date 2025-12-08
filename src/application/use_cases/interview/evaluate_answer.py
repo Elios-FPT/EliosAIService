@@ -244,8 +244,6 @@ class EvaluateAnswerUseCase:
             # Step 11: Create Evaluation entity
             evaluation = Evaluation(
                 answer_id=answer.id,
-                question_id=UUID(input_dto.question["id"] or ""),
-                interview_id=input_dto.interview_id,
                 raw_score=llm_eval.score,
                 penalty=0.0,
                 final_score=llm_eval.score,
@@ -259,18 +257,20 @@ class EvaluateAnswerUseCase:
                 improvement_suggestions=llm_eval.improvement_suggestions,
                 attempt_number=attempt_number,
                 parent_evaluation_id=parent_evaluation_id,
-                gaps=[
-                    ConceptGap(
-                        evaluation_id=answer.id,
-                        concept=concept,
-                        severity=self._determine_gap_severity(concept, gaps_dict),
-                        resolved=False,
-                        created_at=datetime.utcnow(),
-                    )
-                    for concept in gap_concepts
-                ],
+                gaps=[],
                 evaluated_at=datetime.utcnow(),
             )
+
+            evaluation.gaps = [
+                ConceptGap(
+                    evaluation_id=evaluation.id,
+                    concept=concept,
+                    severity=self._determine_gap_severity(concept, gaps_dict),
+                    resolved=False,
+                    created_at=datetime.utcnow(),
+                )
+                for concept in gap_concepts
+            ]
 
             # Step 12: Apply penalty based on attempt number
             evaluation.apply_penalty(attempt_number)
@@ -321,9 +321,12 @@ class EvaluateAnswerUseCase:
                     "target_gaps": analysis.follow_up.target_gaps,
                 }
 
+            evaluation_payload = saved_evaluation.model_dump(mode="json")
+            evaluation_payload["question_id"] = input_dto.question.get("id")
+
             return EvaluateAnswerOutput(
                 answer=saved_answer.model_dump(mode="json"),
-                evaluation=saved_evaluation.model_dump(mode="json"),
+                evaluation=evaluation_payload,
                 followup_suggestion=followup_suggestion,
                 cache_updates=cache_updates,
             )
