@@ -154,6 +154,7 @@ class Settings(BaseSettings):
     google_cloud_project_id: str | None = None
     google_application_credentials: str | None = None
     google_stt_model: str = "chirp_3"  # chirp_3, short, long, latest_long
+    google_stt_location: str = "us"  # us, eu, asia, us-central1, europe-west4, asia-southeast1, etc. Determines regional API endpoint for regional models
     google_stt_language: str = "en-US"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
 

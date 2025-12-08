@@ -452,8 +452,9 @@ async def _stream_transcription(
             f"for interview {interview_id}"
         )
 
-        # Transcribe using STT service (supports streaming via transcribe_stream)
-        result = await stt.transcribe_stream(complete_audio, language="en-US")
+        # Transcribe using batch transcription for accurate voice metrics
+        # Batch transcription provides word timestamps for accurate duration/WPM calculation
+        result = await stt.transcribe_audio(complete_audio, language="en-US")
 
         # Send final transcription to client
         await manager.send_message(

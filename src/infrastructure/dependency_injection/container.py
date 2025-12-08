@@ -404,6 +404,7 @@ class Container:
                 project_id=self.settings.google_cloud_project_id,
                 credentials_path=self.settings.google_application_credentials,
                 model=self.settings.google_stt_model,
+                location=self.settings.google_stt_location,
                 language=self.settings.google_stt_language,
             )
 

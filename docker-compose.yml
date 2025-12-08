@@ -25,6 +25,7 @@ services:
       GOOGLE_CLOUD_PROJECT_ID: "elios-speech-service"
       GOOGLE_APPLICATION_CREDENTIALS: "/app/secrets/elios-speech-service-b6ba8997cc4c.json"
       GOOGLE_STT_MODEL: "chirp_3"
+      GOOGLE_STT_LOCATION: "us"
       GOOGLE_STT_LANGUAGE: "en-US"
       GOOGLE_TTS_VOICE_TYPE: "Chirp3HD"
       GOOGLE_TTS_DEFAULT_VOICE: "en-US-Chirp3-HD-Charon"
