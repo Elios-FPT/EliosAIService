@@ -23,7 +23,6 @@ from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
 from ...domain.ports.prompt_repository_port import PromptRepositoryPort
 from .execution_logger import ExecutionLogger
-from .prompts import PROMPT_REGISTRY
 from .comprehensive_models import ComprehensiveAnalysis
 
 logger = logging.getLogger(__name__)
@@ -120,39 +119,15 @@ class LangChainAdapter(LLMPort):
         self.model = model
         self.callbacks = callbacks or []
         self.prompt_repo = prompt_repository
-        self._chains = self._build_chains()
         self._db_chain_cache: dict[str, Runnable] = {}
-
-    def _build_chains(self) -> dict[str, Any]:
-        """Build all LCEL chains for LLMPort methods in PROMPT_REGISTRY.
-
-        Returns:
-            Dictionary of method_name -> chain
-        """
-        chains = {}
-
-        # Build chain for each method in registry
-        for method_name, prompt_template in PROMPT_REGISTRY.items():
-            # Use structured output for comprehensive_answer_analysis to enforce Pydantic schema
-            if method_name == "comprehensive_answer_analysis":
-                structured_model = self.model.with_structured_output(ComprehensiveAnalysis)
-                chains[method_name] = prompt_template | structured_model
-            else:
-                # Simple chain: prompt | model | json_parser
-                chains[method_name] = prompt_template | self.model | JsonOutputParser()
-
-        return chains
 
     def _get_or_build_chain(
         self,
         method_name: str,
-        prompt_template: PromptTemplate | None = None,
+        prompt_template: PromptTemplate,
         cache_key: str | None = None,
     ) -> Runnable:
-        """Return cached chain or build a dynamic one from DB template."""
-        if not prompt_template:
-            return self._chains[method_name]
-
+        """Return cached chain built from DB template (no registry fallback)."""
         cache_identifier = (
             f"{method_name}:{cache_key or f'{prompt_template.prompt_name}:v{prompt_template.version}'}"
         )
@@ -166,12 +141,24 @@ class LangChainAdapter(LLMPort):
             ]
         )
 
+        if prompt_template.partial_variables:
+            prompt_template_obj = prompt_template_obj.partial(**prompt_template.partial_variables)
+
+        # Bind model parameters per template
+        bound_model = self.model.bind(
+            temperature=float(prompt_template.temperature),
+            max_tokens=prompt_template.max_tokens,
+            top_p=float(prompt_template.top_p),
+            frequency_penalty=float(prompt_template.frequency_penalty),
+            presence_penalty=float(prompt_template.presence_penalty),
+        )
+
         # Use structured output for comprehensive_answer_analysis to enforce Pydantic schema
         if method_name == "comprehensive_answer_analysis":
-            structured_model = self.model.with_structured_output(ComprehensiveAnalysis)
+            structured_model = bound_model.with_structured_output(ComprehensiveAnalysis)
             chain = prompt_template_obj | structured_model
         else:
-            chain = prompt_template_obj | self.model | JsonOutputParser()
+            chain = prompt_template_obj | bound_model | JsonOutputParser()
 
         self._db_chain_cache[cache_identifier] = chain
         return chain
@@ -218,43 +205,40 @@ class LangChainAdapter(LLMPort):
     async def _load_prompt_from_db(
         self,
         prompt_name: str,
-    ) -> tuple[PromptTemplate | None, str | None]:
-        """Load prompt from DB with fallback.
+    ) -> tuple[PromptTemplate, str | None]:
+        """Load prompt from DB (required, no fallback).
 
         Args:
             prompt_name: DB prompt identifier (e.g., "ideal_answer_generation")
 
         Returns:
             Tuple of (prompt_template, cache_key)
-            Returns (None, None) if DB unavailable or prompt not found
 
         Example:
             prompt_template, cache_key = await self._load_prompt_from_db("answer_evaluation")
             chain = self._get_or_build_chain("evaluate_answer", prompt_template, cache_key)
         """
         if not self.prompt_repo:
-            return None, None
+            raise RuntimeError(
+                f"Prompt repository is not configured; cannot load prompt '{prompt_name}'."
+            )
 
         try:
             prompt_template = await self.prompt_repo.get_active_prompt(prompt_name)
             if not prompt_template:
-                logger.info(
-                    "No active DB prompt for '%s', falling back to PROMPT_REGISTRY",
-                    prompt_name,
-                )
-                return None, None
+                raise LookupError(f"No active prompt found for '{prompt_name}'.")
 
             cache_key = f"{prompt_template.prompt_name}:v{prompt_template.version}"
             return prompt_template, cache_key
 
         except Exception as exc:
-            logger.warning(
-                "Failed loading DB prompt for '%s': %s. Falling back to PROMPT_REGISTRY.",
+            logger.error(
+                "Failed loading DB prompt for '%s': %s.",
                 prompt_name,
                 exc,
-                exc_info=True,  # Include stack trace for debugging
+                exc_info=True,
             )
-            return None, None
+            raise
 
     def _create_config(
         self, context: dict[str, Any] | None = None, **metadata_kwargs: Any
@@ -284,6 +268,18 @@ class LangChainAdapter(LLMPort):
                 metadata[key] = str(value) if isinstance(value, UUID) else value
 
         return RunnableConfig(metadata=metadata, callbacks=self.callbacks)
+
+    @staticmethod
+    def _validate_variables(prompt_template: PromptTemplate, variables: dict[str, Any]) -> None:
+        """Ensure required variables are provided for the prompt."""
+        provided = set(variables.keys()) | set(prompt_template.partial_variables.keys())
+        required = set(prompt_template.input_variables)
+        missing = required - provided
+        if missing:
+            raise ValueError(
+                f"Missing variables for prompt '{prompt_template.prompt_name}': {sorted(missing)}. "
+                f"Provided keys: {sorted(variables.keys())}"
+            )
 
     async def _invoke_chain_with_metadata(
         self, chain: Runnable, variables: dict[str, Any], config: RunnableConfig | dict[str, Any] | None = None
@@ -400,6 +396,8 @@ class LangChainAdapter(LLMPort):
             "cumulative_gaps": cumulative_gaps,
         }
 
+        self._validate_variables(prompt_template, variables)
+
         # Create config with metadata
         config = self._create_config(
             context=context,
@@ -512,6 +510,8 @@ class LangChainAdapter(LLMPort):
             "previous_context": previous_context,
             "priority_concepts": priority_concepts,
         }
+
+        self._validate_variables(prompt_template, variables)
 
         # Create config with metadata
         config = self._create_config(
@@ -650,6 +650,8 @@ class LangChainAdapter(LLMPort):
             "evaluations": json.dumps(context.get("evaluations", [])),
         }
 
+        self._validate_variables(prompt_template, variables)
+
         # Execute chain
         try:
             result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
@@ -745,6 +747,8 @@ class LangChainAdapter(LLMPort):
                 "experience": context.get("experience", context.get("experience_years", "Not specified")),
                 "questions_section": questions_section.strip(),
             }
+
+            self._validate_variables(prompt_template, chain_input)
 
             result, metadata = await self._invoke_chain_with_metadata(chain, chain_input, None)
 
