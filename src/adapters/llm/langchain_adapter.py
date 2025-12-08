@@ -147,7 +147,8 @@ class LangChainAdapter(LLMPort):
         # Bind model parameters per template
         bound_model = self.model.bind(
             temperature=float(prompt_template.temperature),
-            max_tokens=prompt_template.max_tokens,
+            # TODO: Uncomment this when we have a way to set max_tokens
+            # max_tokens=prompt_template.max_tokens,
             top_p=float(prompt_template.top_p),
             frequency_penalty=float(prompt_template.frequency_penalty),
             presence_penalty=float(prompt_template.presence_penalty),

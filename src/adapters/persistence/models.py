@@ -475,11 +475,6 @@ class PromptTemplateModel(Base):
         server_default="{}",
     )
     partial_variables: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
-    output_parser_type: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        server_default="json_output_parser",
-    )
     output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
     # Model parameters
@@ -491,9 +486,6 @@ class PromptTemplateModel(Base):
 
     # Soft delete
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-    # Auto-generated fields (read-only, created by trigger)
-    template_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
