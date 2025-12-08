@@ -33,13 +33,7 @@ debug_print("container.py: LangChainAdapter imported")
 
 # Import mock adapters
 debug_print("container.py: About to import mock adapters...")
-from ...adapters.mock import (
-    MockEventPublisher,
-    MockLLMAdapter,
-    MockSTTAdapter,
-    MockTTSAdapter,
-    MockVectorSearchAdapter,
-)
+from ...adapters.mock import MockVectorSearchAdapter
 debug_print("container.py: Mock adapters imported")
 
 # Import persistence adapters
@@ -61,8 +55,6 @@ debug_print("container.py: Persistence adapters imported")
 debug_print("container.py: About to import vector_db adapters...")
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
 debug_print("container.py: PineconeAdapter imported")
-from ...adapters.vector_db.chroma_adapter import ChromaAdapter
-debug_print("container.py: ChromaAdapter imported")
 
 debug_print("container.py: About to import CV processing adapters...")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
@@ -172,8 +164,6 @@ class Container:
         """
         # If a session is provided, build a fresh instance that can use a session-scoped prompt repo.
         if session is not None:
-            if self.settings.use_mock_llm:
-                return MockLLMAdapter()
             if self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
@@ -182,9 +172,7 @@ class Container:
 
         # No session → use cached singleton instance.
         if self._llm_port is None:
-            if self.settings.use_mock_llm:
-                self._llm_port = MockLLMAdapter()
-            elif self.settings.llm_provider == "openai":
+            if self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port()
                 self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
             else:
@@ -222,9 +210,6 @@ class Container:
                 # from ...adapters.vector_db.weaviate_adapter import WeaviateAdapter
                 # self._vector_search_port = WeaviateAdapter(...)
                 raise NotImplementedError("Weaviate adapter not yet implemented")
-            elif self.settings.vector_db_provider == "chroma":
-                self._vector_search_port = ChromaAdapter()
-                # raise NotImplementedError("ChromaDB adapter not yet implemented")
             else:
                 raise ValueError(
                     f"Unsupported vector DB provider: {self.settings.vector_db_provider}"
@@ -413,21 +398,17 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._stt_port is None:
-            # Use mock adapter if configured
-            if self.settings.use_mock_stt:
-                self._stt_port = MockSTTAdapter()
-            else:
-                from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
+            from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
 
-                if not self.settings.google_cloud_project_id:
-                    raise ValueError("Google Cloud project ID not configured")
+            if not self.settings.google_cloud_project_id:
+                raise ValueError("Google Cloud project ID not configured")
 
-                self._stt_port = GoogleChirp3STTAdapter(
-                    project_id=self.settings.google_cloud_project_id,
-                    credentials_path=self.settings.google_application_credentials,
-                    model=self.settings.google_stt_model,
-                    language=self.settings.google_stt_language,
-                )
+            self._stt_port = GoogleChirp3STTAdapter(
+                project_id=self.settings.google_cloud_project_id,
+                credentials_path=self.settings.google_application_credentials,
+                model=self.settings.google_stt_model,
+                language=self.settings.google_stt_language,
+            )
 
         return self._stt_port
 
@@ -441,20 +422,16 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._tts_port is None:
-            # Use mock adapter if configured
-            if self.settings.use_mock_tts:
-                self._tts_port = MockTTSAdapter()
-            else:
-                from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
+            from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
 
-                if not self.settings.google_cloud_project_id:
-                    raise ValueError("Google Cloud project ID not configured")
+            if not self.settings.google_cloud_project_id:
+                raise ValueError("Google Cloud project ID not configured")
 
-                self._tts_port = GoogleChirp3TTSAdapter(
-                    project_id=self.settings.google_cloud_project_id,
-                    credentials_path=self.settings.google_application_credentials,
-                    voice_name=self.settings.google_tts_voice_name,
-                )
+            self._tts_port = GoogleChirp3TTSAdapter(
+                project_id=self.settings.google_cloud_project_id,
+                credentials_path=self.settings.google_application_credentials,
+                voice_name=self.settings.google_tts_voice_name,
+            )
 
         return self._tts_port
 
@@ -469,15 +446,12 @@ class Container:
             Mock adapter does not require start/stop.
         """
         if self._event_publisher is None:
-            if self.settings.use_mock_event_publisher:
-                self._event_publisher = MockEventPublisher()
-            else:
-                self._event_publisher = KafkaEventPublisher(
-                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                    interview_topic=self.settings.kafka_interview_topic,
-                    feedback_topic=self.settings.kafka_feedback_topic,
-                    token_topic=self.settings.kafka_token_topic,
-                )
+            self._event_publisher = KafkaEventPublisher(
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                interview_topic=self.settings.kafka_interview_topic,
+                feedback_topic=self.settings.kafka_feedback_topic,
+                token_topic=self.settings.kafka_token_topic,
+            )
 
         return self._event_publisher
 
@@ -541,20 +515,16 @@ class Container:
             tts = self.text_to_speech_port()
 
             # Optional: Pre-warm with test synthesis (validates connection)
-            # Skip if using mock adapter (no network call needed)
-            if not self.settings.use_mock_tts:
-                try:
-                    # Pre-warm with minimal text (validates Google Cloud connection)
-                    await tts.synthesize_speech("test", speed=1.0)
-                    logger.info("TTS adapter pre-warmed successfully")
-                except Exception as prewarm_exc:
-                    # Pre-warm failure is non-critical (adapter still initialized)
-                    logger.warning(
-                        f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
-                        "First TTS call may be slower."
-                    )
-            else:
-                logger.info("TTS adapter initialized (mock mode, no pre-warm needed)")
+            try:
+                # Pre-warm with minimal text (validates Google Cloud connection)
+                await tts.synthesize_speech("test", speed=1.0)
+                logger.info("TTS adapter pre-warmed successfully")
+            except Exception as prewarm_exc:
+                # Pre-warm failure is non-critical (adapter still initialized)
+                logger.warning(
+                    f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
+                    "First TTS call may be slower."
+                )
 
         except Exception as exc:
             # Non-blocking: Log warning but don't fail startup

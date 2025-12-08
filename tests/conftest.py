@@ -410,15 +410,6 @@ class MockVectorSearch:
         """Mock embedding storage (no-op)."""
         pass
 
-    async def find_similar_answers(
-        self,
-        answer_embedding: list[float],
-        reference_embeddings: list[list[float]],
-    ) -> float:
-        """Return mock similarity score based on text length."""
-        # Simple mock: longer answers get higher similarity
-        return 0.85 if len(answer_embedding) > 100 else 0.45
-
 
 class MockLLM:
     """Mock LLM for testing."""

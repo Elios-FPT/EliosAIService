@@ -64,23 +64,6 @@ class VectorSearchPort(ABC):
         pass
 
     @abstractmethod
-    async def find_similar_answers(
-        self,
-        answer_embedding: list[float],
-        reference_embeddings: list[list[float]],
-    ) -> float:
-        """Calculate similarity between answer and reference answers.
-
-        Args:
-            answer_embedding: Candidate's answer embedding
-            reference_embeddings: Reference answer embeddings
-
-        Returns:
-            Similarity score (0-1)
-        """
-        pass
-
-    @abstractmethod
     async def get_embedding(
         self,
         text: str,

@@ -155,49 +155,6 @@ class PineconeAdapter(VectorSearchPort):
 
         return similar_questions
 
-    async def find_similar_answers(
-        self,
-        answer_embedding: list[float],
-        reference_embeddings: list[list[float]],
-    ) -> float:
-        """Calculate similarity between answer and reference answers.
-
-        Args:
-            answer_embedding: Candidate's answer embedding
-            reference_embeddings: Reference answer embeddings
-
-        Returns:
-            Similarity score (0-1)
-        """
-        # For simplicity, calculate cosine similarity with the first reference
-        # In production, you might want to average or take max similarity
-        if not reference_embeddings:
-            return 0.0
-
-        # Store temporary reference embedding
-        temp_id = "temp_reference"
-        self.index.upsert(
-            vectors=[
-                {
-                    "id": temp_id,
-                    "values": reference_embeddings[0],
-                    "metadata": {"type": "temp"},
-                }
-            ]
-        )
-
-        # Query for similarity
-        results = self.index.query(
-            vector=answer_embedding,
-            top_k=1,
-            filter={"type": "temp"},
-        )
-
-        # Clean up temp vector
-        self.index.delete(ids=[temp_id])
-
-        return results.matches[0].score if results.matches else 0.0
-
     async def get_embedding(self, text: str) -> list[float]:
         """Generate embedding for text using OpenAI.
 

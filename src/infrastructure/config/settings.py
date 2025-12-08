@@ -230,12 +230,8 @@ class Settings(BaseSettings):
     langgraph_checkpointer_ensure_timeout_seconds: float = 10.0
 
     # Mock Adapters (for development/testing)
-    # Individual flags for each adapter - set to False to use real implementations
-    use_mock_llm: bool = True
+    # Vector search mock remains available for local development/testing
     use_mock_vector_search: bool = True
-    use_mock_stt: bool = True
-    use_mock_tts: bool = True
-    use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
     # Phase 2: Unified LLM Prompt (Performance Optimization)
 
@@ -258,13 +254,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_speech_config(self) -> "Settings":
         """Validate Google Cloud Speech configuration."""
-        if not self.use_mock_stt and not self.use_mock_tts:
-            if not self.google_cloud_project_id:
-                raise ValueError(
-                    "GOOGLE_CLOUD_PROJECT_ID required when not using mock adapters. "
-                    "Set USE_MOCK_STT=true or USE_MOCK_TTS=true for development, "
-                    "or provide Google Cloud credentials."
-                )
+        if not self.google_cloud_project_id:
+            raise ValueError(
+                "GOOGLE_CLOUD_PROJECT_ID required for speech adapters. "
+                "Provide Google Cloud credentials."
+            )
         return self
 
     def print_loaded_env_file(self) -> None:
