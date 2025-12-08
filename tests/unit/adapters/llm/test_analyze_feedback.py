@@ -53,6 +53,7 @@ async def test_analyze_feedback_cv(adapter, mock_prompt_repo):
         top_p=0.95,
         frequency_penalty=0.0,
         presence_penalty=0.0,
+        created_by="test",
     )
 
     mock_prompt_repo.get_active_prompt.return_value = prompt_template
@@ -117,6 +118,7 @@ async def test_analyze_feedback_code(adapter, mock_prompt_repo):
         top_p=0.95,
         frequency_penalty=0.0,
         presence_penalty=0.0,
+        created_by="test",
     )
 
     mock_prompt_repo.get_active_prompt.return_value = prompt_template
@@ -166,8 +168,27 @@ async def test_analyze_feedback_interview_rejected(adapter):
 
 
 @pytest.mark.asyncio
-async def test_analyze_feedback_invalid_json(adapter):
+async def test_analyze_feedback_invalid_json(adapter, mock_prompt_repo):
     """Test that invalid JSON is rejected."""
+    from src.domain.models.prompt_template import PromptTemplate
+
+    prompt_template = PromptTemplate(
+        prompt_name="cv_feedback",
+        version=1,
+        system_prompt="System prompt",
+        user_template="User template: {cv_data}",
+        input_variables=["cv_data"],
+        partial_variables={},
+        temperature=0.7,
+        max_tokens=2000,
+        top_p=0.95,
+        frequency_penalty=0.0,
+        presence_penalty=0.0,
+        created_by="test",
+    )
+
+    mock_prompt_repo.get_active_prompt.return_value = prompt_template
+
     with pytest.raises(ValueError, match="Invalid feedback_input JSON"):
         await adapter.analyze_feedback(
             input_type=InputType.CV,

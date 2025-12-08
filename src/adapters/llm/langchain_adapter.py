@@ -133,8 +133,16 @@ class LangChainAdapter(LLMPort):
         method_name: str,
         prompt_template: PromptTemplate,
         cache_key: str | None = None,
+        structured_output_model: type[Any] | None = None,
     ) -> Runnable:
-        """Return cached chain built from DB template (no registry fallback)."""
+        """Return cached chain built from DB template (no registry fallback).
+
+        Args:
+            method_name: Method name for caching
+            prompt_template: Prompt template from DB
+            cache_key: Optional cache key override
+            structured_output_model: Optional Pydantic model for structured output
+        """
         cache_identifier = (
             f"{method_name}:{cache_key or f'{prompt_template.prompt_name}:v{prompt_template.version}'}"
         )
@@ -161,8 +169,11 @@ class LangChainAdapter(LLMPort):
             presence_penalty=float(prompt_template.presence_penalty),
         )
 
-        # Use structured output for comprehensive_answer_analysis to enforce Pydantic schema
-        if method_name == "comprehensive_answer_analysis":
+        # Use structured output if model provided or for specific methods
+        if structured_output_model:
+            structured_model = bound_model.with_structured_output(structured_output_model)
+            chain = prompt_template_obj | structured_model
+        elif method_name == "comprehensive_answer_analysis":
             structured_model = bound_model.with_structured_output(ComprehensiveAnalysis)
             chain = prompt_template_obj | structured_model
         else:
@@ -495,35 +506,24 @@ class LangChainAdapter(LLMPort):
         if input_type == InputType.INTERVIEW:
             raise ValueError("INTERVIEW analysis not supported. Use CV or CODE.")
 
-        # Determine prompt name
-        prompt_name = "cv_feedback" if input_type == InputType.CV else "code_solution_feedback"
+        # Determine prompt name and structured output model
+        if input_type == InputType.CV:
+            prompt_name = "cv_feedback"
+            structured_output_model = CVFeedbackAnalysis
+        else:  # CODE
+            prompt_name = "code_solution_feedback"
+            structured_output_model = CodeFeedbackAnalysis
 
         # Load DB prompt
         prompt_template, cache_key = await self._load_prompt_from_db(prompt_name)
 
-        # Build chain with structured output
-        prompt_template_obj = ChatPromptTemplate.from_messages([
-            ("system", prompt_template.system_prompt),
-            ("human", prompt_template.user_template),
-        ])
-
-        if prompt_template.partial_variables:
-            prompt_template_obj = prompt_template_obj.partial(**prompt_template.partial_variables)
-
-        bound_model = self.model.bind(
-            temperature=float(prompt_template.temperature),
-            top_p=float(prompt_template.top_p),
-            frequency_penalty=float(prompt_template.frequency_penalty),
-            presence_penalty=float(prompt_template.presence_penalty),
+        # Get chain (uses _get_or_build_chain with structured output)
+        chain = self._get_or_build_chain(
+            method_name="analyze_feedback",
+            prompt_template=prompt_template,
+            cache_key=cache_key,
+            structured_output_model=structured_output_model,
         )
-
-        # Use structured output
-        if input_type == InputType.CV:
-            structured_model = bound_model.with_structured_output(CVFeedbackAnalysis)
-        else:  # CODE
-            structured_model = bound_model.with_structured_output(CodeFeedbackAnalysis)
-
-        chain = prompt_template_obj | structured_model
 
         # Parse feedback_input JSON
         try:
