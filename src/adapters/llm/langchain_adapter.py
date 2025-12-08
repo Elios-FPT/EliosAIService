@@ -18,12 +18,19 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 
 from ...domain.models.evaluation import FollowUpEvaluationContext
+from ...domain.models.feedback_result import (
+    CVFeedbackResult,
+    CodeReviewFeedbackResult,
+    FeedbackResult,
+    InputType,
+)
 from ...domain.models.prompt_template import PromptTemplate
 from ...domain.models.question import Question
 from ...domain.ports.llm_port import LLMPort
 from ...domain.ports.prompt_repository_port import PromptRepositoryPort
 from .execution_logger import ExecutionLogger
 from .comprehensive_models import ComprehensiveAnalysis
+from .feedback_models import CVFeedbackAnalysis, CodeFeedbackAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +467,215 @@ class LangChainAdapter(LLMPort):
                 )
             logger.error(f"Comprehensive analysis failed: {exc}", exc_info=True)
             raise RuntimeError(f"Comprehensive analysis failed: {exc}") from exc
+
+    async def analyze_feedback(
+        self,
+        input_type: InputType,
+        feedback_input: str,
+        context: dict[str, Any] | None = None,
+    ) -> FeedbackResult:
+        """Analyze feedback using DB prompts.
+
+        Args:
+            input_type: CV or CODE only
+            feedback_input: JSON string with entity content
+            context: Optional context
+
+        Returns:
+            CVFeedbackResult or CodeReviewFeedbackResult
+
+        Raises:
+            ValueError: If input_type is INTERVIEW or invalid
+            RuntimeError: If LLM call fails
+        """
+        start_time = time.time()
+        context = context or {}
+
+        # Validate input_type
+        if input_type == InputType.INTERVIEW:
+            raise ValueError("INTERVIEW analysis not supported. Use CV or CODE.")
+
+        # Determine prompt name
+        prompt_name = "cv_feedback" if input_type == InputType.CV else "code_solution_feedback"
+
+        # Load DB prompt
+        prompt_template, cache_key = await self._load_prompt_from_db(prompt_name)
+
+        # Build chain with structured output
+        prompt_template_obj = ChatPromptTemplate.from_messages([
+            ("system", prompt_template.system_prompt),
+            ("human", prompt_template.user_template),
+        ])
+
+        if prompt_template.partial_variables:
+            prompt_template_obj = prompt_template_obj.partial(**prompt_template.partial_variables)
+
+        bound_model = self.model.bind(
+            temperature=float(prompt_template.temperature),
+            top_p=float(prompt_template.top_p),
+            frequency_penalty=float(prompt_template.frequency_penalty),
+            presence_penalty=float(prompt_template.presence_penalty),
+        )
+
+        # Use structured output
+        if input_type == InputType.CV:
+            structured_model = bound_model.with_structured_output(CVFeedbackAnalysis)
+        else:  # CODE
+            structured_model = bound_model.with_structured_output(CodeFeedbackAnalysis)
+
+        chain = prompt_template_obj | structured_model
+
+        # Parse feedback_input JSON
+        try:
+            feedback_data = json.loads(feedback_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid feedback_input JSON: {e}") from e
+
+        # Prepare variables based on input_type
+        if input_type == InputType.CV:
+            variables = {
+                "cv_data": feedback_input,  # Pass raw JSON string
+            }
+        else:  # CODE
+            variables = {
+                "problem_description": feedback_data.get("problem_description", ""),
+                "language": feedback_data.get("language", "python"),
+                "user_code_solution": feedback_data.get("user_code_solution", ""),
+            }
+
+        self._validate_variables(prompt_template, variables)
+
+        # Create config
+        config = self._create_config(
+            context=context,
+            method="analyze_feedback",
+            input_type=input_type.value,
+        )
+
+        # Execute chain
+        try:
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
+
+            # Map LLM result to FeedbackResult
+            if input_type == InputType.CV:
+                feedback_result = self._map_cv_analysis_to_result(
+                    analysis=result,
+                    entity_id=context.get("entity_id"),
+                )
+            else:  # CODE
+                feedback_result = self._map_code_analysis_to_result(
+                    analysis=result,
+                    entity_id=context.get("entity_id"),
+                    language=variables.get("language", "python"),
+                )
+
+            # Log execution
+            if prompt_template:
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables=variables,
+                    output_text=feedback_result.model_dump_json(),
+                    start_time=start_time,
+                    success=True,
+                    model=self.model,
+                    model_response_metadata=metadata,
+                )
+
+            logger.info(
+                f"Feedback analysis completed: type={input_type.value}, "
+                f"duration={(time.time() - start_time) * 1000:.0f}ms"
+            )
+
+            return feedback_result
+
+        except Exception as exc:
+            if prompt_template:
+                await ExecutionLogger.log_execution(
+                    prompt_repo=self.prompt_repo,
+                    prompt_template=prompt_template,
+                    context=context,
+                    input_variables=variables,
+                    output_text=None,
+                    start_time=start_time,
+                    success=False,
+                    model=self.model,
+                    error_message=str(exc),
+                )
+            logger.error(f"Feedback analysis failed: {exc}", exc_info=True)
+            raise RuntimeError(f"Feedback analysis failed: {exc}") from exc
+
+    def _map_cv_analysis_to_result(
+        self,
+        analysis: CVFeedbackAnalysis,
+        entity_id: Any,
+    ) -> CVFeedbackResult:
+        """Map CVFeedbackAnalysis to CVFeedbackResult."""
+        from uuid import UUID
+
+        # Extract skills from actionable_recommendations and market_competitiveness
+        skill_gaps = analysis.market_competitiveness.improvement_areas.copy()
+
+        # Extract improvement areas from recommendations
+        improvement_areas = []
+        for rec in analysis.actionable_recommendations.high_priority:
+            improvement_areas.append(rec.recommendation)
+
+        # Extract certifications (could be in recommendations)
+        suggested_certifications = []
+        for rec in analysis.actionable_recommendations.medium_priority:
+            if "certification" in rec.recommendation.lower():
+                suggested_certifications.append(rec.recommendation)
+
+        return CVFeedbackResult(
+            cv_analysis_id=UUID(str(entity_id)) if entity_id else UUID(),
+            skills_identified=[],  # Not in LLM output, keep empty
+            primary_skills=[],  # Not in LLM output
+            secondary_skills=[],  # Not in LLM output
+            total_experience_years=0.0,  # Not in LLM output
+            work_experience_summary=analysis.work_experience.feedback,
+            education_level="Unknown",  # Not in LLM output
+            education_details=[],  # Not in LLM output
+            skill_gaps=skill_gaps,
+            improvement_areas=improvement_areas,
+            suggested_certifications=suggested_certifications,
+            language="en",  # Default
+        )
+
+    def _map_code_analysis_to_result(
+        self,
+        analysis: CodeFeedbackAnalysis,
+        entity_id: Any,
+        language: str,
+    ) -> CodeReviewFeedbackResult:
+        """Map CodeFeedbackAnalysis to CodeReviewFeedbackResult."""
+        # Calculate derived scores (weighted average)
+        code_quality_score = analysis.code_quality.score * 4  # 0-25 -> 0-100
+        maintainability_score = analysis.best_practices.score * 5  # 0-20 -> 0-100
+        readability_score = analysis.code_quality.score * 4  # Same as code_quality
+
+        # Extract best practices violations
+        best_practices_violations = analysis.best_practices.principles_violated.copy()
+
+        # Extract refactoring suggestions
+        refactoring_suggestions = []
+        if analysis.actionable_recommendations.recommendation:
+            refactoring_suggestions.append(analysis.actionable_recommendations.recommendation)
+
+        return CodeReviewFeedbackResult(
+            submission_id=str(entity_id) if entity_id else "",
+            code_quality_score=code_quality_score,
+            maintainability_score=maintainability_score,
+            readability_score=readability_score,
+            bugs_detected=[],  # Not in current prompt output
+            security_issues=[],  # Not in current prompt output
+            code_smells=[],  # Not in current prompt output
+            best_practices_violations=best_practices_violations,
+            refactoring_suggestions=refactoring_suggestions,
+            performance_tips=[],  # Not in current prompt output
+            language=language,
+        )
 
     async def generate_followup_question(
         self,

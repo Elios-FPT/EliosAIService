@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ..models.evaluation import FollowUpEvaluationContext
+from ..models.feedback_result import FeedbackResult, InputType
 from ..models.question import Question
 
 if TYPE_CHECKING:
@@ -120,5 +121,28 @@ class LLMPort(ABC):
         Raises:
             ValueError: If question has no ideal_answer
             RuntimeError: If LLM call fails after retries
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_feedback(
+        self,
+        input_type: InputType,
+        feedback_input: str,
+        context: dict[str, Any] | None = None,
+    ) -> FeedbackResult:
+        """Analyze feedback using DB prompts.
+
+        Args:
+            input_type: CV or CODE (INTERVIEW not supported)
+            feedback_input: JSON string with entity content
+            context: Optional context (user_id, entity_id, etc.)
+
+        Returns:
+            CVFeedbackResult or CodeReviewFeedbackResult
+
+        Raises:
+            ValueError: If input_type is INTERVIEW or feedback_input is invalid
+            RuntimeError: If LLM call fails
         """
         pass
