@@ -12,6 +12,13 @@ from src.domain.models.feedback_result import (
     CodeReviewFeedbackResult,
     FeedbackStatus,
     InputType,
+    OverallAssessment,
+    SectionFeedback,
+    ActionableRecommendations,
+    MarketCompetitiveness,
+    CodeQuality,
+    BestPractices,
+    CodeActionableRecommendation,
 )
 from src.domain.ports.llm_port import LLMPort
 
@@ -65,17 +72,36 @@ async def test_execute_success_cv(use_case, mock_dependencies, mock_llm):
     # Mock LLM response
     mock_cv_result = CVFeedbackResult(
         cv_analysis_id=cv_analysis_id,
-        skills_identified=[],
-        primary_skills=["Python"],
-        secondary_skills=["FastAPI"],
-        total_experience_years=5.0,
-        work_experience_summary="5 years experience",
-        education_level="Unknown",
-        education_details=[],
-        skill_gaps=[],
-        improvement_areas=[],
-        suggested_certifications=[],
-        language="en",
+        overall_assessment=OverallAssessment(
+            overall_score=75.0,
+            summary="Good CV with relevant experience",
+        ),
+        professional_summary=SectionFeedback(
+            score=12.0,
+            feedback="Clear professional positioning",
+            suggestions=[],
+        ),
+        work_experience=SectionFeedback(
+            score=20.0,
+            feedback="5 years experience",
+            suggestions=[],
+        ),
+        projects=SectionFeedback(
+            score=18.0,
+            feedback="Good project descriptions",
+            suggestions=[],
+        ),
+        skills=SectionFeedback(
+            score=15.0,
+            feedback="Relevant skills: Python, FastAPI",
+            suggestions=[],
+        ),
+        actionable_recommendations=ActionableRecommendations(),
+        market_competitiveness=MarketCompetitiveness(
+            assessment="Competitive for mid-level positions",
+            target_roles=["Backend Developer"],
+            improvement_areas=[],
+        ),
     )
     mock_llm.analyze_feedback.return_value = mock_cv_result
 
@@ -131,16 +157,29 @@ async def test_execute_success_code(use_case, mock_dependencies, mock_llm):
     # Mock LLM response
     mock_code_result = CodeReviewFeedbackResult(
         submission_id=str(code_id),
-        code_quality_score=75.0,
-        maintainability_score=80.0,
-        readability_score=70.0,
-        bugs_detected=[],
-        security_issues=[],
-        code_smells=[],
-        best_practices_violations=[],
-        refactoring_suggestions=[],
-        performance_tips=[],
         language="python",
+        overall_assessment=OverallAssessment(
+            overall_score=75.0,
+            summary="Good code quality overall",
+        ),
+        code_quality=CodeQuality(
+            score=18.75,
+            feedback="Code is readable and well-structured",
+            suggestions=[],
+        ),
+        best_practices=BestPractices(
+            score=16.0,
+            feedback="Follows most best practices",
+            principles_violated=[],
+            principles_followed=["SOLID"],
+            suggestions=[],
+        ),
+        actionable_recommendations=CodeActionableRecommendation(
+            recommendation="Add error handling",
+            impact="Improves robustness",
+            effort="medium",
+            line_reference=None,
+        ),
     )
     mock_llm.analyze_feedback.return_value = mock_code_result
 
@@ -251,17 +290,36 @@ async def test_execute_publishes_event(use_case, mock_dependencies, mock_llm):
     # Mock LLM response
     mock_cv_result = CVFeedbackResult(
         cv_analysis_id=cv_id,
-        skills_identified=[],
-        primary_skills=[],
-        secondary_skills=[],
-        total_experience_years=0.0,
-        work_experience_summary="",
-        education_level="Unknown",
-        education_details=[],
-        skill_gaps=[],
-        improvement_areas=[],
-        suggested_certifications=[],
-        language="en",
+        overall_assessment=OverallAssessment(
+            overall_score=70.0,
+            summary="Basic CV structure",
+        ),
+        professional_summary=SectionFeedback(
+            score=10.0,
+            feedback="Basic professional summary",
+            suggestions=[],
+        ),
+        work_experience=SectionFeedback(
+            score=15.0,
+            feedback="Work experience section",
+            suggestions=[],
+        ),
+        projects=SectionFeedback(
+            score=12.0,
+            feedback="Projects section",
+            suggestions=[],
+        ),
+        skills=SectionFeedback(
+            score=10.0,
+            feedback="Skills section",
+            suggestions=[],
+        ),
+        actionable_recommendations=ActionableRecommendations(),
+        market_competitiveness=MarketCompetitiveness(
+            assessment="Needs improvement",
+            target_roles=[],
+            improvement_areas=[],
+        ),
     )
     mock_llm.analyze_feedback.return_value = mock_cv_result
 
@@ -304,17 +362,36 @@ async def test_execute_event_publish_failure_does_not_fail_use_case(
     # Mock LLM response
     mock_cv_result = CVFeedbackResult(
         cv_analysis_id=cv_id,
-        skills_identified=[],
-        primary_skills=[],
-        secondary_skills=[],
-        total_experience_years=0.0,
-        work_experience_summary="",
-        education_level="Unknown",
-        education_details=[],
-        skill_gaps=[],
-        improvement_areas=[],
-        suggested_certifications=[],
-        language="en",
+        overall_assessment=OverallAssessment(
+            overall_score=70.0,
+            summary="Basic CV structure",
+        ),
+        professional_summary=SectionFeedback(
+            score=10.0,
+            feedback="Basic professional summary",
+            suggestions=[],
+        ),
+        work_experience=SectionFeedback(
+            score=15.0,
+            feedback="Work experience section",
+            suggestions=[],
+        ),
+        projects=SectionFeedback(
+            score=12.0,
+            feedback="Projects section",
+            suggestions=[],
+        ),
+        skills=SectionFeedback(
+            score=10.0,
+            feedback="Skills section",
+            suggestions=[],
+        ),
+        actionable_recommendations=ActionableRecommendations(),
+        market_competitiveness=MarketCompetitiveness(
+            assessment="Needs improvement",
+            target_roles=[],
+            improvement_areas=[],
+        ),
     )
     mock_llm.analyze_feedback.return_value = mock_cv_result
 

@@ -142,49 +142,84 @@ class TestInterviewFeedbackResult:
 
 
 class TestCodeReviewFeedbackResult:
-    """Test CodeReviewFeedbackResult model (stub)."""
+    """Test CodeReviewFeedbackResult model."""
 
     def test_code_review_feedback_result_creation(self):
         """Test creating valid CodeReviewFeedbackResult."""
+        from src.domain.models.feedback_result import (
+            OverallAssessment,
+            CodeQuality,
+            BestPractices,
+            CodeActionableRecommendation,
+        )
+
         result = CodeReviewFeedbackResult(
             submission_id="sub_123",
-            code_quality_score=85.0,
-            maintainability_score=80.0,
-            readability_score=75.0,
             language="python",
+            overall_assessment=OverallAssessment(
+                overall_score=85.0,
+                summary="Good code quality overall",
+            ),
+            code_quality=CodeQuality(
+                score=20.0,
+                feedback="Code is readable and well-structured",
+                suggestions=["Add more comments"],
+            ),
+            best_practices=BestPractices(
+                score=18.0,
+                feedback="Follows most best practices",
+                principles_violated=[],
+                principles_followed=["SOLID", "DRY"],
+                suggestions=["Consider design patterns"],
+            ),
+            actionable_recommendations=CodeActionableRecommendation(
+                recommendation="Extract magic numbers to constants",
+                impact="Improves maintainability",
+                effort="low",
+                line_reference="line 42",
+            ),
         )
 
         assert result.submission_id == "sub_123"
-        assert result.code_quality_score == 85.0
+        assert result.overall_assessment.overall_score == 85.0
+        assert result.code_quality.score == 20.0
         assert isinstance(result, FeedbackResult)  # Inheritance check
 
     def test_code_review_feedback_result_score_bounds(self):
-        """Test score validation (must be 0-100)."""
+        """Test score validation (overall 0-100, code_quality 0-25, best_practices 0-20)."""
+        from src.domain.models.feedback_result import (
+            OverallAssessment,
+            CodeQuality,
+            BestPractices,
+            CodeActionableRecommendation,
+        )
+
         with pytest.raises(ValidationError):
             CodeReviewFeedbackResult(
                 submission_id="sub_123",
-                code_quality_score=150.0,  # Invalid
-                maintainability_score=80.0,
-                readability_score=75.0,
                 language="python",
+                overall_assessment=OverallAssessment(
+                    overall_score=150.0,  # Invalid
+                    summary="Test",
+                ),
+                code_quality=CodeQuality(score=20.0, feedback="Test"),
+                best_practices=BestPractices(score=18.0, feedback="Test"),
+                actionable_recommendations=CodeActionableRecommendation(
+                    recommendation="Test", impact="Test", effort="low"
+                ),
             )
 
-    def test_code_review_feedback_result_default_fields(self):
-        """Test default field values."""
-        result = CodeReviewFeedbackResult(
-            submission_id="sub_123",
-            code_quality_score=75.0,
-            maintainability_score=70.0,
-            readability_score=65.0,
-            language="java",
-        )
-
-        assert result.bugs_detected == []
-        assert result.security_issues == []
-        assert result.code_smells == []
-        assert result.best_practices_violations == []
-        assert result.refactoring_suggestions == []
-        assert result.performance_tips == []
+        with pytest.raises(ValidationError):
+            CodeReviewFeedbackResult(
+                submission_id="sub_123",
+                language="python",
+                overall_assessment=OverallAssessment(overall_score=75.0, summary="Test"),
+                code_quality=CodeQuality(score=30.0, feedback="Test"),  # Invalid (>25)
+                best_practices=BestPractices(score=18.0, feedback="Test"),
+                actionable_recommendations=CodeActionableRecommendation(
+                    recommendation="Test", impact="Test", effort="low"
+                ),
+            )
 
 
 class TestCVFeedbackResult:
@@ -192,44 +227,106 @@ class TestCVFeedbackResult:
 
     def test_cv_feedback_result_creation(self):
         """Test creating valid CVFeedbackResult."""
-        result = CVFeedbackResult(
-            cv_analysis_id=uuid4(),
-            total_experience_years=5.5,
-            work_experience_summary="5 years as backend developer",
-            education_level="Bachelor's Degree",
-            language="en",
+        from src.domain.models.feedback_result import (
+            OverallAssessment,
+            SectionFeedback,
+            ActionableRecommendations,
+            MarketCompetitiveness,
         )
 
-        assert result.total_experience_years == 5.5
-        assert result.work_experience_summary == "5 years as backend developer"
+        result = CVFeedbackResult(
+            cv_analysis_id=uuid4(),
+            overall_assessment=OverallAssessment(
+                overall_score=80.0,
+                summary="Strong CV with good technical background",
+            ),
+            professional_summary=SectionFeedback(
+                score=12.0,
+                feedback="Clear professional positioning",
+                suggestions=["Add more keywords"],
+            ),
+            work_experience=SectionFeedback(
+                score=20.0,
+                feedback="Well-structured work experience",
+                suggestions=["Quantify achievements"],
+            ),
+            projects=SectionFeedback(
+                score=18.0,
+                feedback="Good project descriptions",
+                suggestions=["Add project links"],
+            ),
+            skills=SectionFeedback(
+                score=15.0,
+                feedback="Relevant skills listed",
+                suggestions=["Organize by proficiency"],
+            ),
+            actionable_recommendations=ActionableRecommendations(
+                high_priority=[],
+                medium_priority=[],
+                low_priority=[],
+            ),
+            market_competitiveness=MarketCompetitiveness(
+                assessment="Competitive for mid-level positions",
+                target_roles=["Backend Developer"],
+                improvement_areas=["System design"],
+            ),
+        )
+
+        assert result.overall_assessment.overall_score == 80.0
+        assert result.work_experience.score == 20.0
         assert isinstance(result, FeedbackResult)  # Inheritance check
 
-    def test_cv_feedback_result_negative_experience(self):
-        """Test that experience years cannot be negative."""
+    def test_cv_feedback_result_score_bounds(self):
+        """Test score validation (overall 0-100, sections have varying ranges)."""
+        from src.domain.models.feedback_result import (
+            OverallAssessment,
+            SectionFeedback,
+            ActionableRecommendations,
+            MarketCompetitiveness,
+        )
+
         with pytest.raises(ValidationError):
             CVFeedbackResult(
                 cv_analysis_id=uuid4(),
-                total_experience_years=-1.0,  # Invalid
-                work_experience_summary="Summary",
-                education_level="Bachelor's",
-                language="en",
+                overall_assessment=OverallAssessment(
+                    overall_score=150.0,  # Invalid
+                    summary="Test",
+                ),
+                professional_summary=SectionFeedback(score=12.0, feedback="Test"),
+                work_experience=SectionFeedback(score=20.0, feedback="Test"),
+                projects=SectionFeedback(score=18.0, feedback="Test"),
+                skills=SectionFeedback(score=15.0, feedback="Test"),
+                actionable_recommendations=ActionableRecommendations(),
+                market_competitiveness=MarketCompetitiveness(
+                    assessment="Test", target_roles=[], improvement_areas=[]
+                ),
             )
 
     def test_cv_feedback_result_default_fields(self):
         """Test default field values."""
-        result = CVFeedbackResult(
-            cv_analysis_id=uuid4(),
-            total_experience_years=3.0,
-            work_experience_summary="Summary",
-            education_level="Bachelor's",
-            language="en",
+        from src.domain.models.feedback_result import (
+            OverallAssessment,
+            SectionFeedback,
+            ActionableRecommendations,
+            MarketCompetitiveness,
         )
 
-        assert result.skills_identified == []
-        assert result.primary_skills == []
-        assert result.secondary_skills == []
-        assert result.education_details == []
-        assert result.skill_gaps == []
-        assert result.improvement_areas == []
-        assert result.suggested_certifications == []
+        result = CVFeedbackResult(
+            cv_analysis_id=uuid4(),
+            overall_assessment=OverallAssessment(overall_score=75.0, summary="Test"),
+            professional_summary=SectionFeedback(score=10.0, feedback="Test"),
+            work_experience=SectionFeedback(score=18.0, feedback="Test"),
+            projects=SectionFeedback(score=15.0, feedback="Test"),
+            skills=SectionFeedback(score=12.0, feedback="Test"),
+            actionable_recommendations=ActionableRecommendations(),
+            market_competitiveness=MarketCompetitiveness(
+                assessment="Test", target_roles=[], improvement_areas=[]
+            ),
+        )
+
+        assert result.actionable_recommendations.high_priority == []
+        assert result.actionable_recommendations.medium_priority == []
+        assert result.actionable_recommendations.low_priority == []
+        assert result.market_competitiveness.target_roles == []
+        assert result.market_competitiveness.improvement_areas == []
 

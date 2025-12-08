@@ -31,34 +31,87 @@ class MockLLMAdapter(LLMPort):
         context: dict[str, Any] | None = None,
     ) -> FeedbackResult:
         """Mock feedback analysis."""
+        from ...domain.models.feedback_result import (
+            OverallAssessment,
+            SectionFeedback,
+            ActionableRecommendations,
+            Recommendation,
+            MarketCompetitiveness,
+            CodeQuality,
+            BestPractices,
+            CodeActionableRecommendation,
+        )
+
         if input_type == InputType.CV:
             return CVFeedbackResult(
                 cv_analysis_id=UUID(),
-                skills_identified=[],
-                primary_skills=[],
-                secondary_skills=[],
-                total_experience_years=0.0,
-                work_experience_summary="Mock CV feedback",
-                education_level="Unknown",
-                education_details=[],
-                skill_gaps=[],
-                improvement_areas=[],
-                suggested_certifications=[],
-                language="en",
+                overall_assessment=OverallAssessment(
+                    overall_score=75.0,
+                    summary="Mock CV feedback - overall assessment",
+                ),
+                professional_summary=SectionFeedback(
+                    score=12.0,
+                    feedback="Mock professional summary feedback",
+                    suggestions=["Improve job title clarity"],
+                ),
+                work_experience=SectionFeedback(
+                    score=20.0,
+                    feedback="Mock work experience feedback",
+                    suggestions=["Quantify achievements"],
+                ),
+                projects=SectionFeedback(
+                    score=18.0,
+                    feedback="Mock projects feedback",
+                    suggestions=["Add project links"],
+                ),
+                skills=SectionFeedback(
+                    score=15.0,
+                    feedback="Mock skills feedback",
+                    suggestions=["Organize by proficiency"],
+                ),
+                actionable_recommendations=ActionableRecommendations(
+                    high_priority=[
+                        Recommendation(
+                            recommendation="Add quantifiable metrics",
+                            impact="High impact on recruiter attention",
+                            effort="low",
+                        )
+                    ],
+                    medium_priority=[],
+                    low_priority=[],
+                ),
+                market_competitiveness=MarketCompetitiveness(
+                    assessment="Mock market competitiveness assessment",
+                    target_roles=["Backend Developer", "Software Engineer"],
+                    improvement_areas=["System design", "Cloud experience"],
+                ),
             )
         else:  # CODE
             return CodeReviewFeedbackResult(
                 submission_id="mock",
-                code_quality_score=75.0,
-                maintainability_score=80.0,
-                readability_score=70.0,
-                bugs_detected=[],
-                security_issues=[],
-                code_smells=[],
-                best_practices_violations=[],
-                refactoring_suggestions=[],
-                performance_tips=[],
                 language="python",
+                overall_assessment=OverallAssessment(
+                    overall_score=80.0,
+                    summary="Mock code review - overall assessment",
+                ),
+                code_quality=CodeQuality(
+                    score=20.0,
+                    feedback="Mock code quality feedback",
+                    suggestions=["Improve variable naming"],
+                ),
+                best_practices=BestPractices(
+                    score=16.0,
+                    feedback="Mock best practices feedback",
+                    principles_violated=["DRY"],
+                    principles_followed=["SOLID"],
+                    suggestions=["Extract common logic"],
+                ),
+                actionable_recommendations=CodeActionableRecommendation(
+                    recommendation="Refactor duplicate code",
+                    impact="Improves maintainability",
+                    effort="medium",
+                    line_reference="lines 45-60",
+                ),
             )
 
     # Stub implementations for other LLMPort methods

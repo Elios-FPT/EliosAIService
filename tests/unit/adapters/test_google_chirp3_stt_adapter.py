@@ -15,6 +15,7 @@ def adapter():
             project_id="test-project",
             credentials_path=None,
             model="chirp_3",
+            location="us",
         )
 
 
@@ -54,11 +55,13 @@ class TestGoogleChirp3STTAdapter:
                     project_id="test-project",
                     credentials_path="/path/to/creds.json",
                     model="chirp_3",
+                    location="us",
                     language="vi-VN",
                 )
 
                 assert adapter.project_id == "test-project"
                 assert adapter.model == "chirp_3"
+                assert adapter.location == "us"
                 assert adapter.default_language == "vi-VN"
                 mock_creds.from_service_account_file.assert_called_once()
 
@@ -68,10 +71,12 @@ class TestGoogleChirp3STTAdapter:
             adapter = GoogleChirp3STTAdapter(
                 project_id="test-project",
                 credentials_path=None,
+                location="us",
             )
 
             assert adapter.project_id == "test-project"
             assert adapter.credentials_path is None
+            assert adapter.location == "us"
             mock_client.assert_called_once()
 
     @pytest.mark.asyncio

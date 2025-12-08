@@ -136,10 +136,40 @@ class TestFeedbackResponseMapper:
             feedback_request_id=uuid4(),
             result_json={
                 "cv_analysis_id": str(cv_analysis_id),
-                "total_experience_years": 5.0,
-                "work_experience_summary": "5 years experience",
-                "education_level": "Bachelor's",
-                "language": "en",
+                "overall_assessment": {
+                    "overall_score": 75.0,
+                    "summary": "Good CV",
+                },
+                "professional_summary": {
+                    "score": 12.0,
+                    "feedback": "Good summary",
+                    "suggestions": [],
+                },
+                "work_experience": {
+                    "score": 20.0,
+                    "feedback": "5 years experience",
+                    "suggestions": [],
+                },
+                "projects": {
+                    "score": 18.0,
+                    "feedback": "Good projects",
+                    "suggestions": [],
+                },
+                "skills": {
+                    "score": 15.0,
+                    "feedback": "Relevant skills",
+                    "suggestions": [],
+                },
+                "actionable_recommendations": {
+                    "high_priority": [],
+                    "medium_priority": [],
+                    "low_priority": [],
+                },
+                "market_competitiveness": {
+                    "assessment": "Competitive",
+                    "target_roles": [],
+                    "improvement_areas": [],
+                },
             },
             created_at=datetime.utcnow(),
         )
@@ -148,7 +178,8 @@ class TestFeedbackResponseMapper:
 
         assert isinstance(domain_model.result, CVFeedbackResult)
         assert domain_model.result.cv_analysis_id == cv_analysis_id
-        assert domain_model.result.total_experience_years == 5.0
+        assert domain_model.result.overall_assessment.overall_score == 75.0
+        assert domain_model.result.work_experience.feedback == "5 years experience"
 
     def test_to_domain_code_result(self):
         """Test converting DB model to domain with CodeReviewFeedbackResult."""
@@ -157,10 +188,29 @@ class TestFeedbackResponseMapper:
             feedback_request_id=uuid4(),
             result_json={
                 "submission_id": "sub_123",
-                "code_quality_score": 85.0,
-                "maintainability_score": 80.0,
-                "readability_score": 75.0,
                 "language": "python",
+                "overall_assessment": {
+                    "overall_score": 85.0,
+                    "summary": "Good code quality",
+                },
+                "code_quality": {
+                    "score": 20.0,
+                    "feedback": "Clean code",
+                    "suggestions": [],
+                },
+                "best_practices": {
+                    "score": 16.0,
+                    "feedback": "Follows best practices",
+                    "principles_violated": [],
+                    "principles_followed": ["SOLID"],
+                    "suggestions": [],
+                },
+                "actionable_recommendations": {
+                    "recommendation": "Add error handling",
+                    "impact": "High",
+                    "effort": "medium",
+                    "line_reference": None,
+                },
             },
             created_at=datetime.utcnow(),
         )
@@ -169,7 +219,8 @@ class TestFeedbackResponseMapper:
 
         assert isinstance(domain_model.result, CodeReviewFeedbackResult)
         assert domain_model.result.submission_id == "sub_123"
-        assert domain_model.result.code_quality_score == 85.0
+        assert domain_model.result.code_quality.score == 20.0
+        assert domain_model.result.overall_assessment.overall_score == 85.0
 
     def test_to_domain_unknown_input_type(self):
         """Test that unknown input_type raises ValueError."""

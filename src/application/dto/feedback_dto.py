@@ -1,5 +1,6 @@
 """DTOs for feedback API."""
 
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -36,9 +37,9 @@ class AnalyzeFeedbackResponse(BaseModel):
 
     request_id: UUID
     status: str = Field(description="FeedbackStatus as string")
-    result: FeedbackResult | None = Field(
+    result: dict[str, Any] | None = Field(
         default=None,
-        description="Typed result (InterviewFeedbackResult/CodeReviewFeedbackResult/CVFeedbackResult)",
+        description="Typed result serialized as dict (InterviewFeedbackResult/CodeReviewFeedbackResult/CVFeedbackResult)",
     )
     error_message: str | None = None
 
@@ -68,6 +69,6 @@ class FeedbackHistoryResponse(BaseModel):
     input_type: str
     status: str
     created_at: str
-    result: FeedbackResult | None = None
+    result: dict[str, Any] | None = None
     error_message: str | None = None
 

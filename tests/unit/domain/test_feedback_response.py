@@ -7,6 +7,10 @@ from src.domain.models.feedback_response import FeedbackResponse
 from src.domain.models.feedback_result import (
     CVFeedbackResult,
     InterviewFeedbackResult,
+    OverallAssessment,
+    SectionFeedback,
+    ActionableRecommendations,
+    MarketCompetitiveness,
 )
 
 
@@ -46,10 +50,36 @@ class TestFeedbackResponseCreation:
 
         result = CVFeedbackResult(
             cv_analysis_id=cv_analysis_id,
-            total_experience_years=5.0,
-            work_experience_summary="5 years experience",
-            education_level="Bachelor's",
-            language="en",
+            overall_assessment=OverallAssessment(
+                overall_score=75.0,
+                summary="Good CV with relevant experience",
+            ),
+            professional_summary=SectionFeedback(
+                score=12.0,
+                feedback="Good professional summary",
+                suggestions=[],
+            ),
+            work_experience=SectionFeedback(
+                score=20.0,
+                feedback="5 years experience",
+                suggestions=[],
+            ),
+            projects=SectionFeedback(
+                score=18.0,
+                feedback="Good projects",
+                suggestions=[],
+            ),
+            skills=SectionFeedback(
+                score=15.0,
+                feedback="Relevant skills",
+                suggestions=[],
+            ),
+            actionable_recommendations=ActionableRecommendations(),
+            market_competitiveness=MarketCompetitiveness(
+                assessment="Competitive",
+                target_roles=[],
+                improvement_areas=[],
+            ),
         )
 
         response = FeedbackResponse(

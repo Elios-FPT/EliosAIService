@@ -88,12 +88,12 @@ class TestCVFeedbackMapping:
 
         assert isinstance(result, CVFeedbackResult)
         assert result.cv_analysis_id == entity_id
-        assert result.work_experience_summary == "Strong work experience"
-        assert result.skill_gaps == ["Cloud experience", "System design"]
-        assert "Add more keywords" in result.improvement_areas
-        # Certification extraction checks for "certification" keyword
-        assert len(result.suggested_certifications) > 0
-        assert result.language == "en"
+        assert result.work_experience.feedback == "Strong work experience"
+        assert result.work_experience.score == 20.0
+        assert result.market_competitiveness.improvement_areas == ["Cloud experience", "System design"]
+        assert len(result.actionable_recommendations.high_priority) == 2
+        assert result.actionable_recommendations.high_priority[0].recommendation == "Add more keywords"
+        assert len(result.actionable_recommendations.medium_priority) == 1
 
     def test_map_cv_analysis_empty_recommendations(self):
         """Test mapping with empty recommendations."""
@@ -116,9 +116,9 @@ class TestCVFeedbackMapping:
         result = adapter._map_cv_analysis_to_result(analysis, None)
 
         assert isinstance(result, CVFeedbackResult)
-        assert result.improvement_areas == []
-        assert result.suggested_certifications == []
-        assert result.skill_gaps == []
+        assert len(result.actionable_recommendations.high_priority) == 0
+        assert len(result.actionable_recommendations.medium_priority) == 0
+        assert len(result.market_competitiveness.improvement_areas) == 0
 
 
 class TestCodeFeedbackMapping:
@@ -158,12 +158,13 @@ class TestCodeFeedbackMapping:
 
         assert isinstance(result, CodeReviewFeedbackResult)
         assert result.submission_id == str(entity_id)
-        assert result.code_quality_score == 80.0  # 20 * 4
-        assert result.maintainability_score == 80.0  # 16 * 5
-        assert result.readability_score == 80.0  # 20 * 4
-        assert result.best_practices_violations == ["DRY"]
-        assert len(result.refactoring_suggestions) == 1
-        assert "Extract common logic" in result.refactoring_suggestions[0]
+        assert result.code_quality.score == 20.0
+        assert result.code_quality.feedback == "Clean and readable code"
+        assert result.best_practices.score == 16.0
+        assert result.best_practices.principles_violated == ["DRY"]
+        assert result.best_practices.principles_followed == ["SOLID", "KISS"]
+        assert result.actionable_recommendations.recommendation == "Extract common logic into helper function"
+        assert result.actionable_recommendations.line_reference == "Lines 45-50"
         assert result.language == "python"
 
     def test_map_code_analysis_empty_violations(self):
@@ -190,7 +191,8 @@ class TestCodeFeedbackMapping:
         result = adapter._map_code_analysis_to_result(analysis, None, "javascript")
 
         assert isinstance(result, CodeReviewFeedbackResult)
-        assert result.best_practices_violations == []
-        assert result.code_quality_score == 100.0  # 25 * 4
+        assert result.best_practices.principles_violated == []
+        assert result.code_quality.score == 25.0
+        assert result.best_practices.score == 20.0
         assert result.language == "javascript"
 

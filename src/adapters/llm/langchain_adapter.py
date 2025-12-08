@@ -611,36 +611,92 @@ class LangChainAdapter(LLMPort):
         analysis: CVFeedbackAnalysis,
         entity_id: Any,
     ) -> CVFeedbackResult:
-        """Map CVFeedbackAnalysis to CVFeedbackResult."""
+        """Map CVFeedbackAnalysis to CVFeedbackResult.
+
+        Models now match prompt schema directly, so mapping is straightforward.
+        """
         from uuid import UUID
+        from ...domain.models.feedback_result import (
+            OverallAssessment,
+            SectionFeedback,
+            ActionableRecommendations,
+            Recommendation,
+            MarketCompetitiveness,
+        )
 
-        # Extract skills from actionable_recommendations and market_competitiveness
-        skill_gaps = analysis.market_competitiveness.improvement_areas.copy()
+        # Convert nested models to domain models
+        overall_assessment = OverallAssessment(
+            overall_score=analysis.overall_assessment.overall_score,
+            summary=analysis.overall_assessment.summary,
+        )
 
-        # Extract improvement areas from recommendations
-        improvement_areas = []
-        for rec in analysis.actionable_recommendations.high_priority:
-            improvement_areas.append(rec.recommendation)
+        professional_summary = SectionFeedback(
+            score=analysis.professional_summary.score,
+            feedback=analysis.professional_summary.feedback,
+            suggestions=analysis.professional_summary.suggestions,
+        )
 
-        # Extract certifications (could be in recommendations)
-        suggested_certifications = []
-        for rec in analysis.actionable_recommendations.medium_priority:
-            if "certification" in rec.recommendation.lower():
-                suggested_certifications.append(rec.recommendation)
+        work_experience = SectionFeedback(
+            score=analysis.work_experience.score,
+            feedback=analysis.work_experience.feedback,
+            suggestions=analysis.work_experience.suggestions,
+        )
+
+        projects = SectionFeedback(
+            score=analysis.projects.score,
+            feedback=analysis.projects.feedback,
+            suggestions=analysis.projects.suggestions,
+        )
+
+        skills = SectionFeedback(
+            score=analysis.skills.score,
+            feedback=analysis.skills.feedback,
+            suggestions=analysis.skills.suggestions,
+        )
+
+        # Convert recommendations
+        actionable_recommendations = ActionableRecommendations(
+            high_priority=[
+                Recommendation(
+                    recommendation=rec.recommendation,
+                    impact=rec.impact,
+                    effort=rec.effort,
+                )
+                for rec in analysis.actionable_recommendations.high_priority
+            ],
+            medium_priority=[
+                Recommendation(
+                    recommendation=rec.recommendation,
+                    impact=rec.impact,
+                    effort=rec.effort,
+                )
+                for rec in analysis.actionable_recommendations.medium_priority
+            ],
+            low_priority=[
+                Recommendation(
+                    recommendation=rec.recommendation,
+                    impact=rec.impact,
+                    effort=rec.effort,
+                )
+                for rec in analysis.actionable_recommendations.low_priority
+            ],
+        )
+
+        market_competitiveness = MarketCompetitiveness(
+            assessment=analysis.market_competitiveness.assessment,
+            target_roles=analysis.market_competitiveness.target_roles,
+            improvement_areas=analysis.market_competitiveness.improvement_areas,
+        )
 
         return CVFeedbackResult(
             cv_analysis_id=UUID(str(entity_id)) if entity_id else UUID(),
-            skills_identified=[],  # Not in LLM output, keep empty
-            primary_skills=[],  # Not in LLM output
-            secondary_skills=[],  # Not in LLM output
-            total_experience_years=0.0,  # Not in LLM output
-            work_experience_summary=analysis.work_experience.feedback,
-            education_level="Unknown",  # Not in LLM output
-            education_details=[],  # Not in LLM output
-            skill_gaps=skill_gaps,
-            improvement_areas=improvement_areas,
-            suggested_certifications=suggested_certifications,
-            language="en",  # Default
+            overall_assessment=overall_assessment,
+            professional_summary=professional_summary,
+            work_experience=work_experience,
+            projects=projects,
+            skills=skills,
+            actionable_recommendations=actionable_recommendations,
+            market_competitiveness=market_competitiveness,
         )
 
     def _map_code_analysis_to_result(
@@ -649,32 +705,51 @@ class LangChainAdapter(LLMPort):
         entity_id: Any,
         language: str,
     ) -> CodeReviewFeedbackResult:
-        """Map CodeFeedbackAnalysis to CodeReviewFeedbackResult."""
-        # Calculate derived scores (weighted average)
-        code_quality_score = analysis.code_quality.score * 4  # 0-25 -> 0-100
-        maintainability_score = analysis.best_practices.score * 5  # 0-20 -> 0-100
-        readability_score = analysis.code_quality.score * 4  # Same as code_quality
+        """Map CodeFeedbackAnalysis to CodeReviewFeedbackResult.
 
-        # Extract best practices violations
-        best_practices_violations = analysis.best_practices.principles_violated.copy()
+        Models now match prompt schema directly, so mapping is straightforward.
+        """
+        from ...domain.models.feedback_result import (
+            OverallAssessment,
+            CodeQuality,
+            BestPractices,
+            CodeActionableRecommendation,
+        )
 
-        # Extract refactoring suggestions
-        refactoring_suggestions = []
-        if analysis.actionable_recommendations.recommendation:
-            refactoring_suggestions.append(analysis.actionable_recommendations.recommendation)
+        # Convert nested models to domain models
+        overall_assessment = OverallAssessment(
+            overall_score=analysis.overall_assessment.overall_score,
+            summary=analysis.overall_assessment.summary,
+        )
+
+        code_quality = CodeQuality(
+            score=analysis.code_quality.score,
+            feedback=analysis.code_quality.feedback,
+            suggestions=analysis.code_quality.suggestions,
+        )
+
+        best_practices = BestPractices(
+            score=analysis.best_practices.score,
+            feedback=analysis.best_practices.feedback,
+            principles_violated=analysis.best_practices.principles_violated,
+            principles_followed=analysis.best_practices.principles_followed,
+            suggestions=analysis.best_practices.suggestions,
+        )
+
+        actionable_recommendations = CodeActionableRecommendation(
+            recommendation=analysis.actionable_recommendations.recommendation,
+            impact=analysis.actionable_recommendations.impact,
+            effort=analysis.actionable_recommendations.effort,
+            line_reference=analysis.actionable_recommendations.line_reference,
+        )
 
         return CodeReviewFeedbackResult(
             submission_id=str(entity_id) if entity_id else "",
-            code_quality_score=code_quality_score,
-            maintainability_score=maintainability_score,
-            readability_score=readability_score,
-            bugs_detected=[],  # Not in current prompt output
-            security_issues=[],  # Not in current prompt output
-            code_smells=[],  # Not in current prompt output
-            best_practices_violations=best_practices_violations,
-            refactoring_suggestions=refactoring_suggestions,
-            performance_tips=[],  # Not in current prompt output
             language=language,
+            overall_assessment=overall_assessment,
+            code_quality=code_quality,
+            best_practices=best_practices,
+            actionable_recommendations=actionable_recommendations,
         )
 
     async def generate_followup_question(

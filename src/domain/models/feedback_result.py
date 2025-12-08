@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -37,6 +38,117 @@ class FeedbackStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     RETRYING = "RETRYING"
+
+
+# ============================================
+# Nested Models for CV Feedback
+# ============================================
+class OverallAssessment(BaseModel):
+    """Overall assessment section (shared by CV and Code feedback)."""
+
+    overall_score: float = Field(ge=0.0, le=100.0, description="Overall score 0-100")
+    summary: str = Field(description="2-3 sentence overall assessment")
+
+
+class SectionFeedback(BaseModel):
+    """Reusable section feedback model (for professional_summary, work_experience, projects, skills).
+
+    Score ranges vary by section:
+    - professional_summary: 0-15
+    - work_experience: 0-25
+    - projects: 0-25
+    - skills: 0-20
+    """
+
+    score: float = Field(ge=0.0, description="Section score (range varies by section)")
+    feedback: str = Field(description="Feedback text")
+    suggestions: list[str] = Field(
+        default_factory=list, description="List of improvement suggestions"
+    )
+
+
+class Recommendation(BaseModel):
+    """Single recommendation with priority metadata."""
+
+    recommendation: str = Field(description="Specific recommendation")
+    impact: str = Field(description="Expected impact of this recommendation")
+    effort: Literal["low", "medium", "high"] = Field(
+        description="Effort required: 'low', 'medium', or 'high'"
+    )
+
+
+class ActionableRecommendations(BaseModel):
+    """Actionable recommendations grouped by priority."""
+
+    high_priority: list[Recommendation] = Field(
+        default_factory=list, description="High priority recommendations"
+    )
+    medium_priority: list[Recommendation] = Field(
+        default_factory=list, description="Medium priority recommendations"
+    )
+    low_priority: list[Recommendation] = Field(
+        default_factory=list, description="Low priority recommendations"
+    )
+
+
+class MarketCompetitiveness(BaseModel):
+    """Market competitiveness assessment."""
+
+    assessment: str = Field(
+        description="Assessment of how competitive this CV is in the current market"
+    )
+    target_roles: list[str] = Field(
+        default_factory=list, description="Suggested target roles"
+    )
+    improvement_areas: list[str] = Field(
+        default_factory=list, description="Areas needing improvement"
+    )
+
+
+# ============================================
+# Nested Models for Code Feedback
+# ============================================
+class CodeQuality(BaseModel):
+    """Code quality feedback section."""
+
+    score: float = Field(ge=0.0, le=25.0, description="Code quality score 0-25")
+    feedback: str = Field(description="Feedback on code readability, structure, and organization")
+    suggestions: list[str] = Field(
+        default_factory=list, description="List of improvement suggestions"
+    )
+
+
+class BestPractices(BaseModel):
+    """Best practices feedback section."""
+
+    score: float = Field(ge=0.0, le=20.0, description="Best practices score 0-20")
+    feedback: str = Field(
+        description="Feedback on adherence to best practices and design principles"
+    )
+    principles_violated: list[str] = Field(
+        default_factory=list, description="List of violated principles"
+    )
+    principles_followed: list[str] = Field(
+        default_factory=list, description="List of followed principles"
+    )
+    suggestions: list[str] = Field(
+        default_factory=list, description="List of improvement suggestions"
+    )
+
+
+class CodeActionableRecommendation(BaseModel):
+    """Single code recommendation with line reference."""
+
+    recommendation: str = Field(
+        description="Most important recommendation to improve the code"
+    )
+    impact: str = Field(description="Expected impact of this recommendation")
+    effort: Literal["low", "medium", "high"] = Field(
+        description="Effort required: 'low', 'medium', or 'high'"
+    )
+    line_reference: str | None = Field(
+        default=None, description="Line number or section reference if applicable"
+    )
 
 
 # ============================================
@@ -105,95 +217,61 @@ class InterviewFeedbackResult(FeedbackResult):
 
 
 class CodeReviewFeedbackResult(FeedbackResult):
-    """Code review feedback result (STUB - not implemented in Phase 04).
+    """Code review feedback result.
 
-    Future implementation will analyze code for:
-    - Code quality (maintainability, readability)
-    - Bugs and security issues
-    - Code smells and best practices
+    Matches code_solution_feedback prompt template output_schema.
+    Analyzes code for quality, best practices, and actionable improvements.
     """
 
-    submission_id: str = Field(description="External code submission ID")
-
-    # Quality scores
-    code_quality_score: float = Field(
-        ge=0.0, le=100.0, description="Overall code quality score"
-    )
-    maintainability_score: float = Field(
-        ge=0.0, le=100.0, description="Maintainability score"
-    )
-    readability_score: float = Field(
-        ge=0.0, le=100.0, description="Readability score"
+    submission_id: str = Field(description="External code submission ID (metadata)")
+    language: str = Field(
+        description="Programming language ('python', 'java', etc.) (metadata)"
     )
 
-    # Detailed analysis
-    bugs_detected: list[dict] = Field(
-        default_factory=list,
-        description="List of bugs: {severity, line, description}",
+    # Matches prompt template output_schema
+    overall_assessment: OverallAssessment = Field(
+        description="Overall assessment with score and summary"
     )
-    security_issues: list[dict] = Field(
-        default_factory=list,
-        description="Security issues: {severity, type, recommendation}",
+    code_quality: CodeQuality = Field(
+        description="Code quality feedback (score 0-25)"
     )
-    code_smells: list[dict] = Field(
-        default_factory=list,
-        description="Code smells: {type, location, suggestion}",
+    best_practices: BestPractices = Field(
+        description="Best practices feedback (score 0-20)"
     )
-    best_practices_violations: list[str] = Field(
-        default_factory=list, description="Best practice violations"
+    actionable_recommendations: CodeActionableRecommendation = Field(
+        description="Single most important actionable recommendation"
     )
-
-    # Recommendations
-    refactoring_suggestions: list[str] = Field(default_factory=list)
-    performance_tips: list[str] = Field(default_factory=list)
-
-    # Metadata
-    language: str = Field(description="Programming language ('python', 'java', etc.)")
 
 
 class CVFeedbackResult(FeedbackResult):
     """CV analysis feedback result.
 
-    Analyzes CV for skills, experience, education, and provides
-    career improvement recommendations.
+    Matches cv_feedback prompt template output_schema.
+    Analyzes CV for structure, content, and market competitiveness.
     """
 
-    cv_analysis_id: UUID
+    cv_analysis_id: UUID = Field(description="CV analysis ID (metadata)")
 
-    # Skills analysis
-    skills_identified: list[dict] = Field(
-        default_factory=list,
-        description="Skills: {name, proficiency, years}",
+    # Matches prompt template output_schema
+    overall_assessment: OverallAssessment = Field(
+        description="Overall assessment with score and summary"
     )
-    primary_skills: list[str] = Field(
-        default_factory=list, description="Top skills for interview focus"
+    professional_summary: SectionFeedback = Field(
+        description="Professional summary/title feedback (score 0-15)"
     )
-    secondary_skills: list[str] = Field(
-        default_factory=list, description="Additional skills"
+    work_experience: SectionFeedback = Field(
+        description="Work experience section feedback (score 0-25)"
     )
-
-    # Experience
-    total_experience_years: float = Field(ge=0.0, description="Total work experience")
-    work_experience_summary: str = Field(description="Work experience summary")
-
-    # Education
-    education_level: str = Field(description="Highest education level")
-    education_details: list[dict] = Field(
-        default_factory=list,
-        description="Education entries: {degree, institution, year}",
+    projects: SectionFeedback = Field(
+        description="Projects section feedback (score 0-25)"
     )
-
-    # Recommendations
-    skill_gaps: list[str] = Field(
-        default_factory=list, description="Identified skill gaps for target role"
+    skills: SectionFeedback = Field(
+        description="Skills section feedback (score 0-20)"
     )
-    improvement_areas: list[str] = Field(
-        default_factory=list, description="Areas needing development"
+    actionable_recommendations: ActionableRecommendations = Field(
+        description="Prioritized actionable recommendations"
     )
-    suggested_certifications: list[str] = Field(
-        default_factory=list, description="Recommended certifications"
+    market_competitiveness: MarketCompetitiveness = Field(
+        description="Market competitiveness assessment"
     )
-
-    # Metadata
-    language: str = Field(description="CV language ('en', 'vi', etc.)")
 

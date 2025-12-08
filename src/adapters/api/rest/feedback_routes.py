@@ -88,10 +88,14 @@ async def analyze_feedback(
             feedback_input=request.feedback_input,
         )
 
+        # Explicitly serialize result to preserve subclass fields
+        # Pydantic v2 doesn't properly serialize union types with empty base classes
+        result_data = result.model_dump(mode='json') if result else None
+
         return AnalyzeFeedbackResponse(
             request_id=feedback_request.id,
             status=feedback_request.status.value,
-            result=result,
+            result=result_data,
             error_message=feedback_request.error_message,
         )
 
@@ -161,7 +165,8 @@ async def get_feedback_history(
         if req.status == FeedbackStatus.SUCCESS:
             response = await response_repo.get_by_request_id(req.id)
             if response:
-                result = response.result
+                # Explicitly serialize result to preserve subclass fields
+                result = response.result.model_dump(mode='json') if response.result else None
 
         responses.append(
             FeedbackHistoryResponse(
@@ -215,7 +220,8 @@ async def get_feedback_by_id(
     if feedback_request.status == FeedbackStatus.SUCCESS:
         response = await response_repo.get_by_request_id(request_id)
         if response:
-            result = response.result
+            # Explicitly serialize result to preserve subclass fields
+            result = response.result.model_dump(mode='json') if response.result else None
 
     return AnalyzeFeedbackResponse(
         request_id=feedback_request.id,

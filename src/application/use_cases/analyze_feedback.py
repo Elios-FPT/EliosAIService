@@ -145,6 +145,8 @@ class AnalyzeFeedbackUseCase:
                     exc_info=True,
                 )
 
+            feedback_request.status = FeedbackStatus.SUCCESS
+
             return feedback_request, result
 
         except Exception as e:

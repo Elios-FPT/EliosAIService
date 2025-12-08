@@ -736,7 +736,7 @@ class FeedbackResponseMapper:
             FeedbackResponseModel SQLAlchemy model
         """
         # Pydantic automatically serializes to dict
-        result_json = domain_model.result.model_dump()
+        result_json = domain_model.result.model_dump(mode='json')
 
         return FeedbackResponseModel(
             id=domain_model.id,

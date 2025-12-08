@@ -89,7 +89,8 @@ async def test_analyze_feedback_cv(adapter, mock_prompt_repo):
         )
 
         assert result.cv_analysis_id == entity_id
-        assert result.work_experience_summary == "Strong"
+        assert result.work_experience.feedback == "Strong"
+        assert result.work_experience.score == 20.0
         mock_prompt_repo.get_active_prompt.assert_called_once_with("cv_feedback")
 
 
@@ -152,7 +153,8 @@ async def test_analyze_feedback_code(adapter, mock_prompt_repo):
         )
 
         assert result.submission_id == str(entity_id)
-        assert result.code_quality_score == 80.0  # 20 * 4
+        assert result.code_quality.score == 20.0
+        assert result.code_quality.feedback == "Clean"
         assert result.language == "python"
         mock_prompt_repo.get_active_prompt.assert_called_once_with("code_solution_feedback")
 
