@@ -157,3 +157,53 @@ class TestEvaluationVoiceMetricsFields:
 
         assert evaluation.voice_metrics is None
 
+    def test_evaluation_voice_metrics_empty_dict(self):
+        """Test evaluation with empty voice_metrics dict."""
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics={},  # Empty dict
+        )
+
+        assert evaluation.voice_metrics == {}
+
+    def test_evaluation_voice_metrics_invalid_type_rejected(self):
+        """Test that Pydantic rejects invalid voice_metrics types."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Evaluation(
+                answer_id=uuid4(),
+                raw_score=80.0,
+                theoretical_score=80.0,
+                speaking_score=None,
+                final_score=80.0,
+                completeness=0.9,
+                relevance=0.8,
+                voice_metrics="invalid_string",  # Should be dict or None
+            )
+
+    def test_evaluation_voice_metrics_partial_structure(self):
+        """Test evaluation with partial voice_metrics structure."""
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics={
+                "intonation_score": 0.85,
+                # Missing other fields - should still work
+            },
+        )
+
+        assert evaluation.voice_metrics is not None
+        assert evaluation.voice_metrics["intonation_score"] == 0.85
+

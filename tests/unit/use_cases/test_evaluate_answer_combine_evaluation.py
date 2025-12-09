@@ -157,3 +157,60 @@ class TestCalculateSpeakingScore:
         # (0.0 + 1.0 + 0.5) / 3 * 100 = 50.0
         assert score == 50.0
 
+
+class TestVoiceMetricsStorage:
+    """Test that voice_metrics pattern is correct for Evaluation entity."""
+
+    def test_voice_metrics_passed_to_evaluation_constructor(self):
+        """Test that voice_metrics can be passed to Evaluation constructor.
+        
+        This verifies the pattern used in EvaluateAnswerUseCase.execute()
+        where input_dto.voice_metrics is passed to Evaluation constructor.
+        """
+        from src.domain.models.evaluation import Evaluation
+        from uuid import uuid4
+
+        voice_metrics = {
+            "intonation_score": 0.85,
+            "fluency_score": 0.92,
+            "confidence_score": 0.88,
+            "speaking_rate_wpm": 145,
+        }
+
+        # Simulate what EvaluateAnswerUseCase does:
+        # evaluation = Evaluation(..., voice_metrics=input_dto.voice_metrics, ...)
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=85.0,
+            speaking_score=75.0,
+            final_score=82.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics=voice_metrics,  # Pattern: input_dto.voice_metrics
+        )
+
+        # Verify voice_metrics stored correctly
+        assert evaluation.voice_metrics == voice_metrics
+        assert evaluation.voice_metrics["intonation_score"] == 0.85
+        assert evaluation.voice_metrics["speaking_rate_wpm"] == 145
+
+    def test_voice_metrics_none_for_text_answer(self):
+        """Test that voice_metrics=None works for text-only answers."""
+        from src.domain.models.evaluation import Evaluation
+        from uuid import uuid4
+
+        # Simulate text-only answer (no voice_metrics)
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics=None,  # Text-only: no voice metrics
+        )
+
+        assert evaluation.voice_metrics is None
+

@@ -158,3 +158,98 @@ class TestVoiceMetricsEvaluationFlow:
         assert evaluation.penalty == -5.0
         assert evaluation.final_score == 77.0  # 82.0 - 5.0
 
+    @pytest.mark.asyncio
+    async def test_voice_metrics_jsonb_storage_and_retrieval(
+        self,
+        async_session,
+        mock_evaluation_repo,
+    ):
+        """Test that voice_metrics are stored as JSONB and retrieved correctly."""
+        answer_id = uuid4()
+        voice_metrics = {
+            "intonation_score": 0.85,
+            "fluency_score": 0.92,
+            "confidence_score": 0.88,
+            "speaking_rate_wpm": 145,
+        }
+
+        evaluation = Evaluation(
+            answer_id=answer_id,
+            raw_score=80.0,
+            theoretical_score=85.0,
+            speaking_score=75.0,
+            final_score=82.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics=voice_metrics,  # Store raw voice metrics
+        )
+
+        # Save evaluation
+        saved = await mock_evaluation_repo.save(evaluation)
+
+        # Verify voice_metrics stored
+        assert saved.voice_metrics is not None
+        assert saved.voice_metrics["intonation_score"] == 0.85
+        assert saved.voice_metrics["fluency_score"] == 0.92
+        assert saved.voice_metrics["confidence_score"] == 0.88
+        assert saved.voice_metrics["speaking_rate_wpm"] == 145
+
+        # Retrieve and verify round-trip
+        retrieved = await mock_evaluation_repo.find_by_answer_id(answer_id)
+        assert retrieved is not None
+        assert retrieved.voice_metrics == voice_metrics
+        assert retrieved.voice_metrics["intonation_score"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_text_answer_voice_metrics_none(
+        self,
+        async_session,
+        mock_evaluation_repo,
+    ):
+        """Test that text-only answer has voice_metrics as None."""
+        answer_id = uuid4()
+        evaluation = Evaluation(
+            answer_id=answer_id,
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.8,
+            relevance=0.8,
+            voice_metrics=None,  # Text-only: no voice metrics
+        )
+
+        saved = await mock_evaluation_repo.save(evaluation)
+
+        # Verify voice_metrics is None
+        assert saved.voice_metrics is None
+
+        # Retrieve and verify
+        retrieved = await mock_evaluation_repo.find_by_answer_id(answer_id)
+        assert retrieved is not None
+        assert retrieved.voice_metrics is None
+
+    @pytest.mark.asyncio
+    async def test_voice_metrics_empty_dict(
+        self,
+        async_session,
+        mock_evaluation_repo,
+    ):
+        """Test edge case: empty voice_metrics dict."""
+        answer_id = uuid4()
+        evaluation = Evaluation(
+            answer_id=answer_id,
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.8,
+            relevance=0.8,
+            voice_metrics={},  # Empty dict
+        )
+
+        saved = await mock_evaluation_repo.save(evaluation)
+
+        # Verify empty dict is stored
+        assert saved.voice_metrics == {}
+
