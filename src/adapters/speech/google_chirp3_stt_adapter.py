@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from google.api_core import client_options as client_options_lib
 from google.api_core import exceptions as google_exceptions
 from google.api_core import retry as google_retry
 from google.cloud import speech_v2
@@ -24,6 +25,129 @@ from google.cloud import speech_v2
 from ...domain.ports.speech_to_text_port import SpeechToTextPort
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_location(location: str) -> str:
+    """Normalize location setting to full region name.
+
+    Maps shorthand location values to full region names.
+    Supports common aliases and full region names.
+
+    Args:
+        location: Location setting (us, us-central1, eu, asia, etc.)
+
+    Returns:
+        Normalized region name (e.g., "us" -> "us-central1")
+    """
+    # Map shorthand to full region names
+    location_map = {
+        # US regions
+        "us": "us-central1",
+        "us-central1": "us-central1",
+        "us-central": "us-central1",
+        "us-east1": "us-east1",
+        "us-east4": "us-east4",
+        "us-west1": "us-west1",
+        "us-west2": "us-west2",
+        "us-west3": "us-west3",
+        "us-west4": "us-west4",
+        # European regions
+        "eu": "europe-west4",
+        "europe": "europe-west4",
+        "europe-west1": "europe-west1",
+        "europe-west2": "europe-west2",
+        "europe-west3": "europe-west3",
+        "europe-west4": "europe-west4",
+        "europe-west6": "europe-west6",
+        "europe-west8": "europe-west8",
+        "europe-west9": "europe-west9",
+        "europe-central2": "europe-central2",
+        "europe-north1": "europe-north1",
+        # Asia Pacific regions
+        "asia": "asia-southeast1",
+        "asia-southeast1": "asia-southeast1",
+        "asia-southeast2": "asia-southeast2",
+        "asia-northeast1": "asia-northeast1",
+        "asia-northeast2": "asia-northeast2",
+        "asia-northeast3": "asia-northeast3",
+        "asia-east1": "asia-east1",
+        "asia-east2": "asia-east2",
+        "asia-south1": "asia-south1",
+        "asia-south2": "asia-south2",
+        # Other regions
+        "australia-southeast1": "australia-southeast1",
+        "australia-southeast2": "australia-southeast2",
+        "southamerica-east1": "southamerica-east1",
+        "southamerica-west1": "southamerica-west1",
+        "northamerica-northeast1": "northamerica-northeast1",
+        "northamerica-northeast2": "northamerica-northeast2",
+    }
+
+    normalized = location_map.get(location.lower(), location.lower())
+    return normalized
+
+
+def _get_regional_endpoint(location: str) -> tuple[str | None, str]:
+    """Map location setting to regional API endpoint and normalized location.
+
+    For regional models like chirp_3, both the API client endpoint and
+    recognizer location must match the region.
+
+    Args:
+        location: Location setting (us, asia-northeast1, etc.)
+
+    Returns:
+        Tuple of (regional API endpoint string, normalized location)
+        Returns (None, "global") to use default global endpoint
+    """
+    normalized_location = _normalize_location(location)
+
+    # Map normalized location to regional endpoints
+    # Format: {region}-speech.googleapis.com
+    location_to_endpoint = {
+        # US regions
+        "us-central1": "us-central1-speech.googleapis.com",
+        "us-east1": "us-east1-speech.googleapis.com",
+        "us-east4": "us-east4-speech.googleapis.com",
+        "us-west1": "us-west1-speech.googleapis.com",
+        "us-west2": "us-west2-speech.googleapis.com",
+        "us-west3": "us-west3-speech.googleapis.com",
+        "us-west4": "us-west4-speech.googleapis.com",
+        # European regions
+        "europe-west1": "europe-west1-speech.googleapis.com",
+        "europe-west2": "europe-west2-speech.googleapis.com",
+        "europe-west3": "europe-west3-speech.googleapis.com",
+        "europe-west4": "europe-west4-speech.googleapis.com",
+        "europe-west6": "europe-west6-speech.googleapis.com",
+        "europe-west8": "europe-west8-speech.googleapis.com",
+        "europe-west9": "europe-west9-speech.googleapis.com",
+        "europe-central2": "europe-central2-speech.googleapis.com",
+        "europe-north1": "europe-north1-speech.googleapis.com",
+        # Asia Pacific regions
+        "asia-southeast1": "asia-southeast1-speech.googleapis.com",
+        "asia-southeast2": "asia-southeast2-speech.googleapis.com",
+        "asia-northeast1": "asia-northeast1-speech.googleapis.com",
+        "asia-northeast2": "asia-northeast2-speech.googleapis.com",
+        "asia-northeast3": "asia-northeast3-speech.googleapis.com",
+        "asia-east1": "asia-east1-speech.googleapis.com",
+        "asia-east2": "asia-east2-speech.googleapis.com",
+        "asia-south1": "asia-south1-speech.googleapis.com",
+        "asia-south2": "asia-south2-speech.googleapis.com",
+        # Other regions
+        "australia-southeast1": "australia-southeast1-speech.googleapis.com",
+        "australia-southeast2": "australia-southeast2-speech.googleapis.com",
+        "southamerica-east1": "southamerica-east1-speech.googleapis.com",
+        "southamerica-west1": "southamerica-west1-speech.googleapis.com",
+        "northamerica-northeast1": "northamerica-northeast1-speech.googleapis.com",
+        "northamerica-northeast2": "northamerica-northeast2-speech.googleapis.com",
+    }
+
+    endpoint = location_to_endpoint.get(normalized_location)
+    if endpoint:
+        return endpoint, normalized_location
+    else:
+        # Unknown location, use global
+        return None, "global"
 
 
 def _resolve_credentials_path(path: str) -> str:
@@ -74,6 +198,7 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
         project_id: str,
         credentials_path: str | None = None,
         model: str = "chirp_3",
+        location: str = "us",
         language: str = "en-US",
     ):
         """Initialize Google Chirp 3 STT adapter.
@@ -82,15 +207,32 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
             project_id: Google Cloud project ID
             credentials_path: Path to service account JSON (None for ADC)
             model: STT model name (chirp_3, short, long, latest_long)
+            location: Google Cloud region (us, asia-northeast1, etc.)
+                     For regional models like chirp_3, this determines both the API endpoint
+                     and the recognizer location (must match).
             language: Default language code (e.g., "en-US")
         """
         self.project_id = project_id
         self.credentials_path = credentials_path
         self.model = model
+        self.location = location
         self.default_language = language
 
-        # Create recognizer resource name
-        self.recognizer = f"projects/{project_id}/locations/global/recognizers/_"
+        # Get regional endpoint and normalized location
+        # For regional models like chirp_3, both endpoint and recognizer location must match
+        regional_endpoint, recognizer_location = _get_regional_endpoint(location)
+
+        # Create recognizer resource name with appropriate location
+        # Must match the API endpoint region when using regional endpoints
+        self.recognizer = f"projects/{project_id}/locations/{recognizer_location}/recognizers/_"
+
+        client_options = None
+        if regional_endpoint:
+            client_options = client_options_lib.ClientOptions(api_endpoint=regional_endpoint)
+            logger.debug(
+                f"Using regional endpoint: {regional_endpoint} "
+                f"with recognizer location: {recognizer_location}"
+            )
 
         # Initialize client (uses ADC or credentials_path)
         if credentials_path:
@@ -107,12 +249,18 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
             credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
                 resolved_path
             )
-            self.client = speech_v2.SpeechClient(credentials=credentials)
+            if client_options:
+                self.client = speech_v2.SpeechClient(credentials=credentials, client_options=client_options)
+            else:
+                self.client = speech_v2.SpeechClient(credentials=credentials)
         else:
-            self.client = speech_v2.SpeechClient()  # Uses ADC
+            if client_options:
+                self.client = speech_v2.SpeechClient(client_options=client_options)  # Uses ADC with regional endpoint
+            else:
+                self.client = speech_v2.SpeechClient()  # Uses ADC with default endpoint
 
         logger.info(
-            f"Initialized Google Chirp 3 STT adapter (model={model}, language={language})"
+            f"Initialized Google Chirp 3 STT adapter (model={model}, location={location}, language={language})"
         )
 
     async def transcribe_audio(
@@ -182,7 +330,7 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
                     language_codes=[language],
                     features=speech_v2.RecognitionFeatures(
                         enable_word_time_offsets=True,
-                        enable_word_confidence=True,
+                        # Note: enable_word_confidence not supported by chirp_3 model
                     ),
                 ),
                 content=audio_bytes,
@@ -203,15 +351,22 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
             text = alternative.transcript
             confidence = alternative.confidence
 
-            # Calculate duration from word timestamps
+            # Calculate duration from word timestamps (accurate for voice metrics)
             if alternative.words:
                 duration_seconds = alternative.words[-1].end_offset.total_seconds()
+                logger.debug(
+                    f"Using word timestamps for duration: {duration_seconds:.2f}s "
+                    f"(from {len(alternative.words)} words)"
+                )
             else:
                 # Fallback: estimate duration from audio size
                 # Assume 16kHz mono PCM (32000 bytes/sec)
                 duration_seconds = len(audio_bytes) / 32000.0
+                logger.warning(
+                    f"No word timestamps available, using estimated duration: {duration_seconds:.2f}s"
+                )
 
-            # Calculate voice metrics
+            # Calculate voice metrics with accurate duration
             voice_metrics = self._calculate_voice_metrics(
                 confidence=confidence,
                 transcript=text,
@@ -220,8 +375,9 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
 
             logger.info(
                 f"Transcribed {len(text)} chars, "
-                f"duration={duration_seconds:.2f}s, "
-                f"confidence={confidence:.3f}"
+                f"duration={duration_seconds:.2f}s (accurate), "
+                f"confidence={confidence:.3f}, "
+                f"WPM={voice_metrics['speaking_rate_wpm']}"
             )
 
             return {
@@ -369,15 +525,14 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
             start_time = time.time()
 
             # Build streaming config
+            # Note: chirp_3 doesn't support word timestamps in streaming requests
             streaming_config = speech_v2.StreamingRecognitionConfig(
                 config=speech_v2.RecognitionConfig(
                     auto_decoding_config=speech_v2.AutoDetectDecodingConfig(),
                     model=self.model,
                     language_codes=[language],
-                    features=speech_v2.RecognitionFeatures(
-                        enable_word_time_offsets=True,
-                        enable_word_confidence=True,
-                    ),
+                    # Note: enable_word_time_offsets not supported by chirp_3 in streaming
+                    # Note: enable_word_confidence not supported by chirp_3 model
                 ),
                 streaming_features=speech_v2.StreamingRecognitionFeatures(
                     interim_results=True,  # Get partial results
@@ -426,10 +581,9 @@ class GoogleChirp3STTAdapter(SpeechToTextPort):
             confidence = alternative.confidence
 
             # Calculate duration
-            if alternative.words:
-                duration_seconds = alternative.words[-1].end_offset.total_seconds()
-            else:
-                duration_seconds = len(audio_stream) / 32000.0
+            # Note: chirp_3 doesn't provide word timestamps in streaming, so use fallback
+            # Estimate duration from audio size (assume 16kHz mono PCM: 32000 bytes/sec)
+            duration_seconds = len(audio_stream) / 32000.0
 
             # Calculate voice metrics
             voice_metrics = self._calculate_voice_metrics(

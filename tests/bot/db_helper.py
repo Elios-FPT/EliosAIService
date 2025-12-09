@@ -80,24 +80,6 @@ class DatabaseHelper:
         cv_analysis_id = uuid4()
         interview_id = uuid4()
 
-        # Insert candidate (using raw SQL - no dedicated repository yet)
-        from sqlalchemy import text
-        await self.session.execute(
-            text(
-                """
-            INSERT INTO candidates (id, name, email, created_at, updated_at)
-            VALUES (:id, :name, :email, :created_at, :updated_at)
-            """
-            ),
-            {
-                "id": candidate_id,
-                "name": cv_data["name"],
-                "email": cv_data["email"],
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-            },
-        )
-
         # Create CV Analysis domain model
         cv_analysis = self._create_cv_analysis_from_fixture(
             cv_analysis_id, candidate_id, cv_data
@@ -209,10 +191,6 @@ class DatabaseHelper:
         """Create Interview domain model."""
         data = interview_data or {}
 
-        adaptive_follow_ups = [
-            self._parse_uuid(value) for value in data.get("adaptive_follow_ups", [])
-        ]
-
         return Interview(
             id=interview_id,
             candidate_id=candidate_id,
@@ -220,7 +198,6 @@ class DatabaseHelper:
             status=InterviewStatus(data.get("status", InterviewStatus.IDLE.value)),
             current_question_index=data.get("current_question_index", 0),
             plan_metadata=data.get("plan_metadata", {}),
-            adaptive_follow_ups=[value for value in adaptive_follow_ups if value],
             current_parent_question_id=self._parse_uuid(
                 data.get("current_parent_question_id")
             ),

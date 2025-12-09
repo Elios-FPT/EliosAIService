@@ -2,15 +2,17 @@
 
 import logging
 import os
+import time
 import uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
 from ....application.dto.interview_dto import (
+    InterviewHistoryListResponse,
     InterviewResponse,
     InterviewSummaryResponse,
     PlanInterviewRequest,
@@ -20,6 +22,7 @@ from ....application.dto.interview_dto import (
 from ....application.use_cases.analyze_cv import AnalyzeCVUseCase
 from ....application.use_cases.get_next_question import GetNextQuestionUseCase
 from ....domain.models.interview import InterviewStatus
+from ....domain.ports.event_publisher_port import EventPublisherPort
 from ....infrastructure.config.settings import get_settings
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
@@ -240,6 +243,58 @@ async def get_current_question(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get(
+    "/users/{user_id}/history",
+    response_model=InterviewHistoryListResponse,
+    summary="List interview history for a user",
+)
+async def list_interview_history(
+    user_id: UUID,
+    status_filter: InterviewStatus | None = Query(
+        default=None,
+        description="Optional status filter",
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of items to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of items to skip",
+    ),
+    include_active: bool = Query(
+        default=True,
+        description="Whether active (non-terminal) interviews should be included",
+    ),
+    include_deleted: bool = Query(
+        default=False,
+        description="Include soft-deleted interviews when true",
+    ),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """List interview history for the provided user."""
+
+    container = get_container()
+    settings = get_settings()
+    use_case = container.list_interview_history_use_case(session=session)
+
+    try:
+        return await use_case.execute(
+            candidate_id=user_id,
+            ws_base_url=settings.ws_base_url,
+            status=status_filter,
+            limit=limit,
+            offset=offset,
+            include_active=include_active,
+            include_deleted=include_deleted,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 # NEW: Adaptive Planning Endpoints
 @router.post(
     "/plan",
@@ -283,6 +338,12 @@ async def plan_interview(
 
         # Get settings for WebSocket URL
         settings = get_settings()
+
+        await _emit_token_delta_event(
+            publisher=container.event_publisher_port(),
+            user_id=request.candidate_id,
+            tokens=settings.token_delta_per_plan,
+        )
 
         # Use LangGraph workflow for interview planning
         from ....application.workflows.planning_workflow import PlanningWorkflow
@@ -386,6 +447,36 @@ async def get_planning_status(
     )
 
 
+async def _emit_token_delta_event(
+    publisher: EventPublisherPort,
+    user_id: UUID,
+    tokens: int,
+) -> None:
+    """Emit Kafka event to adjust user tokens (fire-and-forget)."""
+    if tokens == 0:
+        return
+
+    correlation_id = uuid.uuid4()
+
+    try:
+        await publisher.publish_token_delta(
+            user_id=user_id,
+            tokens=tokens,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to emit token delta event",
+            extra={
+                "user_id": str(user_id),
+                "tokens": tokens,
+                "correlation_id": str(correlation_id),
+            },
+            exc_info=True,
+        )
+
+
+
 @router.get(
     "/{interview_id}/summary",
     response_model=InterviewSummaryResponse,
@@ -439,3 +530,75 @@ async def get_interview_summary(
         )
 
     return InterviewSummaryResponse(**summary)
+
+
+@router.get(
+    "/{interview_id}/conversation",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Get interview conversation",
+    description="""
+    Export interview conversation in chat-like format with chronologically ordered messages.
+
+    Returns questions, answers, and follow-ups in conversation flow.
+    Audio paths point to R2 storage (handled by separate microservice).
+
+    **Note**: Only completed interviews are guaranteed to have all messages.
+    In-progress interviews may have incomplete conversations.
+    """,
+)
+async def get_interview_conversation(
+    interview_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+) -> dict:
+    """Get interview conversation in chat-like format.
+
+    Args:
+        interview_id: UUID of interview to export
+        session: Database session
+
+    Returns:
+        Dict with interview_id and messages list
+
+    Raises:
+        HTTPException:
+            - 404: Interview not found
+            - 500: Failed to export conversation
+    """
+    start_time = time.time()
+    logger.info(f"Fetching conversation for interview {interview_id}")
+
+    try:
+        container = get_container()
+        interview_repo = container.interview_repository_port(session=session)
+
+        # Get conversation export from repository
+        conversation = await interview_repo.get_conversation_export(interview_id)
+
+        # Calculate latency
+        latency_ms = (time.time() - start_time) * 1000
+        logger.info(
+            f"Exported conversation for interview {interview_id} "
+            f"({len(conversation['messages'])} messages, {latency_ms:.2f}ms)"
+        )
+
+        return conversation
+
+    except ValueError as e:
+        # Interview not found
+        logger.warning(f"Interview {interview_id} not found: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview {interview_id} not found"
+        ) from e
+
+    except Exception as e:
+        # Repository error
+        logger.error(
+            f"Failed to export conversation for interview {interview_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to export conversation"
+        ) from e

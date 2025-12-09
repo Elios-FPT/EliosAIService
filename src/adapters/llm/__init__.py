@@ -1,5 +1,4 @@
 """LLM adapters package."""
 
-from .openai_adapter import OpenAIAdapter
-
-__all__ = ["OpenAIAdapter"]
+# LangChainAdapter is the primary LLM adapter implementation
+# It supports both OpenAI and Azure OpenAI via LangChain

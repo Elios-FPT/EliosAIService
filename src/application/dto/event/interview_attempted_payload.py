@@ -24,6 +24,11 @@ class InterviewAttemptedPayload(BaseModel):
         alias="InterviewId",
         description="Interview UUID"
     )
+    title: str | None = Field(
+        alias="Title",
+        default=None,
+        description="Human-friendly interview title (optional)",
+    )
     theoretical_score: str = Field(
         alias="TheoreticalScore",
         description="Theoretical score (2 decimal places)"
@@ -73,6 +78,7 @@ class InterviewAttemptedPayload(BaseModel):
         overall_score: float,
         theoretical_score_avg: float,
         speaking_score_avg: float,
+        title: str | None = None,
     ) -> "InterviewAttemptedPayload":
         """Create payload from CompleteInterviewUseCase summary data.
 
@@ -89,6 +95,7 @@ class InterviewAttemptedPayload(BaseModel):
         return InterviewAttemptedPayload(
             user_id=candidate_id,
             interview_id=interview_id,
+            title=title,
             theoretical_score=f"{theoretical_score_avg:.2f}",
             speaking_score=f"{speaking_score_avg:.2f}",
             overall_score=f"{overall_score:.2f}",

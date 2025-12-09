@@ -42,7 +42,6 @@ class Question(BaseModel):
     question_type: QuestionType
     difficulty: Difficulty
     skills: list[str] = Field(default_factory=list)  # e.g., ["Python", "OOP"]
-    version: int = 1
     embedding: list[float] | None = None  # Vector embedding for semantic search
 
     # Pre-planning fields for adaptive interviews

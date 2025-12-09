@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 def debug_print(msg: str):
     """Helper function to print debug messages with timestamps."""
@@ -27,24 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import adapters
 debug_print("container.py: About to import LLM adapters...")
-from ...adapters.llm.azure_openai_adapter import AzureOpenAIAdapter
-debug_print("container.py: AzureOpenAIAdapter imported")
-from ...adapters.llm.openai_adapter import OpenAIAdapter
-debug_print("container.py: OpenAIAdapter imported")
 from ...adapters.llm.langchain_adapter import LangChainAdapter
 debug_print("container.py: LangChainAdapter imported")
 
 # Import mock adapters
 debug_print("container.py: About to import mock adapters...")
-from ...adapters.mock import (
-    MockAnalyticsAdapter,
-    MockCVAnalyzerAdapter,
-    MockEventPublisher,
-    MockLLMAdapter,
-    MockSTTAdapter,
-    MockTTSAdapter,
-    MockVectorSearchAdapter,
-)
+from ...adapters.mock import MockVectorSearchAdapter
 debug_print("container.py: Mock adapters imported")
 
 # Import persistence adapters
@@ -57,6 +46,8 @@ from ...adapters.persistence import (
     PostgreSQLInterviewRepository,
     PostgreSQLPromptRepository,
     PostgreSQLQuestionRepository,
+    PostgresFeedbackRequestRepository,
+    PostgresFeedbackResponseRepository,
     SessionProvider,
 )
 debug_print("container.py: Persistence adapters imported")
@@ -64,12 +55,8 @@ debug_print("container.py: Persistence adapters imported")
 debug_print("container.py: About to import vector_db adapters...")
 from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
 debug_print("container.py: PineconeAdapter imported")
-from ...adapters.vector_db.chroma_adapter import ChromaAdapter
-debug_print("container.py: ChromaAdapter imported")
 
 debug_print("container.py: About to import CV processing adapters...")
-from ...adapters.cv_processing.cv_processing_adapter import CVProcessingAdapter
-debug_print("container.py: CVProcessingAdapter imported")
 from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 debug_print("container.py: HybridCVAnalyzerAdapter imported")
 
@@ -79,7 +66,6 @@ debug_print("container.py: KafkaEventPublisher imported")
 
 debug_print("container.py: About to import domain ports...")
 from ...domain.ports import (
-    AnalyticsPort,
     AnswerRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
@@ -94,16 +80,25 @@ from ...domain.ports import (
     TextToSpeechPort,
     VectorSearchPort,
 )
+from ...domain.ports.feedback_repository_port import (
+    FeedbackRequestRepositoryPort,
+    FeedbackResponseRepositoryPort,
+)
 debug_print("container.py: Domain ports imported")
 
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
 from ...infrastructure.database import session_scope
+from ...application.use_cases.list_interview_history import ListInterviewHistoryUseCase
 from ...infrastructure.background.checkpointer_heartbeat import (
     HeartbeatHandle,
     start_checkpointer_heartbeat,
 )
 debug_print("container.py: Settings imported")
+
+if TYPE_CHECKING:
+    from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+    from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 
 debug_print("container.py: All imports completed, defining Container class...")
 
@@ -169,80 +164,17 @@ class Container:
         """
         # If a session is provided, build a fresh instance that can use a session-scoped prompt repo.
         if session is not None:
-            if self.settings.use_mock_llm:
-                return MockLLMAdapter()
-            if self.settings.use_langchain:
+            if self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port(session=session)
                 return self._create_langchain_adapter(prompt_repository=prompt_repo)
-            if self.settings.llm_provider == "openai":
-                if self.settings.use_azure_openai:
-                    if not self.settings.azure_openai_api_key:
-                        raise ValueError("Azure OpenAI API key not configured")
-                    if not self.settings.azure_openai_endpoint:
-                        raise ValueError("Azure OpenAI endpoint not configured")
-                    if not self.settings.azure_openai_deployment_name:
-                        raise ValueError("Azure OpenAI deployment name not configured")
-
-                    return AzureOpenAIAdapter(
-                        api_key=self.settings.azure_openai_api_key,
-                        azure_endpoint=self.settings.azure_openai_endpoint,
-                        api_version=self.settings.azure_openai_api_version,
-                        deployment_name=self.settings.azure_openai_deployment_name,
-                        temperature=self.settings.openai_temperature,
-                    )
-
-                if not self.settings.openai_api_key:
-                    raise ValueError("OpenAI API key not configured")
-
-                return OpenAIAdapter(
-                    api_key=self.settings.openai_api_key,
-                    model=self.settings.openai_model,
-                    temperature=self.settings.openai_temperature,
-                )
-
-            if self.settings.llm_provider == "claude":
-                if not self.settings.anthropic_api_key:
-                    raise ValueError("Anthropic API key not configured")
-                raise NotImplementedError("Claude adapter not yet implemented")
 
             raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
         # No session → use cached singleton instance.
         if self._llm_port is None:
-            if self.settings.use_mock_llm:
-                self._llm_port = MockLLMAdapter()
-            elif self.settings.use_langchain:
+            if self.settings.llm_provider == "openai":
                 prompt_repo = self.prompt_repository_port()
                 self._llm_port = self._create_langchain_adapter(prompt_repository=prompt_repo)
-            elif self.settings.llm_provider == "openai":
-                if self.settings.use_azure_openai:
-                    if not self.settings.azure_openai_api_key:
-                        raise ValueError("Azure OpenAI API key not configured")
-                    if not self.settings.azure_openai_endpoint:
-                        raise ValueError("Azure OpenAI endpoint not configured")
-                    if not self.settings.azure_openai_deployment_name:
-                        raise ValueError("Azure OpenAI deployment name not configured")
-
-                    self._llm_port = AzureOpenAIAdapter(
-                        api_key=self.settings.azure_openai_api_key,
-                        azure_endpoint=self.settings.azure_openai_endpoint,
-                        api_version=self.settings.azure_openai_api_version,
-                        deployment_name=self.settings.azure_openai_deployment_name,
-                        temperature=self.settings.openai_temperature,
-                    )
-                else:
-                    if not self.settings.openai_api_key:
-                        raise ValueError("OpenAI API key not configured")
-
-                    self._llm_port = OpenAIAdapter(
-                        api_key=self.settings.openai_api_key,
-                        model=self.settings.openai_model,
-                        temperature=self.settings.openai_temperature,
-                    )
-            elif self.settings.llm_provider == "claude":
-                if not self.settings.anthropic_api_key:
-                    raise ValueError("Anthropic API key not configured")
-                raise NotImplementedError("Claude adapter not yet implemented")
             else:
                 raise ValueError(f"Unsupported LLM provider: {self.settings.llm_provider}")
 
@@ -264,23 +196,17 @@ class Container:
             elif self.settings.vector_db_provider == "pinecone":
                 if not self.settings.pinecone_api_key:
                     raise ValueError("Pinecone API key not configured")
-                if not self.settings.openai_api_key:
-                    raise ValueError("OpenAI API key required for embeddings")
 
                 self._vector_search_port = PineconeAdapter(
                     api_key=self.settings.pinecone_api_key,
-                    environment=self.settings.pinecone_environment,
                     index_name=self.settings.pinecone_index_name,
-                    openai_api_key=self.settings.openai_api_key,
+                    namespace=self.settings.pinecone_namespace,
                 )
             elif self.settings.vector_db_provider == "weaviate":
                 # Import Weaviate adapter when implemented
                 # from ...adapters.vector_db.weaviate_adapter import WeaviateAdapter
                 # self._vector_search_port = WeaviateAdapter(...)
                 raise NotImplementedError("Weaviate adapter not yet implemented")
-            elif self.settings.vector_db_provider == "chroma":
-                self._vector_search_port = ChromaAdapter()
-                # raise NotImplementedError("ChromaDB adapter not yet implemented")
             else:
                 raise ValueError(
                     f"Unsupported vector DB provider: {self.settings.vector_db_provider}"
@@ -304,7 +230,7 @@ class Container:
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLQuestionRepository(provider)
 
-    def follow_up_question_repository(
+    def follow_up_question_repository_port(
         self,
         session: AsyncSession | None = None,
         session_provider: SessionProvider | None = None,
@@ -335,6 +261,19 @@ class Container:
         """
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLInterviewRepository(provider)
+
+    def list_interview_history_use_case(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> ListInterviewHistoryUseCase:
+        """Get configured ListInterviewHistoryUseCase."""
+
+        interview_repo = self.interview_repository_port(
+            session=session,
+            session_provider=session_provider,
+        )
+        return ListInterviewHistoryUseCase(interview_repository=interview_repo)
 
     def answer_repository_port(
         self,
@@ -400,28 +339,50 @@ class Container:
         provider = self._resolve_session_provider(session=session, session_provider=session_provider)
         return PostgreSQLCVAnalysisRepository(provider)
 
+    def feedback_request_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> FeedbackRequestRepositoryPort:
+        """Get feedback request repository port implementation.
+
+        Args:
+            session: Async database session
+            session_provider: Optional session provider
+
+        Returns:
+            Configured feedback request repository
+        """
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgresFeedbackRequestRepository(session_provider=provider)
+
+    def feedback_response_repository_port(
+        self,
+        session: AsyncSession | None = None,
+        session_provider: SessionProvider | None = None,
+    ) -> FeedbackResponseRepositoryPort:
+        """Get feedback response repository port implementation.
+
+        Args:
+            session: Async database session
+            session_provider: Optional session provider
+
+        Returns:
+            Configured feedback response repository
+        """
+        provider = self._resolve_session_provider(session=session, session_provider=session_provider)
+        return PostgresFeedbackResponseRepository(session_provider=provider)
+
     def cv_analyzer_port(self) -> CVAnalyzerPort:
         """Get CV analyzer port implementation.
 
         Returns:
-            Configured CV analyzer (mock, hybrid, or legacy)
-
-        Priority:
-        1. Mock adapter (if use_mock_cv_analyzer=True)
-        2. Hybrid adapter (if use_hybrid_cv_analyzer=True)
-        3. Legacy adapter (CVProcessingAdapter)
+            Hybrid CV analyzer implementation.
         """
-        if self.settings.use_mock_cv_analyzer:
-            return MockCVAnalyzerAdapter()
-        elif self.settings.use_hybrid_cv_analyzer:
-            # Hybrid adapter with configurable threshold and LLM fallback
-            return HybridCVAnalyzerAdapter(
-                confidence_threshold=self.settings.hybrid_confidence_threshold,
-                use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
-            )
-        else:
-            # Legacy adapter (default for backward compatibility)
-            return CVProcessingAdapter()
+        return HybridCVAnalyzerAdapter(
+            confidence_threshold=self.settings.hybrid_confidence_threshold,
+            use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
+        )
 
 
     def speech_to_text_port(self) -> SpeechToTextPort:
@@ -434,21 +395,18 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._stt_port is None:
-            # Use mock adapter if configured
-            if self.settings.use_mock_stt:
-                self._stt_port = MockSTTAdapter()
-            else:
-                from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
+            from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
 
-                if not self.settings.google_cloud_project_id:
-                    raise ValueError("Google Cloud project ID not configured")
+            if not self.settings.google_cloud_project_id:
+                raise ValueError("Google Cloud project ID not configured")
 
-                self._stt_port = GoogleChirp3STTAdapter(
-                    project_id=self.settings.google_cloud_project_id,
-                    credentials_path=self.settings.google_application_credentials,
-                    model=self.settings.google_stt_model,
-                    language=self.settings.google_stt_language,
-                )
+            self._stt_port = GoogleChirp3STTAdapter(
+                project_id=self.settings.google_cloud_project_id,
+                credentials_path=self.settings.google_application_credentials,
+                model=self.settings.google_stt_model,
+                location=self.settings.google_stt_location,
+                language=self.settings.google_stt_language,
+            )
 
         return self._stt_port
 
@@ -462,20 +420,16 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._tts_port is None:
-            # Use mock adapter if configured
-            if self.settings.use_mock_tts:
-                self._tts_port = MockTTSAdapter()
-            else:
-                from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
+            from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
 
-                if not self.settings.google_cloud_project_id:
-                    raise ValueError("Google Cloud project ID not configured")
+            if not self.settings.google_cloud_project_id:
+                raise ValueError("Google Cloud project ID not configured")
 
-                self._tts_port = GoogleChirp3TTSAdapter(
-                    project_id=self.settings.google_cloud_project_id,
-                    credentials_path=self.settings.google_application_credentials,
-                    voice_name=self.settings.google_tts_voice_name,
-                )
+            self._tts_port = GoogleChirp3TTSAdapter(
+                project_id=self.settings.google_cloud_project_id,
+                credentials_path=self.settings.google_application_credentials,
+                voice_name=self.settings.google_tts_voice_name,
+            )
 
         return self._tts_port
 
@@ -490,13 +444,12 @@ class Container:
             Mock adapter does not require start/stop.
         """
         if self._event_publisher is None:
-            if self.settings.use_mock_event_publisher:
-                self._event_publisher = MockEventPublisher()
-            else:
-                self._event_publisher = KafkaEventPublisher(
-                    bootstrap_servers=self.settings.kafka_bootstrap_servers,
-                    interview_topic=self.settings.kafka_interview_topic,
-                )
+            self._event_publisher = KafkaEventPublisher(
+                bootstrap_servers=self.settings.kafka_bootstrap_servers,
+                interview_topic=self.settings.kafka_interview_topic,
+                feedback_topic=self.settings.kafka_feedback_topic,
+                token_topic=self.settings.kafka_token_topic,
+            )
 
         return self._event_publisher
 
@@ -560,20 +513,16 @@ class Container:
             tts = self.text_to_speech_port()
 
             # Optional: Pre-warm with test synthesis (validates connection)
-            # Skip if using mock adapter (no network call needed)
-            if not self.settings.use_mock_tts:
-                try:
-                    # Pre-warm with minimal text (validates Google Cloud connection)
-                    await tts.synthesize_speech("test", speed=1.0)
-                    logger.info("TTS adapter pre-warmed successfully")
-                except Exception as prewarm_exc:
-                    # Pre-warm failure is non-critical (adapter still initialized)
-                    logger.warning(
-                        f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
-                        "First TTS call may be slower."
-                    )
-            else:
-                logger.info("TTS adapter initialized (mock mode, no pre-warm needed)")
+            try:
+                # Pre-warm with minimal text (validates Google Cloud connection)
+                await tts.synthesize_speech("test", speed=1.0)
+                logger.info("TTS adapter pre-warmed successfully")
+            except Exception as prewarm_exc:
+                # Pre-warm failure is non-critical (adapter still initialized)
+                logger.warning(
+                    f"TTS pre-warm failed (adapter still initialized): {prewarm_exc}. "
+                    "First TTS call may be slower."
+                )
 
         except Exception as exc:
             # Non-blocking: Log warning but don't fail startup
@@ -584,24 +533,6 @@ class Container:
                 "This may cause a delay (~12s) on the first TTS call.",
                 exc_info=True
             )
-
-    def analytics_port(self) -> AnalyticsPort:
-        """Get analytics port implementation.
-
-        Returns:
-            Configured analytics service
-
-        Raises:
-            NotImplementedError: Real implementation pending
-        """
-        if self.settings.use_mock_analytics:
-            return MockAnalyticsAdapter()
-        else:
-            # TODO: Implement real analytics service
-            # from ...adapters.analytics.analytics_adapter import AnalyticsAdapter
-            # IMPORTANT: Use async_database_url, not database_url for async operations
-            # return AnalyticsAdapter(database_url=self.settings.async_database_url)
-            raise NotImplementedError("Real analytics adapter not yet implemented")
 
     def _create_langchain_adapter(
         self, prompt_repository: PromptRepositoryPort | None = None
@@ -620,15 +551,6 @@ class Container:
         # Import LangChain models
         from langchain_openai import ChatOpenAI, AzureChatOpenAI
         from langchain_anthropic import ChatAnthropic
-        from ..observability.langsmith_config import create_pii_filtering_callback
-
-        # Configure LangSmith tracing if enabled
-        if self.settings.enable_langsmith:
-            import os
-            os.environ["LANGCHAIN_TRACING_V2"] = "true"
-            if self.settings.langsmith_api_key:
-                os.environ["LANGCHAIN_API_KEY"] = self.settings.langsmith_api_key
-            os.environ["LANGCHAIN_PROJECT"] = self.settings.langchain_project
 
         # Create primary model (OpenAI or Azure OpenAI)
         primary_model = None
@@ -677,8 +599,8 @@ class Container:
         else:
             model = primary_model
 
-        # Create callbacks (includes PII filtering tracer if enabled)
-        callbacks = create_pii_filtering_callback(self.settings)
+        # No callbacks (LangSmith removed)
+        callbacks = []
 
         return LangChainAdapter(
             model=model, callbacks=callbacks, prompt_repository=prompt_repository
@@ -763,7 +685,8 @@ class Container:
         question_repo = self.question_repository_port(session=session, session_provider=session_provider)
         answer_repo = self.answer_repository_port(session=session, session_provider=session_provider)
         evaluation_repo = self.evaluation_repository_port(session=session, session_provider=session_provider)
-        followup_repo = self.follow_up_question_repository(session=session, session_provider=session_provider)
+        followup_repo = self.follow_up_question_repository_port(session=session, session_provider=session_provider)
+        vector_search = self.vector_search_port()
         llm = self.llm_port(session=session)
         event_publisher = self.event_publisher_port()
 
@@ -775,6 +698,7 @@ class Container:
             answer_repo=answer_repo,
             evaluation_repo=evaluation_repo,
             followup_repo=followup_repo,
+            vector_search=vector_search,
             llm=llm,
             event_publisher=event_publisher,
         )
@@ -795,9 +719,7 @@ class Container:
         )
 
     async def _start_checkpointer_heartbeat(self, checkpointer) -> None:
-        """Start heartbeat loop if enabled."""
-        if not self.settings.langgraph_checkpointer_heartbeat_enabled:
-            return
+        """Start heartbeat loop (enabled by default)."""
         if self._checkpointer_heartbeat:
             return
 
@@ -864,6 +786,30 @@ class Container:
                 extra={"event": "checkpointer_ensure_failed"},
             )
             raise last_exc
+
+    def analyze_feedback_use_case(
+        self, session: AsyncSession | None = None
+    ) -> "AnalyzeFeedbackUseCase":
+        """Get AnalyzeFeedbackUseCase with all dependencies.
+
+        Args:
+            session: Optional database session
+
+        Returns:
+            Configured AnalyzeFeedbackUseCase
+        """
+        from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
+
+        # Get repositories
+        request_repo = self.feedback_request_repository_port(session=session)
+        response_repo = self.feedback_response_repository_port(session=session)
+
+        return AnalyzeFeedbackUseCase(
+            request_repo=request_repo,
+            response_repo=response_repo,
+            event_publisher=self.event_publisher_port(),
+            llm=self.llm_port(session=session),
+        )
 
 
 @lru_cache

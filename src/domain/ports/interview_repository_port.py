@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from ..models.interview import Interview, InterviewStatus
@@ -68,6 +69,32 @@ class InterviewRepositoryPort(ABC):
 
         Returns:
             Most recent active interview if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def list_by_candidate_paginated(
+        self,
+        candidate_id: UUID,
+        limit: int,
+        offset: int,
+        *,
+        status: InterviewStatus | None = None,
+        include_active: bool = True,
+        include_deleted: bool = False,
+    ) -> tuple[list[Interview], int]:
+        """Retrieve interviews for a candidate with pagination and total count.
+
+        Args:
+            candidate_id: Candidate identifier
+            limit: Maximum number of rows to return
+            offset: Number of rows to skip
+            status: Optional status filter
+            include_active: Whether to keep interviews in active (non-terminal) states
+            include_deleted: Whether to include soft-deleted interviews
+
+        Returns:
+            Tuple of (interviews, total_count) matching filters
         """
         pass
 
@@ -224,5 +251,29 @@ class InterviewRepositoryPort(ABC):
 
         Returns:
             Number of interviews hard deleted
+        """
+        pass
+
+    @abstractmethod
+    async def get_conversation_export(self, interview_id: UUID) -> dict[str, Any]:
+        """Get interview conversation in chat-like format.
+
+        Args:
+            interview_id: UUID of interview to export
+
+        Returns:
+            Dict with structure:
+            {
+                "interview_id": "uuid-string",
+                "messages": [
+                    {"type": "question", "speaker": "Interviewer", ...},
+                    {"type": "answer", "speaker": "Candidate", ...},
+                    {"type": "followup", "speaker": "Interviewer", ...},
+                    ...
+                ]
+            }
+
+        Raises:
+            ValueError: If interview not found
         """
         pass

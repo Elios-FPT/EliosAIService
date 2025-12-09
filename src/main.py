@@ -50,6 +50,9 @@ debug_print("interview_routes imported")
 from .adapters.api.rest.prompt_routes import router as prompt_router
 debug_print("prompt_routes imported")
 
+from .adapters.api.rest.feedback_routes import router as feedback_router
+debug_print("feedback_routes imported")
+
 from .adapters.api.websocket.interview_handler import handle_interview_websocket
 debug_print("websocket handler imported")
 
@@ -281,7 +284,7 @@ async def lifespan(app: FastAPI):
 
     # Optionally initialize LangGraph checkpointer at startup
     # This prevents first-request timeouts when the feature is enabled
-    if settings.use_langgraph_planning and settings.langgraph_checkpointer_init_on_startup:
+    if settings.langgraph_checkpointer_init_on_startup:
         debug_print("Initializing LangGraph checkpointer at startup...")
         logger.info("Initializing LangGraph checkpointer at startup (to prevent first-request timeout)...")
         try:
@@ -410,6 +413,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         prompt_router, prefix=settings.api_prefix, tags=["Prompt Management"]
+    )
+    app.include_router(
+        feedback_router, prefix=settings.api_prefix, tags=["Feedback"]
     )
 
     # WebSocket endpoint for real-time interview

@@ -120,13 +120,17 @@ class GenerateSummaryUseCase:
         # Get total questions count from junction table
         total_questions = await self.interview_repo.count_interview_questions(interview.id)
 
+        # Get total follow-ups count from repository
+        follow_ups = await self.follow_up_repo.get_by_interview_id(interview.id)
+        total_follow_ups = len(follow_ups)
+
         return {
             "interview_id": str(interview_id),
             "overall_score": metrics["overall_score"],
             "theoretical_score_avg": metrics["theoretical_avg"],
             "speaking_score_avg": metrics["speaking_avg"],
             "total_questions": total_questions,
-            "total_follow_ups": len(interview.adaptive_follow_ups),
+            "total_follow_ups": total_follow_ups,
             "question_summaries": await self._create_question_summaries(question_groups, evaluations_map),
             "gap_progression": gap_progression,
             "strengths": recommendations["strengths"],
@@ -195,10 +199,9 @@ class GenerateSummaryUseCase:
         """
         evaluations_map = {}
         for answer in answers:
-            if answer.evaluation_id:
-                evaluation = await self.evaluation_repo.get_by_id(answer.evaluation_id)
-                if evaluation:
-                    evaluations_map[answer.id] = evaluation
+            evaluation = await self.evaluation_repo.get_by_answer_id(answer.id)
+            if evaluation:
+                evaluations_map[answer.id] = evaluation
         return evaluations_map
 
     def _calculate_aggregate_metrics(
@@ -220,7 +223,7 @@ class GenerateSummaryUseCase:
         """
         evaluated_answers = [
             a for a in all_answers
-            if a.is_evaluated() and a.id in evaluations_map
+            if a.id in evaluations_map
         ]
 
         if not evaluated_answers:
@@ -357,7 +360,7 @@ class GenerateSummaryUseCase:
                     "weaknesses": evaluations_map[a.id].weaknesses,
                 }
                 for a in all_answers
-                if a.is_evaluated() and a.id in evaluations_map
+                if a.id in evaluations_map
             ],
         }
 

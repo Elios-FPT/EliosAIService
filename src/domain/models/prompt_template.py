@@ -11,8 +11,6 @@ from pydantic import BaseModel, Field
 class PromptTemplate(BaseModel):
     """
     LLM prompt template with version control.
-
-    Decomposed from template_json for UI editing.
     """
 
     id: UUID = Field(default_factory=uuid4)
@@ -38,11 +36,6 @@ class PromptTemplate(BaseModel):
         description="Pre-filled variables (e.g., {'format': 'JSON'})"
     )
 
-    # Output parsing config
-    output_parser_type: str = Field(
-        default="json_output_parser",
-        description="Parser type (json_output_parser, structured_output_parser, etc.)"
-    )
     output_schema: Dict[str, Any] = Field(
         default_factory=dict,
         description="Expected output schema (JSON Schema format)"
@@ -75,9 +68,6 @@ class PromptTemplate(BaseModel):
 
     # Soft delete
     deleted_at: Optional[datetime] = None
-
-    # Denormalized JSON storage
-    template_json: Optional[Dict[str, Any]] = Field(default=None, description="Denormalized JSON storage")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -133,10 +123,6 @@ class PromptTemplate(BaseModel):
             ],
             "input_variables": self.input_variables,
             "partial_variables": self.partial_variables,
-            "output_parser": {
-                "type": self.output_parser_type,
-                "schema": self.output_schema
-            },
             "model_params": {
                 "temperature": float(self.temperature),
                 "max_tokens": self.max_tokens,

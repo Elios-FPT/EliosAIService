@@ -1,12 +1,17 @@
 """LLM (Large Language Model) port interface."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from ..models.answer import AnswerEvaluation
 from ..models.evaluation import FollowUpEvaluationContext
+from ..models.feedback_result import FeedbackResult, InputType
 from ..models.question import Question
+
+if TYPE_CHECKING:
+    from ...adapters.llm.comprehensive_models import ComprehensiveAnalysis
 
 
 class LLMPort(ABC):
@@ -15,131 +20,6 @@ class LLMPort(ABC):
     This port abstracts LLM interactions, allowing easy switching between
     providers like OpenAI, Claude, Llama, etc.
     """
-
-    @abstractmethod
-    async def evaluate_answer(
-        self,
-        question: Question,
-        answer_text: str,
-        context: dict[str, Any],
-        followup_context: FollowUpEvaluationContext | None = None,
-    ) -> AnswerEvaluation:
-        """Evaluate a candidate's answer.
-
-        Args:
-            question: The question that was asked
-            answer_text: Candidate's answer
-            context: Additional context for evaluation
-            followup_context: Optional context for follow-up question evaluation.
-                Includes previous evaluations, cumulative gaps, attempt number.
-                Used to provide LLM with history and apply attempt-based penalties.
-
-        Returns:
-            Evaluation results with score and feedback
-        """
-        pass
-
-    @abstractmethod
-    async def generate_feedback_report(
-        self,
-        interview_id: UUID,
-        questions: list[Question],
-        answers: list[dict[str, Any]],
-    ) -> str:
-        """Generate comprehensive feedback report.
-
-        Args:
-            interview_id: ID of the interview
-            questions: All questions asked
-            answers: All answers with evaluations
-
-        Returns:
-            Formatted feedback report
-        """
-        pass
-
-    @abstractmethod
-    async def summarize_cv(self, cv_text: str) -> str:
-        """Generate a summary of a CV.
-
-        Args:
-            cv_text: Extracted CV text
-
-        Returns:
-            Summary of the CV
-        """
-        pass
-
-    @abstractmethod
-    async def extract_skills_from_text(self, text: str) -> list[dict[str, str]]:
-        """Extract skills from CV text using NLP.
-
-        Args:
-            text: CV text to analyze
-
-        Returns:
-            List of extracted skills with metadata
-        """
-        pass
-
-    @abstractmethod
-    async def generate_ideal_answer(
-        self,
-        question_text: str,
-        context: dict[str, Any],
-    ) -> str:
-        """Generate ideal answer for a question.
-
-        Args:
-            question_text: The interview question
-            context: CV summary, skills, etc.
-
-        Returns:
-            Ideal answer text (150-300 words)
-        """
-        pass
-
-    @abstractmethod
-    async def generate_rationale(
-        self,
-        question_text: str,
-        ideal_answer: str,
-    ) -> str:
-        """Generate rationale explaining why answer is ideal.
-
-        Args:
-            question_text: The question
-            ideal_answer: The ideal answer
-
-        Returns:
-            Rationale text (50-100 words)
-        """
-        pass
-
-    @abstractmethod
-    async def detect_concept_gaps(
-        self,
-        answer_text: str,
-        ideal_answer: str,
-        question_text: str,
-        keyword_gaps: list[str],
-    ) -> dict[str, Any]:
-        """Detect missing concepts in answer using LLM.
-
-        Args:
-            answer_text: Candidate's answer
-            ideal_answer: Reference ideal answer
-            question_text: The question that was asked
-            keyword_gaps: Potential missing keywords from keyword analysis
-
-        Returns:
-            Dict with keys:
-                - concepts: list[str] - Missing key concepts
-                - keywords: list[str] - Subset of confirmed missing keywords
-                - confirmed: bool - Whether gaps are confirmed
-                - severity: str - "minor" | "moderate" | "major"
-        """
-        pass
 
     @abstractmethod
     async def generate_followup_question(
@@ -192,58 +72,6 @@ class LLMPort(ABC):
         pass
 
     @abstractmethod
-    async def generate_questions_batch(
-        self,
-        question_specs: list[dict[str, Any]],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate multiple interview questions in a single batch call.
-
-        Args:
-            question_specs: List of question specifications. Each dict should contain:
-                - skill: str - Target skill to test
-                - difficulty: str - Question difficulty level
-                - exemplars: list[dict[str, Any]] | None - Optional exemplar questions
-            context: Interview context (CV analysis, etc.)
-
-        Returns:
-            List of generated question texts in the same order as question_specs
-        """
-        pass
-
-    @abstractmethod
-    async def generate_ideal_answers_batch(
-        self,
-        question_texts: list[str],
-        context: dict[str, Any],
-    ) -> list[str]:
-        """Generate ideal answers for multiple questions in a single batch call.
-
-        Args:
-            question_texts: List of interview questions
-            context: CV summary, skills, etc.
-
-        Returns:
-            List of ideal answer texts (150-300 words each) in the same order as question_texts
-        """
-        pass
-
-    @abstractmethod
-    async def generate_rationales_batch(
-        self,
-        question_ideal_pairs: list[tuple[str, str]],
-    ) -> list[str]:
-        """Generate rationales for multiple question-answer pairs in a single batch call.
-
-        Args:
-            question_ideal_pairs: List of (question_text, ideal_answer) tuples
-
-        Returns:
-            List of rationale texts (50-100 words each) in the same order as question_ideal_pairs
-        """
-        pass
-
-    @abstractmethod
     async def generate_questions_with_answers_and_rationales_batch(
         self,
         question_specs: list[dict[str, Any]],
@@ -265,5 +93,56 @@ class LLMPort(ABC):
             List of tuples (question_text, ideal_answer, rationale) in the same order
             as question_specs. Each tuple represents one complete question set generated
             in a single LLM call.
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_answer_comprehensive(
+        self,
+        question: Question,
+        answer_text: str,
+        context: dict[str, Any],
+        followup_context: FollowUpEvaluationContext | None = None,
+    ) -> ComprehensiveAnalysis:
+        """Unified answer analysis (evaluation + gaps + follow-up).
+
+        Consolidates 3 LLM calls into 1 for 46% latency reduction (Phase 2 optimization).
+        Uses chain-of-thought prompting for multi-task quality.
+
+        Args:
+            question: Question entity with ideal_answer
+            answer_text: Candidate's answer
+            context: Interview context (interview_id, candidate_id, conversation_history)
+            followup_context: Follow-up context if applicable (attempt_number, previous_scores, gaps)
+
+        Returns:
+            ComprehensiveAnalysis with evaluation + gaps + follow_up
+
+        Raises:
+            ValueError: If question has no ideal_answer
+            RuntimeError: If LLM call fails after retries
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_feedback(
+        self,
+        input_type: InputType,
+        feedback_input: str,
+        context: dict[str, Any] | None = None,
+    ) -> FeedbackResult:
+        """Analyze feedback using DB prompts.
+
+        Args:
+            input_type: CV or CODE (INTERVIEW not supported)
+            feedback_input: JSON string with entity content
+            context: Optional context (user_id, entity_id, etc.)
+
+        Returns:
+            CVFeedbackResult or CodeReviewFeedbackResult
+
+        Raises:
+            ValueError: If input_type is INTERVIEW or feedback_input is invalid
+            RuntimeError: If LLM call fails
         """
         pass

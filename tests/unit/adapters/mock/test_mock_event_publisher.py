@@ -50,3 +50,71 @@ async def test_mock_clear_events():
     publisher.clear_events()
     assert len(publisher.published_events) == 0
 
+
+@pytest.mark.asyncio
+async def test_mock_publishes_feedback_completed_serialized_result():
+    """Test mock publisher stores FEEDBACK_COMPLETED with serialized result."""
+    from datetime import datetime
+    from src.domain.models.feedback_result import InterviewFeedbackResult
+
+    publisher = MockEventPublisher()
+    request_id = uuid4()
+    entity_id = uuid4()
+    user_id = uuid4()
+
+    feedback_result = InterviewFeedbackResult(
+        interview_id=entity_id,
+        overall_score=90.0,
+        theoretical_score_avg=88.0,
+        speaking_score_avg=70.0,
+        total_questions=4,
+        total_follow_ups=1,
+        question_feedback=[],
+        gap_progression={},
+        strengths=["strong fundamentals"],
+        weaknesses=[],
+        study_recommendations=[],
+        technique_tips=[],
+        completion_time=datetime.utcnow().isoformat(),
+    )
+
+    await publisher.publish_feedback_completed(
+        request_id=request_id,
+        entity_id=entity_id,
+        input_type="INTERVIEW",
+        user_id=user_id,
+        result=feedback_result,
+        correlation_id=uuid4(),
+    )
+
+    events = publisher.get_events("FEEDBACK_COMPLETED")
+    assert len(events) == 1
+    event = events[0]
+    assert event["event_type"] == "FEEDBACK_COMPLETED"
+    assert event["request_id"] == str(request_id)
+    assert event["entity_id"] == str(entity_id)
+    assert event["input_type"] == "INTERVIEW"
+    assert event["user_id"] == str(user_id)
+    assert isinstance(event["result"], dict)
+    assert event["result"]["interview_id"] == str(entity_id)
+
+
+@pytest.mark.asyncio
+async def test_mock_publishes_token_delta_event():
+    """Token delta events should be stored with user and tokens."""
+    publisher = MockEventPublisher()
+    user_id = uuid4()
+    correlation_id = uuid4()
+
+    await publisher.publish_token_delta(
+        user_id=user_id,
+        tokens=-10,
+        correlation_id=correlation_id,
+    )
+
+    events = publisher.get_events("TOKEN_DELTA")
+    assert len(events) == 1
+    event = events[0]
+    assert event["user_id"] == str(user_id)
+    assert event["tokens"] == -10
+    assert event["correlation_id"] == str(correlation_id)

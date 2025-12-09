@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from async_lru import alru_cache
 from sqlalchemy import select
 
 from ...domain.models.question import DifficultyLevel, Question, QuestionType
@@ -62,8 +63,13 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
 
             return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
+    @alru_cache(maxsize=128)  # Phase 3: Cache last 128 questions (LRU)
     async def get_by_id(self, question_id: UUID) -> Question | None:
-        """Retrieve a question by ID."""
+        """Retrieve a question by ID (cached for performance).
+
+        Phase 3 optimization: LRU cache reduces redundant DB queries for same question bank.
+        Cache invalidated on update/delete operations.
+        """
         async with self._session_provider() as session:
             result = await session.execute(
                 select(QuestionModel).where(QuestionModel.id == question_id)
@@ -154,7 +160,7 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
             return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
     async def update(self, question: Question) -> Question:
-        """Update an existing question."""
+        """Update an existing question and invalidate cache (Phase 3)."""
         async with self._session_provider() as session:
             result = await session.execute(
                 select(QuestionModel).where(QuestionModel.id == question.id)
@@ -167,10 +173,14 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
             QuestionMapper.update_db_model(db_model, question)
             await session.commit()
             await session.refresh(db_model)
+
+            # Phase 3: Invalidate cache entry
+            self.get_by_id.cache_invalidate(question.id)
+
             return QuestionMapper.to_domain(db_model)
 
     async def delete(self, question_id: UUID) -> bool:
-        """Delete a question by ID."""
+        """Delete a question by ID and invalidate cache (Phase 3)."""
         async with self._session_provider() as session:
             result = await session.execute(
                 select(QuestionModel).where(QuestionModel.id == question_id)
@@ -182,6 +192,10 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
 
             await session.delete(db_model)
             await session.commit()
+
+            # Phase 3: Invalidate cache entry
+            self.get_by_id.cache_invalidate(question_id)
+
             return True
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[Question]:

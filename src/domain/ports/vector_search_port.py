@@ -1,108 +1,60 @@
 """Vector search port interface."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
 from uuid import UUID
+
+from ..models.exemplar_models import ExemplarFilters, ExemplarResult
+from ..models.question import Difficulty, QuestionType
 
 
 class VectorSearchPort(ABC):
     """Interface for vector database operations.
 
-    This port abstracts vector storage and semantic search, allowing easy
-    switching between Pinecone, Weaviate, ChromaDB, etc.
+    Supports question storage and hybrid search using Pinecone's
+    hosted embedding feature for automatic text-to-vector conversion.
     """
 
     @abstractmethod
-    async def store_question_embedding(
+    async def insert_question(
         self,
         question_id: UUID,
-        embedding: list[float],
-        metadata: dict[str, Any],
+        text: str,
+        question_type: QuestionType,
+        difficulty: Difficulty,
+        skills: list[str],
     ) -> None:
-        """Store a question's vector embedding.
+        """Insert question into vector database.
+
+        Embedding generated automatically by Pinecone from text.
+        Skills normalized to lowercase for consistent matching.
 
         Args:
             question_id: Unique question identifier
-            embedding: Vector embedding
-            metadata: Additional metadata (skills, tags, difficulty, etc.)
+            text: Question text (embedded automatically)
+            question_type: Type of question (technical, behavioral, etc.)
+            difficulty: Difficulty level
+            skills: Related skills (will be lowercased)
         """
         pass
 
     @abstractmethod
-    async def store_cv_embedding(
+    async def search_exemplars(
         self,
-        cv_analysis_id: UUID,
-        embedding: list[float],
-        metadata: dict[str, Any],
-    ) -> None:
-        """Store a CV analysis vector embedding.
-
-        Args:
-            cv_analysis_id: Unique CV analysis identifier
-            embedding: Vector embedding
-            metadata: Additional metadata (skills, experience, etc.)
-        """
-        pass
-
-    @abstractmethod
-    async def find_similar_questions(
-        self,
-        query_embedding: list[float],
+        cv_summary: str,
+        filters: ExemplarFilters | None = None,
         top_k: int = 5,
-        filters: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Find similar questions using semantic search.
+    ) -> list[ExemplarResult]:
+        """Search for exemplar questions using hybrid search.
+
+        1. Pre-filter by metadata (question_type, difficulty, skills)
+        2. Rank by cosine similarity to cv_summary embedding
 
         Args:
-            query_embedding: Query vector (e.g., from CV or previous context)
-            top_k: Number of results to return
-            filters: Optional filters (e.g., difficulty, skills)
+            cv_summary: CV summary text (embedded automatically)
+            filters: Optional metadata filters
+            top_k: Maximum results to return
 
         Returns:
-            List of similar questions with similarity scores
-        """
-        pass
-
-    @abstractmethod
-    async def find_similar_answers(
-        self,
-        answer_embedding: list[float],
-        reference_embeddings: list[list[float]],
-    ) -> float:
-        """Calculate similarity between answer and reference answers.
-
-        Args:
-            answer_embedding: Candidate's answer embedding
-            reference_embeddings: Reference answer embeddings
-
-        Returns:
-            Similarity score (0-1)
-        """
-        pass
-
-    @abstractmethod
-    async def get_embedding(
-        self,
-        text: str,
-    ) -> list[float]:
-        """Generate embedding for text.
-
-        Args:
-            text: Text to embed
-
-        Returns:
-            Vector embedding
-        """
-        pass
-
-    @abstractmethod
-    async def delete_embeddings(
-        self,
-        ids: list[UUID],
-    ) -> None:
-        """Delete embeddings by IDs.
-
-        Args:
-            ids: List of IDs to delete
+            List of matching questions with similarity scores
         """
         pass

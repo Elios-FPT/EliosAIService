@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 def debug_print(msg: str):
     """Helper function to print debug messages with timestamps."""
@@ -212,12 +212,7 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
         return CVAnalysis(
             id=cv_analysis_id,
             candidate_id=candidate_id,
-            extracted_text=cv_text,
             skills=skills,
-            work_experience_years=experience_years,
-            education_level=merged_results.get("education_level"),
-            suggested_topics=merged_results.get("topics", []),
-            suggested_difficulty=self._calculate_difficulty(experience_years),
             embedding=None,
             summary=merged_results.get("summary"),
             created_at=datetime.now().isoformat(),
@@ -262,15 +257,4 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             )
             for idx, skill in enumerate(skills)
         ]
-
-    def _calculate_difficulty(self, experience_years: float | None) -> str:
-        if experience_years is None:
-            return "medium"
-        if experience_years >= 10:
-            return "expert"
-        if experience_years >= 5:
-            return "advanced"
-        if experience_years >= 2:
-            return "medium"
-        return "beginner"
 

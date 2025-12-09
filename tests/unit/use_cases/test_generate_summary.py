@@ -146,8 +146,7 @@ class TestGenerateSummaryUseCase:
         )
         await mock_answer_repo.save(follow_up_answer)
 
-        # Update interview with follow-up
-        sample_interview_adaptive.adaptive_follow_ups = [follow_up.id]
+        # Update interview (follow-ups tracked in follow_up_questions table, not in interview model)
         await mock_interview_repo.update(sample_interview_adaptive)
 
         # Execute use case

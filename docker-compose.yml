@@ -21,8 +21,14 @@ services:
       AZURE_OPENAI_API_KEY: "sk-of9ih3zl1tJI0lvU37arFQ"
       # Sensitive: Pinecone API Key
       PINECONE_API_KEY: "pcsk_3ebE3k_9RQXC9SYUpTfgAfmkEfsksipxrp73j5Gj8PC2bnnyTYJpDoMZMSToomZTGZYPfB"
-      # Sensitive: Azure Speech Key
-      AZURE_SPEECH_KEY: "nqEgp1cRRTWIbG7GD7gvNlxaFActZT8wMCXx9JBaETEb1kEhCiziJQQJ99BKAC3pKaRXJ3w3AAAYACOG02dV"
+      # Google Cloud Speech Configuration
+      GOOGLE_CLOUD_PROJECT_ID: "elios-speech-service"
+      GOOGLE_APPLICATION_CREDENTIALS: "/app/secrets/elios-speech-service-b6ba8997cc4c.json"
+      GOOGLE_STT_MODEL: "chirp_3"
+      GOOGLE_STT_LOCATION: "us"
+      GOOGLE_STT_LANGUAGE: "en-US"
+      GOOGLE_TTS_VOICE_TYPE: "Chirp3HD"
+      GOOGLE_TTS_DEFAULT_VOICE: "en-US-Chirp3-HD-Charon"
       # Kafka Configuration
       # Option 1: Use Kafka service in this docker-compose (current)
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
@@ -40,6 +46,8 @@ services:
     volumes:
       # Persist uploads directory
       - ./uploads:/app/uploads
+      # Mount Google Cloud service account credentials (read-only for security)
+      - ./.secrets/elios-speech-service-b6ba8997cc4c.json:/app/.secrets/elios-speech-service-b6ba8997cc4c.json:ro
     restart: unless-stopped
     networks:
       - elios-network

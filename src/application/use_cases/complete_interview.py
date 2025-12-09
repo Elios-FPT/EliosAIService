@@ -161,13 +161,17 @@ class CompleteInterviewUseCase:
         # Get total questions count from junction table
         total_questions = await self.interview_repo.count_interview_questions(interview.id)
 
+        # Get total follow-ups count from repository
+        follow_ups = await self.follow_up_repo.get_by_interview_id(interview.id)
+        total_follow_ups = len(follow_ups)
+
         return DetailedInterviewFeedback(
             interview_id=interview.id,
             overall_score=metrics["overall_score"],
             theoretical_score_avg=metrics["theoretical_avg"],
             speaking_score_avg=metrics["speaking_avg"],
             total_questions=total_questions,
-            total_follow_ups=len(interview.adaptive_follow_ups),
+            total_follow_ups=total_follow_ups,
             question_feedback=question_feedback,
             gap_progression=gap_progression,
             strengths=recommendations["strengths"],
@@ -237,10 +241,9 @@ class CompleteInterviewUseCase:
         """
         evaluations_map = {}
         for answer in answers:
-            if answer.evaluation_id:
-                evaluation = await self.evaluation_repo.get_by_id(answer.evaluation_id)
-                if evaluation:
-                    evaluations_map[answer.id] = evaluation
+            evaluation = await self.evaluation_repo.get_by_answer_id(answer.id)
+            if evaluation:
+                evaluations_map[answer.id] = evaluation
         return evaluations_map
 
     def _calculate_aggregate_metrics(
@@ -260,9 +263,7 @@ class CompleteInterviewUseCase:
                 - theoretical_avg: Average of theoretical scores
                 - speaking_avg: Average of speaking scores
         """
-        evaluated_answers = [
-            a for a in all_answers if a.is_evaluated() and a.id in evaluations_map
-        ]
+        evaluated_answers = [a for a in all_answers if a.id in evaluations_map]
 
         if not evaluated_answers:
             return {
@@ -400,7 +401,7 @@ class CompleteInterviewUseCase:
                     "weaknesses": evaluations_map[a.id].weaknesses,
                 }
                 for a in all_answers
-                if a.is_evaluated() and a.id in evaluations_map
+                if a.id in evaluations_map
             ],
         }
 
@@ -514,7 +515,7 @@ class CompleteInterviewUseCase:
 
         return EvaluationDetail(
             answer_id=answer.id,
-            question_id=evaluation.question_id,
+            question_id=answer.question_id,
             question_text=question_text,
             attempt_number=evaluation.attempt_number,
             raw_score=evaluation.raw_score,
@@ -556,6 +557,7 @@ class CompleteInterviewUseCase:
                 overall_score=summary.overall_score,
                 theoretical_score_avg=summary.theoretical_score_avg,
                 speaking_score_avg=summary.speaking_score_avg,
+                title=getattr(interview, "title", None),
             )
         except Exception as e:
             # Log error but DO NOT raise (fire-and-forget)

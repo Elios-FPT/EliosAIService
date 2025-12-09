@@ -136,8 +136,6 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
         return Evaluation(
             id=db_model.id,
             answer_id=db_model.answer_id,
-            question_id=db_model.question_id,
-            interview_id=db_model.interview_id,
             raw_score=db_model.raw_score,
             penalty=db_model.penalty,
             final_score=db_model.final_score,
@@ -173,8 +171,6 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
         return EvaluationModel(
             id=domain_model.id,
             answer_id=domain_model.answer_id,
-            question_id=domain_model.question_id,
-            interview_id=domain_model.interview_id,
             raw_score=domain_model.raw_score,
             penalty=domain_model.penalty,
             final_score=domain_model.final_score,

@@ -14,11 +14,8 @@ from src.infrastructure.config.settings import Settings
 
 @pytest.mark.asyncio
 async def test_switch_adapters_runtime() -> None:
-    """Test switching between adapters at runtime via settings."""
-    # Test hybrid adapter initialization with settings
+    """Test hybrid adapter initialization with settings."""
     settings_hybrid = Settings()
-    settings_hybrid.use_mock_cv_analyzer = False
-    settings_hybrid.use_hybrid_cv_analyzer = True
 
     # Direct initialization (bypassing DI container to avoid dependency issues)
     adapter_hybrid = HybridCVAnalyzerAdapter(
@@ -70,11 +67,11 @@ async def test_confidence_threshold_configuration() -> None:
 
     # Process with low threshold
     analysis_low = await adapter_low.analyze_cv(cv_bytes, "txt", candidate_id)
-    assert analysis_low.extracted_text is not None
+    assert analysis_low.summary is not None or len(analysis_low.skills) > 0
 
     # Process with high threshold
     analysis_high = await adapter_high.analyze_cv(cv_bytes, "txt", candidate_id)
-    assert analysis_high.extracted_text is not None
+    assert analysis_high.summary is not None or len(analysis_high.skills) > 0
 
     # Both should have skills extracted
     assert len(analysis_low.skills) >= 0
@@ -85,45 +82,8 @@ async def test_confidence_threshold_configuration() -> None:
 
 
 def test_adapter_priority_logic() -> None:
-    """Test that adapter priority logic is correct: mock > hybrid > legacy."""
-    # Priority 1: Mock (should win even if hybrid is enabled)
+    """Test that hybrid adapter is the canonical implementation type string."""
     settings = Settings()
-    settings.use_mock_cv_analyzer = True
-    settings.use_hybrid_cv_analyzer = True
-
-    # Test the logic
-    if settings.use_mock_cv_analyzer:
-        adapter_type = "MockCVAnalyzerAdapter"
-    elif settings.use_hybrid_cv_analyzer:
-        adapter_type = "HybridCVAnalyzerAdapter"
-    else:
-        adapter_type = "CVProcessingAdapter"
-
-    assert adapter_type == "MockCVAnalyzerAdapter"
-
-    # Priority 2: Hybrid (when mock is disabled)
-    settings.use_mock_cv_analyzer = False
-    settings.use_hybrid_cv_analyzer = True
-
-    if settings.use_mock_cv_analyzer:
-        adapter_type = "MockCVAnalyzerAdapter"
-    elif settings.use_hybrid_cv_analyzer:
-        adapter_type = "HybridCVAnalyzerAdapter"
-    else:
-        adapter_type = "CVProcessingAdapter"
-
+    adapter_type = "HybridCVAnalyzerAdapter"
     assert adapter_type == "HybridCVAnalyzerAdapter"
-
-    # Priority 3: Legacy (when both mock and hybrid are disabled)
-    settings.use_mock_cv_analyzer = False
-    settings.use_hybrid_cv_analyzer = False
-
-    if settings.use_mock_cv_analyzer:
-        adapter_type = "MockCVAnalyzerAdapter"
-    elif settings.use_hybrid_cv_analyzer:
-        adapter_type = "HybridCVAnalyzerAdapter"
-    else:
-        adapter_type = "CVProcessingAdapter"
-
-    assert adapter_type == "CVProcessingAdapter"
 

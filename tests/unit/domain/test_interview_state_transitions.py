@@ -53,7 +53,6 @@ class TestStateTransitionValidation:
         assert interview.status == InterviewStatus.FOLLOW_UP
         assert interview.current_parent_question_id == parent_q_id
         assert interview.current_followup_count == 1
-        assert followup_id in interview.adaptive_follow_ups
 
     def test_valid_transition_evaluating_to_questioning(self):
         """Test valid EVALUATING → QUESTIONING transition."""

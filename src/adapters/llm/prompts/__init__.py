@@ -363,20 +363,88 @@ Return in JSON format:
 ])
 
 
+# 12. Comprehensive Answer Analysis (Phase 2: Unified LLM Prompt)
+COMPREHENSIVE_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are an expert technical interviewer. Analyze candidate answers comprehensively using step-by-step reasoning.
+
+CRITICAL: Evaluate each answer independently based on its actual quality. Do not anchor to example scores or default values. Use the full scoring range for each dimension based on merit.
+
+Provide analysis in THREE PARTS:
+1. EVALUATION: Multi-dimensional scoring (technical accuracy, depth, clarity, practical application)
+2. GAP DETECTION: Identify missing concepts with severity ratings
+3. FOLLOW-UP DECISION: Suggest follow-up question if major gaps exist and attempt < 3
+
+Use chain-of-thought reasoning for quality multi-task analysis."""),
+    ("human", """Analyze this answer comprehensively.
+
+QUESTION: {question_text}
+IDEAL ANSWER: {ideal_answer}
+CANDIDATE'S ANSWER: {answer_text}
+
+CONTEXT:
+- Attempt number: {attempt_number}
+- Previous scores: {previous_scores}
+- Cumulative gaps: {cumulative_gaps}
+
+**PART 1: EVALUATION**
+Evaluate answer on 4 dimensions:
+- Technical accuracy (0-40 points): Correctness of concepts and implementation details
+- Depth of understanding (0-30 points): Level of detail and comprehension shown
+- Clarity of communication (0-20 points): Structure, coherence, and articulation
+- Practical application (0-10 points): Real-world relevance and examples
+
+For each dimension, provide score + reasoning.
+Calculate total score (0-100).
+
+**PART 2: GAP DETECTION**
+Compare answer to ideal answer. Identify missing concepts or incomplete explanations.
+For each gap, rate severity:
+- "minor": Nice-to-know details, doesn't affect core understanding
+- "moderate": Important concepts that should be mentioned
+- "major": Critical concepts essential for complete answer
+
+**PART 3: FOLLOW-UP DECISION**
+Conditions for follow-up:
+- If major gaps exist AND attempt < 3: Suggest ONE follow-up question to probe deeper
+- If no major gaps OR attempt == 3: Return null for follow_up
+
+Return valid JSON with all three parts.
+
+CRITICAL: Evaluate each answer independently. Base scores on actual answer quality, not on examples. Use the full scoring range (0 to max) for each dimension based on merit.
+
+JSON structure:
+{{
+    "evaluation": {{
+        "dimensions": [
+            {{"dimension_name": "technical_accuracy", "score": <number 0-40>, "reasoning": "evaluate correctness of concepts and implementation"}},
+            {{"dimension_name": "depth_of_understanding", "score": <number 0-30>, "reasoning": "evaluate level of detail and comprehension"}},
+            {{"dimension_name": "clarity_of_communication", "score": <number 0-20>, "reasoning": "evaluate structure, coherence, and articulation"}},
+            {{"dimension_name": "practical_application", "score": <number 0-10>, "reasoning": "evaluate real-world relevance and examples"}}
+        ],
+        "total_score": <number 0-100, sum of dimension scores>,
+        "strengths": ["list specific strengths found in answer"],
+        "weaknesses": ["list specific weaknesses found in answer"],
+        "improvement_suggestions": ["list actionable improvement suggestions"],
+        "reasoning": "overall evaluation summary"
+    }},
+    "gaps": [
+        {{"concept": "name of missing concept", "severity": "minor|moderate|major", "explanation": "explain why this is a gap"}}
+    ],
+    "follow_up": {{
+        "question_text": "<follow-up question string> or null",
+        "reason": "<reason for follow-up> or null",
+        "target_gaps": ["list gap concepts this follow-up addresses"]
+    }},
+    "confidence": <number 0.0-1.0>
+}}""")
+])
+
+
 # Prompt registry for easy access
+# Only includes prompts for methods that are in LLMPort interface
 PROMPT_REGISTRY = {
-    "generate_question": GENERATE_QUESTION_PROMPT,
-    "evaluate_answer": EVALUATE_ANSWER_PROMPT,
-    "generate_ideal_answer": IDEAL_ANSWER_PROMPT,
-    "generate_rationale": RATIONALE_PROMPT,
-    "detect_concept_gaps": DETECT_GAPS_PROMPT,
     "generate_followup_question": FOLLOWUP_QUESTION_PROMPT,
-    "generate_feedback_report": FEEDBACK_REPORT_PROMPT,
-    "summarize_cv": SUMMARIZE_CV_PROMPT,
-    "extract_skills_from_text": EXTRACT_SKILLS_PROMPT,
     "generate_interview_recommendations": RECOMMENDATIONS_PROMPT,
-    "generate_questions_batch": BATCH_QUESTIONS_PROMPT,
-    "generate_ideal_answers_batch": BATCH_IDEAL_ANSWERS_PROMPT,
-    "generate_rationales_batch": BATCH_RATIONALES_PROMPT,
     "generate_questions_with_answers_and_rationales_batch": GENERATE_QUESTION_WITH_ANSWER_AND_RATIONALE_PROMPT,
+    "comprehensive_answer_analysis": COMPREHENSIVE_ANALYSIS_PROMPT,  # Phase 2: Unified prompt
 }

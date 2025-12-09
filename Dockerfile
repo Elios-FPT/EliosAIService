@@ -47,9 +47,6 @@ RUN pip install --no-cache-dir -e .
 RUN python -m spacy download en_core_web_sm
 RUN python -m spacy download vi_core_news_sm || echo "Warning: Vietnamese model (vi_core_news_sm) download failed - will use English model as fallback"
 
-# Create upload directories
-RUN mkdir -p /app/uploads/cvs /app/uploads/audio
-
 # Set default environment variables (can be overridden in docker-compose)
 # Application
 ENV APP_NAME="Elios AI Interview Service"
@@ -83,17 +80,6 @@ ENV POSTGRES_PORT=5432
 ENV POSTGRES_USER=elios
 ENV POSTGRES_DB=elios_interviews
 
-# Speech Services
-ENV AZURE_SPEECH_REGION=eastasia
-ENV AZURE_SPEECH_LANGUAGE=en-US
-ENV AZURE_SPEECH_VOICE=en-US-AriaNeural
-ENV AZURE_SPEECH_CACHE_SIZE=128
-
-# File Storage (absolute paths for Docker)
-ENV UPLOAD_DIR=/app/uploads
-ENV CV_DIR=/app/uploads/cvs
-ENV AUDIO_DIR=/app/uploads/audio
-
 # Interview Configuration
 ENV MAX_QUESTIONS_PER_INTERVIEW=10
 ENV MIN_PASSING_SCORE=60.0
@@ -115,20 +101,6 @@ ENV LANGCHAIN_MAX_TOKENS=2000
 ENV LANGCHAIN_ENABLE_FALLBACK=false
 ENV LANGCHAIN_FALLBACK_PROVIDER=anthropic
 
-# LangSmith Observability
-ENV ENABLE_LANGSMITH=false
-ENV LANGCHAIN_TRACING_V2=false
-ENV LANGSMITH_FILTER_PII=true
-ENV LANGSMITH_SAMPLE_RATE=1.0
-ENV LANGSMITH_MAX_TRACE_SIZE_KB=1024
-ENV LANGCHAIN_PROJECT=elios-interviews-dev
-ENV LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
-
-# LangGraph Adaptive Evaluation Workflow
-ENV USE_LANGGRAPH_ADAPTIVE_SIMPLE=false
-ENV USE_LANGGRAPH_ADAPTIVE_INTERRUPT=true
-ENV LANGGRAPH_CHECKPOINTER_HEARTBEAT_ENABLED=true
-
 # Mock Adapters (for development/testing)
 ENV USE_MOCK_LLM=false
 ENV USE_MOCK_VECTOR_SEARCH=true
@@ -139,7 +111,6 @@ ENV USE_MOCK_ANALYTICS=true
 ENV USE_MOCK_EVENT_PUBLISHER=false
 
 # Hybrid CV Analyzer Configuration
-ENV USE_HYBRID_CV_ANALYZER=true
 ENV HYBRID_CONFIDENCE_THRESHOLD=0.7
 ENV HYBRID_ENABLE_LLM_FALLBACK=true
 ENV HYBRID_SKILL_PATTERNS_PATH=./src/adapters/cv_processing/skill_patterns.json

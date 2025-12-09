@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     pinecone_api_key: str | None = None
     pinecone_environment: str = "us-east-1"
     pinecone_index_name: str = "elios-interviews"
+    pinecone_namespace: str = "__default__"
 
     # PostgreSQL Configuration
     postgres_host: str = "localhost"
@@ -153,32 +154,22 @@ class Settings(BaseSettings):
     google_cloud_project_id: str | None = None
     google_application_credentials: str | None = None
     google_stt_model: str = "chirp_3"  # chirp_3, short, long, latest_long
+    google_stt_location: str = "us"  # us, eu, asia, us-central1, europe-west4, asia-southeast1, etc. Determines regional API endpoint for regional models
     google_stt_language: str = "en-US"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Charon"
-
-    # ================================================
-    # Azure Speech (DEPRECATED - for rollback only)
-    # ================================================
-    azure_speech_key: str | None = None
-    azure_speech_region: str = "eastus"
-    azure_speech_language: str = "en-US"
-    azure_speech_voice: str = "en-US-AriaNeural"
-    azure_speech_cache_size: int = 128  # LRU cache size for TTS
-
-    # File Storage
-    upload_dir: str = "./uploads"
-    cv_dir: str = "./uploads/cvs"
-    audio_dir: str = "./uploads/audio"
 
     # Interview Configuration
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
+    token_delta_per_plan: int = -10  # Tokens deducted per plan_interview call
 
     # Kafka Configuration (Event Publishing)
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_interview_topic: str = "interview-user-interview"
     kafka_candidate_topic: str = "user-interview-candidate"
+    kafka_feedback_topic: str = "ai-feedback-results"
+    kafka_token_topic: str = "ai-user-usertokenupdate"
     kafka_candidate_consumer_group: str = "interview-service-candidate-events"
 
     # Logging
@@ -219,25 +210,12 @@ class Settings(BaseSettings):
     ws_base_url: str = "ws://localhost:8000"
 
     # LangChain Integration (Phase 1)
-    use_langchain: bool = False  # Feature flag to enable LangChain adapter
     langchain_temperature: float = 0.7  # Default temperature for LangChain models
     langchain_max_tokens: int = 2000  # Max tokens per LLM call
     langchain_enable_fallback: bool = False  # Multi-provider fallback
     langchain_fallback_provider: str = "anthropic"  # claude fallback
 
-    # LangSmith Observability (Phase 4)
-    enable_langsmith: bool = False  # Enable LangSmith tracing
-    langchain_tracing_v2: bool = False  # LangChain v2 tracing protocol
-    langsmith_api_key: str | None = None  # LangSmith API key
-    langchain_project: str = "elios-interviews-dev"  # LangSmith project name
-    langchain_endpoint: str = "https://api.smith.langchain.com"  # LangSmith API endpoint
-    langsmith_filter_pii: bool = True  # Enable PII filtering in traces
-    langsmith_sample_rate: float = 1.0  # Trace sampling rate (0.0-1.0, 1.0 = 100%)
-    langsmith_max_trace_size_kb: int = 1024  # Max trace size in KB (prevent large traces)
-
     # LangGraph Planning Workflow (Phase 2)
-    # DEPRECATED: This flag will be removed in v0.5.0 - LangGraph is now the default implementation
-    use_langgraph_planning: bool = True  # Feature flag for LangGraph planning workflow (deprecated)
     langgraph_checkpointer_type: str = "postgresql"  # Checkpoint storage backend
     langgraph_checkpointer_pool_size: int = 5  # Connection pool size for AsyncPostgresSaver
     # Note: Currently reserved for future use. AsyncPostgresSaver.from_conn_string() does not
@@ -249,32 +227,17 @@ class Settings(BaseSettings):
     langgraph_checkpointer_setup_timeout: float = (
         20.0  # Timeout in seconds for checkpointer setup (default: 120s)
     )
-    langgraph_checkpointer_heartbeat_enabled: bool = True
+    # Checkpointer heartbeat is enabled by default (no flag needed)
     langgraph_checkpointer_heartbeat_interval_seconds: int = 240
     langgraph_checkpointer_ensure_timeout_seconds: float = 10.0
 
-    # LangGraph Adaptive Evaluation Workflow (Phase 3A)
-    use_langgraph_adaptive_simple: bool = (
-        False  # Feature flag for adaptive evaluation workflow (no interrupts)
-    )
-
-    # LangGraph Adaptive Evaluation with Interrupts (Phase 3B)
-    use_langgraph_adaptive_interrupt: bool = (
-        False  # Feature flag for interrupt-based adaptive workflow (WebSocket loop)
-    )
-
     # Mock Adapters (for development/testing)
-    # Individual flags for each adapter - set to False to use real implementations
-    use_mock_llm: bool = True
+    # Vector search mock remains available for local development/testing
     use_mock_vector_search: bool = True
-    use_mock_cv_analyzer: bool = True
-    use_mock_stt: bool = True
-    use_mock_tts: bool = True
-    use_mock_analytics: bool = True
-    use_mock_event_publisher: bool = True  # Use mock for local dev/testing
 
-    # Hybrid CV Analyzer Configuration
-    use_hybrid_cv_analyzer: bool = False  # Feature flag (default: legacy)
+    # Phase 2: Unified LLM Prompt (Performance Optimization)
+
+    # Hybrid CV Analyzer Configuration (always enabled)
     hybrid_confidence_threshold: float = 0.7  # LLM fallback trigger
     hybrid_enable_llm_fallback: bool = True  # Allow LLM when confidence low
     hybrid_skill_patterns_path: str = "./src/adapters/cv_processing/skill_patterns.json"
@@ -293,13 +256,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_speech_config(self) -> "Settings":
         """Validate Google Cloud Speech configuration."""
-        if not self.use_mock_stt and not self.use_mock_tts:
-            if not self.google_cloud_project_id:
-                raise ValueError(
-                    "GOOGLE_CLOUD_PROJECT_ID required when not using mock adapters. "
-                    "Set USE_MOCK_STT=true or USE_MOCK_TTS=true for development, "
-                    "or provide Google Cloud credentials."
-                )
+        if not self.google_cloud_project_id:
+            raise ValueError(
+                "GOOGLE_CLOUD_PROJECT_ID required for speech adapters. "
+                "Provide Google Cloud credentials."
+            )
         return self
 
     def print_loaded_env_file(self) -> None:

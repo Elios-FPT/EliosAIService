@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 import re
 from dataclasses import dataclass
 from typing import Callable, Mapping
@@ -73,7 +72,6 @@ class AnswerStrategyEngine:
         keep_ratio = float(self._degrade_profile.get("keep_ratio", 0.5))
         keep_ratio = min(max(keep_ratio, 0.1), 1.0)
         min_sentences = int(self._degrade_profile.get("min_sentences", 1))
-        rng = random.Random(f"{self.scenario_id}:{question_id}")
 
         sentences = [
             sentence.strip()
@@ -83,7 +81,6 @@ class AnswerStrategyEngine:
         if not sentences:
             return text[: max(1, len(text) // 4)]
 
-        rng.shuffle(sentences)
         keep_count = max(min_sentences, int(len(sentences) * keep_ratio))
         keep_count = min(keep_count, len(sentences))
         degraded = " ".join(sentences[:keep_count]).strip()

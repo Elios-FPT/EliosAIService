@@ -13,16 +13,12 @@ class CVAnalysis(BaseModel):
     """Represents the analysis results of a candidate's CV.
 
     This is an entity in the interview domain.
+    Focuses on skills extraction and AI-generated summary.
     """
 
     id: UUID = Field(default_factory=uuid4)
     candidate_id: UUID
-    extracted_text: str
     skills: List[CVSkill] = Field(default_factory=list)
-    work_experience_years: float | None = None
-    education_level: str | None = None  # e.g., "Bachelor's", "Master's"
-    suggested_topics: list[str] = Field(default_factory=list)  # Topics to cover
-    suggested_difficulty: str = "medium"  # Overall difficulty level
     embedding: Optional[List[float]] = None  # Vector embedding of CV
     summary: Optional[str] = None  # AI-generated summary
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -111,17 +107,3 @@ class CVAnalysis(BaseModel):
             key=lambda s: (not s.is_primary, s.skill_name)
         )
         return sorted_skills[:limit]
-
-    def is_experienced(self, min_years: float = 3.0) -> bool:
-        """Check if candidate is experienced.
-
-        Args:
-            min_years: Minimum years of experience
-
-        Returns:
-            True if experienced, False otherwise
-        """
-        return (
-            self.work_experience_years is not None
-            and self.work_experience_years >= min_years
-        )

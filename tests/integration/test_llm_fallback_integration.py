@@ -75,7 +75,7 @@ async def test_llm_fallback_low_confidence_cv() -> None:
 
     # Verify analysis structure
     assert analysis.candidate_id is not None
-    assert analysis.extracted_text is not None
+    assert analysis.summary is not None or len(analysis.skills) > 0
     assert len(analysis.skills) >= 0
 
 
@@ -95,10 +95,9 @@ async def test_llm_fallback_with_real_api() -> None:
     cv_bytes = cv_path.read_bytes()
     analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
-    # With real LLM, should have summary and topics if confidence was low
-    # Summary and topics may be populated if LLM was called
+    # With real LLM, should have summary if confidence was low
+    # Summary may be populated if LLM was called
     assert analysis.summary is None or isinstance(analysis.summary, str)
-    assert isinstance(analysis.suggested_topics, list)
 
 
 @pytest.mark.asyncio
@@ -126,7 +125,7 @@ async def test_llm_fallback_cost_tracking_simulation() -> None:
         analysis = await adapter.analyze_cv(cv_bytes, "txt", str(uuid4()))
 
         # Verify analysis completed
-        assert analysis.extracted_text is not None
+        assert analysis.summary is not None or len(analysis.skills) > 0
 
     if total_cvs > 0:
         # Verify all CVs were processed

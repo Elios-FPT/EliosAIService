@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
-from src.adapters.mock.mock_cv_analyzer import MockCVAnalyzerAdapter
 from src.infrastructure.config.settings import Settings
 
 
@@ -16,10 +15,9 @@ class TestSettingsHybridCVAnalyzer:
     """Test suite for hybrid CV analyzer settings."""
 
     def test_settings_default_values(self) -> None:
-        """Test that default values are correct (hybrid disabled by default)."""
+        """Test that default values are correct for hybrid analyzer configuration."""
         settings = Settings()
 
-        assert settings.use_hybrid_cv_analyzer is False
         assert settings.hybrid_confidence_threshold == 0.7
         assert settings.hybrid_enable_llm_fallback is True
         assert settings.hybrid_skill_patterns_path == "./src/adapters/cv_processing/skill_patterns.json"
@@ -32,7 +30,6 @@ class TestSettingsHybridCVAnalyzer:
         with patch.dict(
             os.environ,
             {
-                "USE_HYBRID_CV_ANALYZER": "true",
                 "HYBRID_CONFIDENCE_THRESHOLD": "0.8",
                 "HYBRID_ENABLE_LLM_FALLBACK": "false",
                 "SPACY_MODEL_EN": "en_core_web_lg",
@@ -48,7 +45,6 @@ class TestSettingsHybridCVAnalyzer:
             )
             settings = Settings()
 
-            assert settings.use_hybrid_cv_analyzer is True
             assert settings.hybrid_confidence_threshold == 0.8
             assert settings.hybrid_enable_llm_fallback is False
             assert settings.spacy_model_en == "en_core_web_lg"
@@ -58,7 +54,6 @@ class TestSettingsHybridCVAnalyzer:
         with patch.dict(
             os.environ,
             {
-                "USE_HYBRID_CV_ANALYZER": "1",  # Should parse as True
                 "HYBRID_ENABLE_LLM_FALLBACK": "0",  # Should parse as False
             },
             clear=False,
@@ -71,62 +66,9 @@ class TestSettingsHybridCVAnalyzer:
             )
             settings = Settings()
 
-            # Pydantic should handle "1"/"0" as boolean
-            assert isinstance(settings.use_hybrid_cv_analyzer, bool)
+            # Pydantic should handle \"1\"/\"0\" as boolean
             assert isinstance(settings.hybrid_enable_llm_fallback, bool)
 
-
-class TestDIContainerCVAnalyzer:
-    """Test suite for DI container CV analyzer selection logic."""
-
-    def test_di_container_logic_mock_priority(self) -> None:
-        """Test that mock adapter logic takes priority."""
-        settings = Settings()
-        settings.use_mock_cv_analyzer = True
-        settings.use_hybrid_cv_analyzer = True
-
-        # Test the logic without importing Container
-        # Mock > Hybrid > Legacy
-        if settings.use_mock_cv_analyzer:
-            adapter_type = "MockCVAnalyzerAdapter"
-        elif settings.use_hybrid_cv_analyzer:
-            adapter_type = "HybridCVAnalyzerAdapter"
-        else:
-            adapter_type = "CVProcessingAdapter"
-
-        assert adapter_type == "MockCVAnalyzerAdapter"
-
-    def test_di_container_logic_hybrid_priority(self) -> None:
-        """Test that hybrid adapter logic works when mock is disabled."""
-        settings = Settings()
-        settings.use_mock_cv_analyzer = False
-        settings.use_hybrid_cv_analyzer = True
-
-        # Test the logic
-        if settings.use_mock_cv_analyzer:
-            adapter_type = "MockCVAnalyzerAdapter"
-        elif settings.use_hybrid_cv_analyzer:
-            adapter_type = "HybridCVAnalyzerAdapter"
-        else:
-            adapter_type = "CVProcessingAdapter"
-
-        assert adapter_type == "HybridCVAnalyzerAdapter"
-
-    def test_di_container_logic_legacy_fallback(self) -> None:
-        """Test that legacy adapter is fallback when both are disabled."""
-        settings = Settings()
-        settings.use_mock_cv_analyzer = False
-        settings.use_hybrid_cv_analyzer = False
-
-        # Test the logic
-        if settings.use_mock_cv_analyzer:
-            adapter_type = "MockCVAnalyzerAdapter"
-        elif settings.use_hybrid_cv_analyzer:
-            adapter_type = "HybridCVAnalyzerAdapter"
-        else:
-            adapter_type = "CVProcessingAdapter"
-
-        assert adapter_type == "CVProcessingAdapter"
 
     def test_hybrid_adapter_initialization_params(self) -> None:
         """Test that HybridCVAnalyzerAdapter accepts settings parameters."""
