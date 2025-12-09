@@ -79,6 +79,7 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
             db_model.completeness = evaluation.completeness
             db_model.relevance = evaluation.relevance
             db_model.sentiment = evaluation.sentiment
+            db_model.voice_metrics = evaluation.voice_metrics
             db_model.reasoning = evaluation.reasoning
             db_model.strengths = evaluation.strengths
             db_model.weaknesses = evaluation.weaknesses
@@ -147,6 +148,7 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
             completeness=db_model.completeness,
             relevance=db_model.relevance,
             sentiment=db_model.sentiment,
+            voice_metrics=db_model.voice_metrics,
             reasoning=db_model.reasoning,
             strengths=list(db_model.strengths),
             weaknesses=list(db_model.weaknesses),
@@ -184,6 +186,7 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
             completeness=domain_model.completeness,
             relevance=domain_model.relevance,
             sentiment=domain_model.sentiment,
+            voice_metrics=domain_model.voice_metrics,
             reasoning=domain_model.reasoning,
             strengths=domain_model.strengths,
             weaknesses=domain_model.weaknesses,

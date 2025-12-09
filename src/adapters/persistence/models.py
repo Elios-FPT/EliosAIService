@@ -373,6 +373,7 @@ class EvaluationModel(Base):
     completeness: Mapped[float] = mapped_column(Float, nullable=False)
     relevance: Mapped[float] = mapped_column(Float, nullable=False)
     sentiment: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    voice_metrics: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     strengths: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default="{}"
