@@ -401,6 +401,8 @@ class EvaluateAnswerUseCase:
 
             evaluation_payload = saved_evaluation.model_dump(mode="json")
             evaluation_payload["question_id"] = input_dto.question.get("id")
+            # Alias final_score -> score for downstream clients
+            evaluation_payload["score"] = saved_evaluation.final_score
 
             return EvaluateAnswerOutput(
                 answer=saved_answer.model_dump(mode="json"),

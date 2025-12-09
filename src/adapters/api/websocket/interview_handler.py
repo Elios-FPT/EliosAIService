@@ -181,21 +181,24 @@ async def _handle_with_workflow(
 
                 # Send evaluation if present
                 if "evaluation" in result and result["evaluation"]:
+                    evaluation = result["evaluation"]
                     await manager.send_message(
                         interview_id,
                         {
                             "type": "evaluation",
-                            "answer_id": result["evaluation"]["answer_id"],
-                            "score": result["evaluation"]["score"],
-                            "feedback": result["evaluation"]["feedback"],
-                            "strengths": result["evaluation"]["strengths"],
-                            "weaknesses": result["evaluation"]["weaknesses"],
-                            "gaps": result["evaluation"]["gaps"],
+                            "answer_id": evaluation["answer_id"],
+                            "score": evaluation.get("score", evaluation.get("final_score")),
+                            "feedback": evaluation.get("feedback"),
+                            "strengths": evaluation.get("strengths", []),
+                            "weaknesses": evaluation.get("weaknesses", []),
+                            "gaps": evaluation.get("gaps"),
+                            "theoretical_score": evaluation.get("theoretical_score"),
+                            "speaking_score": evaluation.get("speaking_score"),
                         },
                     )
                     logger.info(
-                        f"Sent evaluation for answer {result['evaluation']['answer_id']}, "
-                        f"score={result['evaluation']['score']:.1f}"
+                        f"Sent evaluation for answer {evaluation['answer_id']}, "
+                        f"score={evaluation.get('score', evaluation.get('final_score'))}"
                     )
 
                 # Check if complete
@@ -498,21 +501,24 @@ async def _stream_transcription(
 
                 # Send evaluation if present
                 if "evaluation" in workflow_result and workflow_result["evaluation"]:
+                    evaluation = workflow_result["evaluation"]
                     await manager.send_message(
                         interview_id,
                         {
                             "type": "evaluation",
-                            "answer_id": workflow_result["evaluation"]["answer_id"],
-                            "score": workflow_result["evaluation"]["score"],
-                            "feedback": workflow_result["evaluation"]["feedback"],
-                            "strengths": workflow_result["evaluation"]["strengths"],
-                            "weaknesses": workflow_result["evaluation"]["weaknesses"],
-                            "gaps": workflow_result["evaluation"]["gaps"],
+                            "answer_id": evaluation["answer_id"],
+                            "score": evaluation.get("score", evaluation.get("final_score")),
+                            "feedback": evaluation.get("feedback"),
+                            "strengths": evaluation.get("strengths", []),
+                            "weaknesses": evaluation.get("weaknesses", []),
+                            "gaps": evaluation.get("gaps"),
+                            "theoretical_score": evaluation.get("theoretical_score"),
+                            "speaking_score": evaluation.get("speaking_score"),
                         },
                     )
                     logger.info(
-                        f"Sent evaluation for voice answer {workflow_result['evaluation']['answer_id']}, "
-                        f"score={workflow_result['evaluation']['score']:.1f}"
+                        f"Sent evaluation for voice answer {evaluation['answer_id']}, "
+                        f"score={evaluation.get('score', evaluation.get('final_score'))}"
                     )
 
                 # Check if complete
