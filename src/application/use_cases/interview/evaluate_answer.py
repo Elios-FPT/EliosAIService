@@ -331,6 +331,7 @@ class EvaluateAnswerUseCase:
                 completeness=llm_eval.completeness,
                 relevance=llm_eval.relevance,
                 sentiment=llm_eval.sentiment,
+                voice_metrics=input_dto.voice_metrics,  # Store raw voice metrics for future analysis
                 reasoning=llm_eval.reasoning,
                 strengths=llm_eval.strengths,
                 weaknesses=llm_eval.weaknesses,
