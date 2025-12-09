@@ -52,12 +52,12 @@ class TestCompleteInterviewUseCase:
         )
         await mock_answer_repo.save(answer1)
 
-        # Create evaluation (NEW: separate entity)
+        # Create evaluation (NEW: separate entity) with voice metrics support
         evaluation1 = Evaluation(
             answer_id=answer1.id,
-            question_id=q1_id,
-            interview_id=sample_interview_adaptive.id,
             raw_score=85.0,
+            theoretical_score=85.0,  # Phase 01: Added field
+            speaking_score=None,  # Text-only answer
             final_score=85.0,
             completeness=0.9,
             relevance=0.95,
@@ -185,9 +185,9 @@ class TestCompleteInterviewUseCase:
 
             evaluation = Evaluation(
                 answer_id=answer.id,
-                question_id=q_id,
-                interview_id=sample_interview_adaptive.id,
                 raw_score=80.0 + (idx * 5),
+                theoretical_score=80.0 + (idx * 5),  # Phase 01: Added field
+                speaking_score=None,  # Text-only answer
                 final_score=80.0 + (idx * 5),
                 completeness=0.8,
                 relevance=0.9,
@@ -253,9 +253,9 @@ class TestCompleteInterviewUseCase:
 
         evaluation = Evaluation(
             answer_id=answer.id,
-            question_id=q1_id,
-            interview_id=sample_interview_adaptive.id,
             raw_score=75.0,
+            theoretical_score=75.0,  # Phase 01: Added field
+            speaking_score=None,  # Text-only answer
             final_score=75.0,
             completeness=0.8,
             relevance=0.85,
@@ -314,9 +314,9 @@ class TestCompleteInterviewUseCase:
 
         evaluation = Evaluation(
             answer_id=answer.id,
-            question_id=q1_id,
-            interview_id=sample_interview_adaptive.id,
             raw_score=75.0,
+            theoretical_score=75.0,  # Phase 01: Added field
+            speaking_score=None,  # Text-only answer
             final_score=75.0,
             completeness=0.8,
             relevance=0.85,
@@ -372,9 +372,9 @@ class TestCompleteInterviewUseCase:
 
         evaluation = Evaluation(
             answer_id=answer.id,
-            question_id=q1_id,
-            interview_id=sample_interview_adaptive.id,
             raw_score=75.0,
+            theoretical_score=75.0,  # Phase 01: Added field
+            speaking_score=None,  # Text-only answer
             final_score=75.0,
             completeness=0.8,
             relevance=0.85,
