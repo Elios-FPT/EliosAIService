@@ -80,11 +80,6 @@ class TestVoiceMetricsEvaluationFlow:
             candidate_id=uuid4(),
             text="Voice answer",
             is_voice=True,
-            voice_metrics={
-                "intonation_score": 0.8,
-                "fluency_score": 0.7,
-                "confidence_score": 0.9,
-            },
         )
         await mock_answer_repo.save(voice_answer)
 

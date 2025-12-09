@@ -236,7 +236,6 @@ class EvaluateAnswerUseCase:
                 follow_up_question_id=follow_up_question_id,
                 text=input_dto.answer_text,
                 is_voice=input_dto.is_voice,
-                voice_metrics=input_dto.voice_metrics,
                 created_at=datetime.utcnow(),
             )
 

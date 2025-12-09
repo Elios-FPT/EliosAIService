@@ -280,7 +280,6 @@ class AnswerMapper:
             is_voice=db_model.is_voice,
             audio_file_path=db_model.audio_file_path,
             embedding=list(db_model.embedding) if db_model.embedding else None,
-            voice_metrics=None,  # Not persisted yet
             created_at=db_model.created_at,
         )
 
