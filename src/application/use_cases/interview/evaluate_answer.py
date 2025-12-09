@@ -97,9 +97,10 @@ class EvaluateAnswerUseCase:
             speaking_score = None
             overall_score = theoretical_score
 
+        speaking_display = f"{speaking_score:.1f}" if speaking_score is not None else "N/A"
         logger.info(
             f"Combined evaluation: theoretical={theoretical_score:.1f}, "
-            f"speaking={speaking_score:.1f if speaking_score else 'N/A'}, "
+            f"speaking={speaking_display}, "
             f"overall={overall_score:.1f}"
         )
 
