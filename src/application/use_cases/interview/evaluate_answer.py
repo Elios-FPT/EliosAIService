@@ -37,6 +37,10 @@ class EvaluateAnswerUseCase:
     Includes hybrid gap detection (keywords + LLM) for performance optimization.
     """
 
+    # Scoring weights for combined evaluation
+    THEORETICAL_WEIGHT = 0.7
+    SPEAKING_WEIGHT = 0.3
+
     def __init__(
         self,
         interview_repo: InterviewRepositoryPort,
@@ -59,6 +63,69 @@ class EvaluateAnswerUseCase:
         self.answer_repo = answer_repo
         self.evaluation_repo = evaluation_repo
         self.llm = llm
+
+    def _combine_evaluations(
+        self,
+        theoretical_eval: AnswerEvaluation,
+        voice_metrics: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        """Combine theoretical and speaking evaluations.
+
+        Args:
+            theoretical_eval: Semantic evaluation from LLM
+            voice_metrics: Voice quality metrics from STT (optional)
+
+        Returns:
+            Dict with:
+            {
+                "overall_score": float (0-100),
+                "theoretical_score": float (0-100),
+                "speaking_score": float | None (0-100),
+            }
+        """
+        theoretical_score = theoretical_eval.score
+
+        # Calculate speaking score if voice metrics available
+        if voice_metrics:
+            speaking_score = self._calculate_speaking_score(voice_metrics)
+            overall_score = (
+                theoretical_score * self.THEORETICAL_WEIGHT
+                + speaking_score * self.SPEAKING_WEIGHT
+            )
+        else:
+            # Text-only answer: use 100% theoretical weight
+            speaking_score = None
+            overall_score = theoretical_score
+
+        logger.info(
+            f"Combined evaluation: theoretical={theoretical_score:.1f}, "
+            f"speaking={speaking_score:.1f if speaking_score else 'N/A'}, "
+            f"overall={overall_score:.1f}"
+        )
+
+        return {
+            "overall_score": round(overall_score, 2),
+            "theoretical_score": round(theoretical_score, 2),
+            "speaking_score": round(speaking_score, 2) if speaking_score else None,
+        }
+
+    def _calculate_speaking_score(self, voice_metrics: dict[str, float]) -> float:
+        """Calculate speaking score from voice metrics.
+
+        Args:
+            voice_metrics: Dict with intonation_score, fluency_score, confidence_score
+
+        Returns:
+            Speaking score (0-100)
+        """
+        # Get metrics with defaults
+        intonation = voice_metrics.get("intonation_score", 0.5)
+        fluency = voice_metrics.get("fluency_score", 0.5)
+        confidence = voice_metrics.get("confidence_score", 0.5)
+
+        # Average and convert to 0-100 scale
+        avg_score = (intonation + fluency + confidence) / 3.0
+        return avg_score * 100.0
 
     async def execute(self, input_dto: EvaluateAnswerInput) -> EvaluateAnswerOutput:
         """Evaluate answer using unified comprehensive analysis.
@@ -220,6 +287,16 @@ class EvaluateAnswerUseCase:
                 semantic_similarity=semantic_similarity,
             )
 
+            # Step 7.5: Combine theoretical and speaking scores
+            combined_result = self._combine_evaluations(
+                theoretical_eval=llm_eval,
+                voice_metrics=input_dto.voice_metrics,
+            )
+
+            theoretical_score = combined_result["theoretical_score"]
+            speaking_score = combined_result["speaking_score"]
+            overall_score = combined_result["overall_score"]
+
             # Step 8: Extract gaps from analysis
             gap_concepts: list[str] = [gap.concept for gap in analysis.gaps]
             gaps_dict: dict[str, Any] = {
@@ -245,8 +322,10 @@ class EvaluateAnswerUseCase:
             evaluation = Evaluation(
                 answer_id=answer.id,
                 raw_score=llm_eval.score,
+                theoretical_score=theoretical_score,
+                speaking_score=speaking_score,
                 penalty=0.0,
-                final_score=llm_eval.score,
+                final_score=overall_score,  # Use combined score instead of llm_eval.score
                 similarity_score=similarity_score,
                 completeness=llm_eval.completeness,
                 relevance=llm_eval.relevance,
@@ -273,10 +352,14 @@ class EvaluateAnswerUseCase:
             ]
 
             # Step 12: Apply penalty based on attempt number
+            # Note: apply_penalty uses raw_score, but we need to apply penalty to combined score
             evaluation.apply_penalty(attempt_number)
+            # Override final_score calculation: penalty applies to overall_score, not raw_score
+            evaluation.final_score = max(0.0, min(100.0, overall_score + evaluation.penalty))
             logger.info(
                 f"Penalty applied: attempt={attempt_number}, penalty={evaluation.penalty}, "
-                f"raw_score={llm_eval.score:.1f}, final_score={evaluation.final_score:.1f}"
+                f"theoretical={theoretical_score:.1f}, speaking={speaking_score:.1f if speaking_score else 'N/A'}, "
+                f"overall={overall_score:.1f}, final_score={evaluation.final_score:.1f}"
             )
 
             # Step 13: Check if gaps should be resolved
