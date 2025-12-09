@@ -357,9 +357,10 @@ class EvaluateAnswerUseCase:
             evaluation.apply_penalty(attempt_number)
             # Override final_score calculation: penalty applies to overall_score, not raw_score
             evaluation.final_score = max(0.0, min(100.0, overall_score + evaluation.penalty))
+            speaking_display = f"{speaking_score:.1f}" if speaking_score is not None else "N/A"
             logger.info(
                 f"Penalty applied: attempt={attempt_number}, penalty={evaluation.penalty}, "
-                f"theoretical={theoretical_score:.1f}, speaking={speaking_score:.1f if speaking_score else 'N/A'}, "
+                f"theoretical={theoretical_score:.1f}, speaking={speaking_display}, "
                 f"overall={overall_score:.1f}, final_score={evaluation.final_score:.1f}"
             )
 
