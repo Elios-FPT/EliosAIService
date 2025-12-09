@@ -117,3 +117,43 @@ class TestEvaluationVoiceMetricsFields:
         # The final_score calculation in apply_penalty uses raw_score, not combined
         # This is expected behavior for now (will be updated in Phase 02)
 
+    def test_evaluation_with_voice_metrics_dict(self):
+        """Test evaluation with voice_metrics dict field."""
+        voice_metrics = {
+            "intonation_score": 0.85,
+            "fluency_score": 0.92,
+            "confidence_score": 0.88,
+            "speaking_rate_wpm": 145,
+        }
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=85.0,
+            speaking_score=75.0,
+            final_score=82.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics=voice_metrics,
+        )
+
+        assert evaluation.voice_metrics is not None
+        assert evaluation.voice_metrics["intonation_score"] == 0.85
+        assert evaluation.voice_metrics["fluency_score"] == 0.92
+        assert evaluation.voice_metrics["confidence_score"] == 0.88
+        assert evaluation.voice_metrics["speaking_rate_wpm"] == 145
+
+    def test_evaluation_without_voice_metrics_none(self):
+        """Test evaluation without voice_metrics (text answer)."""
+        evaluation = Evaluation(
+            answer_id=uuid4(),
+            raw_score=80.0,
+            theoretical_score=80.0,
+            speaking_score=None,
+            final_score=80.0,
+            completeness=0.9,
+            relevance=0.8,
+            voice_metrics=None,  # Text-only answer
+        )
+
+        assert evaluation.voice_metrics is None
+

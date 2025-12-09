@@ -56,6 +56,11 @@ class Evaluation(BaseModel):
     completeness: float = Field(ge=0.0, le=1.0)
     relevance: float = Field(ge=0.0, le=1.0)
     sentiment: str | None = None  # confident/uncertain/nervous
+    voice_metrics: dict[str, float] | None = Field(
+        None,
+        description="Raw voice analysis metrics from STT adapter. "
+        "Structure: {intonation_score: float, fluency_score: float, confidence_score: float, speaking_rate_wpm: int}",
+    )  # Voice quality metrics from STT (stored as JSONB)
     reasoning: str | None = None
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
