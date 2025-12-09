@@ -386,9 +386,10 @@ class EvaluateAnswerUseCase:
             async with self._timing_context("db_save_evaluation", input_dto.interview_id):
                 saved_evaluation = await self.evaluation_repo.save(evaluation)
 
+            similarity_display = f"{similarity_score:.2f}" if similarity_score is not None else "N/A"
             logger.info(
                 f"Answer processed (unified): score={saved_evaluation.final_score:.1f}, "
-                f"similarity={f'{similarity_score:.2f}' if similarity_score is not None else 'N/A'}, "
+                f"similarity={similarity_display}, "
                 f"gaps={len(saved_evaluation.gaps)}"
             )
 
