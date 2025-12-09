@@ -234,18 +234,22 @@ class GenerateSummaryUseCase:
             }
 
         # Theoretical score (from evaluation in evaluations table)
+        # Use theoretical_score if available, fallback to final_score for backward compatibility
         theoretical_scores = [
-            evaluations_map[a.id].final_score
+            evaluations_map[a.id].theoretical_score or evaluations_map[a.id].final_score
             for a in evaluated_answers
             if a.id in evaluations_map
         ]
 
-        # Speaking score (from voice metrics)
+        # Speaking score (from Evaluation entity, not Answer.voice_metrics)
+        # Get speaking scores from Evaluation entities (after Phase 02 integration)
         speaking_scores = [
-            a.voice_metrics.get("overall_score", 50.0) for a in evaluated_answers if a.voice_metrics
+            evaluations_map[a.id].speaking_score
+            for a in evaluated_answers
+            if a.id in evaluations_map and evaluations_map[a.id].speaking_score is not None
         ]
 
-        # If no voice metrics, default to 50.0
+        # If no speaking scores, default to 50.0
         speaking_avg = sum(speaking_scores) / len(speaking_scores) if speaking_scores else 50.0
 
         theoretical_avg = sum(theoretical_scores) / len(theoretical_scores)
