@@ -72,6 +72,8 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
 
             db_model.raw_score = evaluation.raw_score
             db_model.penalty = evaluation.penalty
+            db_model.theoretical_score = evaluation.theoretical_score
+            db_model.speaking_score = evaluation.speaking_score
             db_model.final_score = evaluation.final_score
             db_model.similarity_score = evaluation.similarity_score
             db_model.completeness = evaluation.completeness
@@ -138,6 +140,8 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
             answer_id=db_model.answer_id,
             raw_score=db_model.raw_score,
             penalty=db_model.penalty,
+            theoretical_score=db_model.theoretical_score,
+            speaking_score=db_model.speaking_score,
             final_score=db_model.final_score,
             similarity_score=db_model.similarity_score,
             completeness=db_model.completeness,
@@ -173,6 +177,8 @@ class PostgreSQLEvaluationRepository(EvaluationRepositoryPort):
             answer_id=domain_model.answer_id,
             raw_score=domain_model.raw_score,
             penalty=domain_model.penalty,
+            theoretical_score=domain_model.theoretical_score,
+            speaking_score=domain_model.speaking_score,
             final_score=domain_model.final_score,
             similarity_score=domain_model.similarity_score,
             completeness=domain_model.completeness,

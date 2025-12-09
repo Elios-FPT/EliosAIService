@@ -364,6 +364,8 @@ class EvaluationModel(Base):
     # Scores
     raw_score: Mapped[float] = mapped_column(Float, nullable=False)
     penalty: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+    theoretical_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speaking_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     final_score: Mapped[float] = mapped_column(Float, nullable=False)
     similarity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 

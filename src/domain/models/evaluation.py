@@ -47,7 +47,9 @@ class Evaluation(BaseModel):
     # Scores
     raw_score: float = Field(ge=0.0, le=100.0)  # LLM score before penalty
     penalty: float = Field(ge=-15.0, le=0.0, default=0.0)  # Attempt penalty
-    final_score: float = Field(ge=0.0, le=100.0)  # raw_score + penalty
+    theoretical_score: float | None = Field(None, ge=0.0, le=100.0)  # LLM score (for combined scoring)
+    speaking_score: float | None = Field(None, ge=0.0, le=100.0)  # Voice metrics score
+    final_score: float = Field(ge=0.0, le=100.0)  # Combined score (70% theoretical + 30% speaking) or raw_score + penalty
     similarity_score: float | None = Field(None, ge=0.0, le=1.0)  # Cosine similarity
 
     # LLM evaluation details
