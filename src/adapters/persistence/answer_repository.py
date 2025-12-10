@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from ...domain.models.answer import Answer
-from ...domain.ports.answer_repository_port import AnswerRepositoryPort
+from ...application.ports.answer_repository_port import AnswerRepositoryPort
 from .mappers import AnswerMapper
 from .models import AnswerModel
 from .session_provider import SessionProvider

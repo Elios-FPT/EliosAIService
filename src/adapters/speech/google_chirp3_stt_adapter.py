@@ -22,7 +22,7 @@ from google.api_core import exceptions as google_exceptions
 from google.api_core import retry as google_retry
 from google.cloud import speech_v2
 
-from ...domain.ports.speech_to_text_port import SpeechToTextPort
+from ...application.ports.speech_to_text_port import SpeechToTextPort
 
 logger = logging.getLogger(__name__)
 

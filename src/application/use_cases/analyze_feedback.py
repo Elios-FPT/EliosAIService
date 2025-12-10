@@ -9,12 +9,12 @@ from ...domain.models.feedback_result import (
     FeedbackStatus,
     InputType,
 )
-from ...domain.ports.event_publisher_port import EventPublisherPort
-from ...domain.ports.feedback_repository_port import (
+from ...application.ports.event_publisher_port import EventPublisherPort
+from ...application.ports.feedback_repository_port import (
     FeedbackRequestRepositoryPort,
     FeedbackResponseRepositoryPort,
 )
-from ...domain.ports.llm_port import LLMPort
+from ...application.ports.llm_port import LLMPort
 from ...domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
 
 logger = logging.getLogger(__name__)

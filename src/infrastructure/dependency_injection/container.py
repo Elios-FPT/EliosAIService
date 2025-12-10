@@ -65,7 +65,7 @@ from ...adapters.messaging import KafkaEventPublisher
 debug_print("container.py: KafkaEventPublisher imported")
 
 debug_print("container.py: About to import domain ports...")
-from ...domain.ports import (
+from ...application.ports import (
     AnswerRepositoryPort,
     CVAnalysisRepositoryPort,
     CVAnalyzerPort,
@@ -80,7 +80,7 @@ from ...domain.ports import (
     TextToSpeechPort,
     VectorSearchPort,
 )
-from ...domain.ports.feedback_repository_port import (
+from ...application.ports.feedback_repository_port import (
     FeedbackRequestRepositoryPort,
     FeedbackResponseRepositoryPort,
 )

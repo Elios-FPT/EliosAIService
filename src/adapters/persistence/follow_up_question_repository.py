@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from ...domain.models.follow_up_question import FollowUpQuestion
-from ...domain.ports.follow_up_question_repository_port import (
+from ...application.ports.follow_up_question_repository_port import (
     FollowUpQuestionRepositoryPort,
 )
 from .mappers import FollowUpQuestionMapper

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.follow_up_question import FollowUpQuestion
+from src.domain.models.follow_up_question import FollowUpQuestion
 
 
 class FollowUpQuestionRepositoryPort(ABC):

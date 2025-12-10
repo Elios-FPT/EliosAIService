@@ -20,11 +20,11 @@ from ....domain.models.evaluation import (
 )
 from ....domain.models.interview import Interview, InterviewStatus
 from ....domain.models.question import Question
-from ....domain.ports.answer_repository_port import AnswerRepositoryPort
-from ....domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
-from ....domain.ports.llm_port import LLMPort
-from ....domain.ports.question_repository_port import QuestionRepositoryPort
+from ....application.ports.answer_repository_port import AnswerRepositoryPort
+from ....application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.llm_port import LLMPort
+from ....application.ports.question_repository_port import QuestionRepositoryPort
 from ...dto.interview.evaluate_answer_dto import EvaluateAnswerInput, EvaluateAnswerOutput
 
 logger = logging.getLogger(__name__)

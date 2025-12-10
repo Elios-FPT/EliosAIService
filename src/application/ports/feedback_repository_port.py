@@ -3,9 +3,9 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.feedback_request import FeedbackRequest
-from ..models.feedback_response import FeedbackResponse
-from ..models.feedback_result import FeedbackResult, FeedbackStatus, InputType
+from src.domain.models.feedback_request import FeedbackRequest
+from src.domain.models.feedback_response import FeedbackResponse
+from src.domain.models.feedback_result import FeedbackResult, FeedbackStatus, InputType
 
 
 class FeedbackRequestRepositoryPort(ABC):

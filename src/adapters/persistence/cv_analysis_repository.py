@@ -7,7 +7,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.cv_analysis import CVAnalysis
-from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+from ...application.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
 from .mappers import CVAnalysisMapper, CVSkillMapper
 from .models import CVAnalysisModel
 from .session_provider import SessionProvider

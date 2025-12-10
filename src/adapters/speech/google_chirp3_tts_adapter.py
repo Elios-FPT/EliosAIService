@@ -15,7 +15,7 @@ from typing import Any
 from google.api_core import exceptions as google_exceptions
 from google.cloud import texttospeech
 
-from ...domain.ports.text_to_speech_port import TextToSpeechPort
+from ...application.ports.text_to_speech_port import TextToSpeechPort
 
 logger = logging.getLogger(__name__)
 

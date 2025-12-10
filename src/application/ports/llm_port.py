@@ -6,9 +6,9 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from ..models.evaluation import FollowUpEvaluationContext
-from ..models.feedback_result import FeedbackResult, InputType
-from ..models.question import Question
+from src.domain.models.evaluation import FollowUpEvaluationContext
+from src.domain.models.feedback_result import FeedbackResult, InputType
+from src.domain.models.question import Question
 
 if TYPE_CHECKING:
     from ...adapters.llm.comprehensive_models import ComprehensiveAnalysis

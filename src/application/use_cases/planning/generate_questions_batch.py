@@ -6,7 +6,7 @@ Extracted from PlanningWorkflow._generate_batch_node (lines 371-422).
 import logging
 from typing import Any
 
-from ....domain.ports.llm_port import LLMPort
+from ....application.ports.llm_port import LLMPort
 from ...dto.planning.generate_questions_batch_dto import (
     GenerateQuestionsBatchInput,
     GenerateQuestionsBatchOutput,

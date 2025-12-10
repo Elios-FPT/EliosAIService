@@ -8,7 +8,7 @@ from typing import Any
 
 from ....domain.models.exemplar_models import ExemplarFilters
 from ....domain.models.question import Difficulty
-from ....domain.ports.vector_search_port import VectorSearchPort
+from ....application.ports.vector_search_port import VectorSearchPort
 from ...dto.planning.prepare_question_specs_dto import (
     PrepareQuestionSpecsInput,
     PrepareQuestionSpecsOutput,

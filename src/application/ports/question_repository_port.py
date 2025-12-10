@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.question import DifficultyLevel, Question, QuestionType
+from src.domain.models.question import DifficultyLevel, Question, QuestionType
 
 
 class QuestionRepositoryPort(ABC):

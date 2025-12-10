@@ -7,8 +7,8 @@ from aiokafka import AIOKafkaConsumer
 from pydantic import ValidationError
 
 from ...domain.models.candidate_event import CandidateEvent, EventType
-from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
 
 
 logger = logging.getLogger(__name__)

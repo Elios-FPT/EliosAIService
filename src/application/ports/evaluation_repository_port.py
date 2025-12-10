@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.evaluation import Evaluation
+from src.domain.models.evaluation import Evaluation
 
 
 class EvaluationRepositoryPort(ABC):

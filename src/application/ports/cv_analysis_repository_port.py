@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.cv_analysis import CVAnalysis
+from src.domain.models.cv_analysis import CVAnalysis
 
 
 class CVAnalysisRepositoryPort(ABC):

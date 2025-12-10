@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 
 from ...domain.models.feedback_request import FeedbackRequest
 from ...domain.models.feedback_result import FeedbackStatus, InputType
-from ...domain.ports.feedback_repository_port import FeedbackRequestRepositoryPort
+from ...application.ports.feedback_repository_port import FeedbackRequestRepositoryPort
 from .mappers import FeedbackRequestMapper
 from .models import FeedbackRequestModel
 from .session_provider import SessionProvider

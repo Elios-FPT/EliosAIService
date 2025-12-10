@@ -19,7 +19,7 @@ from docx import Document
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.cv_skill import CVSkill, ProficiencyLevel
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
+from ...application.ports.cv_analyzer_port import CVAnalyzerPort, FileType
 
 debug_print("hybrid_cv_analyzer_adapter.py: About to import sub-modules...")
 from .confidence_scorer import ConfidenceScorer

@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from ...domain.models.feedback_response import FeedbackResponse
 from ...domain.models.feedback_result import FeedbackResult, InputType
-from ...domain.ports.feedback_repository_port import FeedbackResponseRepositoryPort
+from ...application.ports.feedback_repository_port import FeedbackResponseRepositoryPort
 from .mappers import FeedbackResponseMapper
 from .models import FeedbackRequestModel, FeedbackResponseModel
 from .session_provider import SessionProvider

@@ -9,7 +9,7 @@ import uuid
 from typing import Any
 
 from ....domain.models.interview import Interview, InterviewStatus
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
 from ...dto.planning.create_interview_dto import (
     CreateInterviewInput,
     CreateInterviewOutput,

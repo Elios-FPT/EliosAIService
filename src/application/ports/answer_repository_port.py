@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.answer import Answer
+from src.domain.models.answer import Answer
 
 
 class AnswerRepositoryPort(ABC):

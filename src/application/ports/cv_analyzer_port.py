@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Literal
 
-from ..models.cv_analysis import CVAnalysis
+from src.domain.models.cv_analysis import CVAnalysis
 from uuid import UUID
 
 FileType = Literal["pdf", "docx", "doc", "txt"]

@@ -12,9 +12,9 @@ from uuid import UUID
 from ....domain.models.follow_up_question import FollowUpQuestion
 from ....domain.models.interview import Interview
 from ....domain.models.question import Question
-from ....domain.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
-from ....domain.ports.llm_port import LLMPort
+from ....application.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.llm_port import LLMPort
 from ...dto.interview.generate_followup_dto import GenerateFollowupInput, GenerateFollowupOutput
 
 logger = logging.getLogger(__name__)

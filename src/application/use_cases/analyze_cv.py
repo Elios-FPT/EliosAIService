@@ -3,9 +3,9 @@
 from uuid import UUID
 
 from ...domain.models.cv_analysis import CVAnalysis
-from ...domain.ports.cv_analyzer_port import CVAnalyzerPort, FileType
-from ...domain.ports.vector_search_port import VectorSearchPort
-from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+from ...application.ports.cv_analyzer_port import CVAnalyzerPort, FileType
+from ...application.ports.vector_search_port import VectorSearchPort
+from ...application.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
 
 
 class AnalyzeCVUseCase:

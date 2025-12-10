@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from ...domain.models.interview import Interview, InterviewStatus
 from ...domain.models.interview_question import InterviewQuestion
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
 from .mappers import InterviewMapper, InterviewQuestionMapper
 from .models import (
     AnswerModel,

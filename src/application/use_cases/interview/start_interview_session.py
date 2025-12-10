@@ -8,8 +8,8 @@ from typing import Any
 from uuid import UUID
 
 from ....domain.models.interview import Interview
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
-from ....domain.ports.question_repository_port import QuestionRepositoryPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.question_repository_port import QuestionRepositoryPort
 from ...dto.interview.start_session_dto import StartSessionInput, StartSessionOutput
 
 logger = logging.getLogger(__name__)

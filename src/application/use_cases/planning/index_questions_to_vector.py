@@ -4,9 +4,9 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
-from ....domain.ports.question_repository_port import QuestionRepositoryPort
-from ....domain.ports.vector_search_port import VectorSearchPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.question_repository_port import QuestionRepositoryPort
+from ....application.ports.vector_search_port import VectorSearchPort
 
 logger = logging.getLogger(__name__)
 

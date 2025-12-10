@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from ...domain.models.evaluation import ConceptGap, Evaluation, GapSeverity
-from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...application.ports.evaluation_repository_port import EvaluationRepositoryPort
 from .models import EvaluationGapModel, EvaluationModel
 from .session_provider import SessionProvider
 

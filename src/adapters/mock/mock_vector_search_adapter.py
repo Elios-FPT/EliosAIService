@@ -5,7 +5,7 @@ from uuid import UUID
 
 from ...domain.models.exemplar_models import ExemplarFilters, ExemplarResult
 from ...domain.models.question import Difficulty, QuestionType
-from ...domain.ports.vector_search_port import VectorSearchPort
+from ...application.ports.vector_search_port import VectorSearchPort
 
 
 @dataclass

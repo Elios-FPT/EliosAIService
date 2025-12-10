@@ -5,7 +5,7 @@ Extracted from PlanningWorkflow._load_cv_node (lines 249-272).
 
 import logging
 
-from ....domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+from ....application.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
 from ...dto.planning.load_cv_analysis_dto import LoadCVAnalysisInput, LoadCVAnalysisOutput
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ from async_lru import alru_cache
 from sqlalchemy import select
 
 from ...domain.models.question import DifficultyLevel, Question, QuestionType
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
 from .mappers import QuestionMapper
 from .models import QuestionModel
 from .session_provider import SessionProvider

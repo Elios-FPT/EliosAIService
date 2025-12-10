@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from ..models.interview import Interview, InterviewStatus
-from ..models.interview_question import InterviewQuestion
+from src.domain.models.interview import Interview, InterviewStatus
+from src.domain.models.interview_question import InterviewQuestion
 
 
 class InterviewRepositoryPort(ABC):

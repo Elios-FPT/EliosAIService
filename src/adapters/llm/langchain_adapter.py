@@ -26,8 +26,8 @@ from ...domain.models.feedback_result import (
 )
 from ...domain.models.prompt_template import PromptTemplate
 from ...domain.models.question import Question
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.prompt_repository_port import PromptRepositoryPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.prompt_repository_port import PromptRepositoryPort
 from .execution_logger import ExecutionLogger
 from .comprehensive_models import ComprehensiveAnalysis
 from .feedback_models import CVFeedbackAnalysis, CodeFeedbackAnalysis

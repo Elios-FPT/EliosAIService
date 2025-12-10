@@ -22,7 +22,7 @@ from ....application.dto.interview_dto import (
 from ....application.use_cases.analyze_cv import AnalyzeCVUseCase
 from ....application.use_cases.get_next_question import GetNextQuestionUseCase
 from ....domain.models.interview import InterviewStatus
-from ....domain.ports.event_publisher_port import EventPublisherPort
+from ....application.ports.event_publisher_port import EventPublisherPort
 from ....infrastructure.config.settings import get_settings
 from ....infrastructure.database.session import get_async_session
 from ....infrastructure.dependency_injection.container import get_container
@@ -48,7 +48,7 @@ async def analyze_cv(
     content = await file.read()
 
     # Detect file type using helper method from port
-    from ....domain.ports.cv_analyzer_port import CVAnalyzerPort
+    from ....application.ports.cv_analyzer_port import CVAnalyzerPort
 
     try:
         file_type = CVAnalyzerPort._detect_file_type(

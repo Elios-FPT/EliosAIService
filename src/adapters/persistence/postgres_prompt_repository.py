@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from src.domain.models.prompt_execution import PromptExecution
 from src.domain.models.prompt_metadata_change import PromptMetadataChange
 from src.domain.models.prompt_template import PromptTemplate
-from src.domain.ports.prompt_repository_port import PromptRepositoryPort
+from src.application.ports.prompt_repository_port import PromptRepositoryPort
 
 from .mappers import (
     PromptExecutionMapper,

@@ -20,7 +20,7 @@ from src.domain.models.feedback_result import (
     BestPractices,
     CodeActionableRecommendation,
 )
-from src.domain.ports.llm_port import LLMPort
+from src.application.ports.llm_port import LLMPort
 
 
 @pytest.fixture

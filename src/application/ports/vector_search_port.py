@@ -3,8 +3,8 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from ..models.exemplar_models import ExemplarFilters, ExemplarResult
-from ..models.question import Difficulty, QuestionType
+from src.domain.models.exemplar_models import ExemplarFilters, ExemplarResult
+from src.domain.models.question import Difficulty, QuestionType
 
 
 class VectorSearchPort(ABC):

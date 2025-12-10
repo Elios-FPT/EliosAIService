@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.domain.ports.cv_analyzer_port import CVAnalyzerPort
+from src.application.ports.cv_analyzer_port import CVAnalyzerPort
 
 
 class TestDetectFileType:

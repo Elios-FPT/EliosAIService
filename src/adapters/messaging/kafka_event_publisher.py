@@ -14,7 +14,7 @@ from ...application.dto.event import (
     TokenDeltaPayload,
 )
 from ...domain.models.feedback_result import FeedbackResult
-from ...domain.ports.event_publisher_port import EventPublisherPort
+from ...application.ports.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 

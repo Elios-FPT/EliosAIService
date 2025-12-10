@@ -7,15 +7,15 @@ from uuid import UUID
 from ...domain.models.answer import Answer
 from ...domain.models.evaluation import Evaluation
 from ...domain.models.interview import Interview, InterviewStatus
-from ...domain.ports.answer_repository_port import AnswerRepositoryPort
-from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ...domain.ports.event_publisher_port import EventPublisherPort
-from ...domain.ports.follow_up_question_repository_port import (
+from ...application.ports.answer_repository_port import AnswerRepositoryPort
+from ...application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...application.ports.event_publisher_port import EventPublisherPort
+from ...application.ports.follow_up_question_repository_port import (
     FollowUpQuestionRepositoryPort,
 )
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
 from ..dto.detailed_feedback_dto import (
     ConceptGapDetail,
     DetailedInterviewFeedback,
