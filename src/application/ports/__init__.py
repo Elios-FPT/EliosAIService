@@ -1,4 +1,4 @@
-"""Domain ports (interfaces) package."""
+"""Application ports (interfaces) package."""
 
 from .answer_repository_port import AnswerRepositoryPort
 from .cv_analysis_repository_port import CVAnalysisRepositoryPort
