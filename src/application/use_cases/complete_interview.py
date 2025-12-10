@@ -69,12 +69,13 @@ class CompleteInterviewUseCase:
         """Complete interview and generate comprehensive summary.
 
         This method:
-        1. Validates interview is in EVALUATING status
-        2. Generates comprehensive summary (scores, gaps, recommendations)
-        3. Stores summary in interview metadata
-        4. Transitions interview to COMPLETE status
-        5. Publishes INTERVIEW_ATTEMPTED event
-        6. Returns both interview and summary
+        1. Validates interview is in QUESTIONING, EVALUATING, or FOLLOW_UP status
+        2. Transitions to EVALUATING if needed (QUESTIONING/FOLLOW_UP → EVALUATING)
+        3. Generates comprehensive summary (scores, gaps, recommendations)
+        4. Stores summary in interview metadata
+        5. Transitions interview to COMPLETE status
+        6. Publishes INTERVIEW_ATTEMPTED event
+        7. Returns both interview and summary
 
         Args:
             interview_id: The interview UUID
@@ -83,39 +84,54 @@ class CompleteInterviewUseCase:
             InterviewCompletionResult containing completed interview and summary
 
         Raises:
-            ValueError: If interview not found or not in EVALUATING status
+            ValueError: If interview not found or not in valid "in process" status
         """
         # 1. Load and validate interview
         interview = await self.interview_repo.get_by_id(interview_id)
         if not interview:
             raise ValueError(f"Interview {interview_id} not found")
 
-        if interview.status != InterviewStatus.EVALUATING:
+        # Accept interviews in "in process" states: QUESTIONING, EVALUATING, FOLLOW_UP
+        valid_statuses = {
+            InterviewStatus.QUESTIONING,
+            InterviewStatus.EVALUATING,
+            InterviewStatus.FOLLOW_UP,
+        }
+        if interview.status not in valid_statuses:
             raise ValueError(
                 f"Cannot complete interview with status: {interview.status}. "
-                f"Must be in EVALUATING status."
+                f"Must be in one of: QUESTIONING, EVALUATING, or FOLLOW_UP."
             )
 
-        # 2. Generate comprehensive summary
+        # 2. Transition to EVALUATING if needed (before summary generation)
+        if interview.status == InterviewStatus.QUESTIONING:
+            interview.mark_evaluating()
+            interview = await self.interview_repo.update(interview)
+        elif interview.status == InterviewStatus.FOLLOW_UP:
+            interview.answer_followup()
+            interview = await self.interview_repo.update(interview)
+        # If already EVALUATING, proceed directly
+
+        # 3. Generate comprehensive summary
         summary = await self._generate_summary(interview)
 
-        # 3. Store summary in interview metadata
+        # 4. Store summary in interview metadata
         if interview.plan_metadata is None:
             interview.plan_metadata = {}
         # Convert Pydantic model to dict for JSON serialization
         interview.plan_metadata["completion_summary"] = summary.model_dump(mode="json")
 
-        # 4. Mark interview as complete (state transition)
+        # 5. Mark interview as complete (state transition)
         interview.complete()
         updated_interview = await self.interview_repo.update(interview)
 
-        # 5. Publish INTERVIEW_ATTEMPTED event (fire-and-forget)
+        # 6. Publish INTERVIEW_ATTEMPTED event (fire-and-forget)
         await self._publish_interview_attempted_event(
             interview=updated_interview,
             summary=summary,
         )
 
-        # 6. Return result DTO
+        # 7. Return result DTO
         return InterviewCompletionResult(
             interview=updated_interview,
             summary=summary,

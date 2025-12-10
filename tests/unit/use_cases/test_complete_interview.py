@@ -1,5 +1,6 @@
 """Tests for CompleteInterviewUseCase (refactored - atomic operation)."""
 
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -37,7 +38,9 @@ class TestCompleteInterviewUseCase:
         await mock_interview_repo.save(sample_interview_adaptive)
 
         # Create question
-        q1_id = sample_interview_adaptive.question_ids[0]
+        # Workaround for question_ids (removed in v0.4.0, using __dict__ workaround)
+        question_ids = getattr(sample_interview_adaptive, "question_ids", None) or sample_interview_adaptive.__dict__.get("question_ids", [uuid4()])
+        q1_id = question_ids[0] if question_ids else uuid4()
         q1 = sample_question_with_ideal_answer
         q1.id = q1_id
         await mock_question_repo.save(q1)
@@ -69,6 +72,7 @@ class TestCompleteInterviewUseCase:
         await mock_evaluation_repo.save(evaluation1)
 
         # Execute use case (NEW: all dependencies required)
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -76,6 +80,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         # NEW: Returns InterviewCompletionResult DTO
@@ -112,6 +117,7 @@ class TestCompleteInterviewUseCase:
         mock_llm,
     ):
         """Test error when interview not found."""
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -119,6 +125,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         with pytest.raises(ValueError, match="Interview .* not found"):
@@ -135,11 +142,12 @@ class TestCompleteInterviewUseCase:
         mock_evaluation_repo,
         mock_llm,
     ):
-        """Test error when interview not in EVALUATING status."""
-        # Set status to QUESTIONING (invalid for completion)
-        sample_interview_adaptive.status = InterviewStatus.QUESTIONING
+        """Test error when interview not in valid 'in process' status."""
+        # Set status to COMPLETE (invalid for completion - already completed)
+        sample_interview_adaptive.status = InterviewStatus.COMPLETE
         await mock_interview_repo.save(sample_interview_adaptive)
 
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -147,6 +155,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         with pytest.raises(ValueError, match="Cannot complete interview with status"):
@@ -169,7 +178,9 @@ class TestCompleteInterviewUseCase:
         await mock_interview_repo.save(sample_interview_adaptive)
 
         # Create 3 questions and answers
-        for idx, q_id in enumerate(sample_interview_adaptive.question_ids):
+        # Workaround for question_ids (removed in v0.4.0, using __dict__ workaround)
+        question_ids = getattr(sample_interview_adaptive, "question_ids", None) or sample_interview_adaptive.__dict__.get("question_ids", [uuid4(), uuid4(), uuid4()])
+        for idx, q_id in enumerate(question_ids):
             question = sample_question_with_ideal_answer
             question.id = q_id
             await mock_question_repo.save(question)
@@ -198,6 +209,7 @@ class TestCompleteInterviewUseCase:
             )
             await mock_evaluation_repo.save(evaluation)
 
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -205,6 +217,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         result = await use_case.execute(interview_id=sample_interview_adaptive.id)
@@ -237,7 +250,9 @@ class TestCompleteInterviewUseCase:
         sample_interview_adaptive.plan_metadata = None  # Force None
         await mock_interview_repo.save(sample_interview_adaptive)
 
-        q1_id = sample_interview_adaptive.question_ids[0]
+        # Workaround for question_ids (removed in v0.4.0, using __dict__ workaround)
+        question_ids = getattr(sample_interview_adaptive, "question_ids", None) or sample_interview_adaptive.__dict__.get("question_ids", [uuid4()])
+        q1_id = question_ids[0] if question_ids else uuid4()
         q1 = sample_question_with_ideal_answer
         q1.id = q1_id
         await mock_question_repo.save(q1)
@@ -262,6 +277,7 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation)
 
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -269,6 +285,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         result = await use_case.execute(interview_id=sample_interview_adaptive.id)
@@ -298,7 +315,9 @@ class TestCompleteInterviewUseCase:
         }
         await mock_interview_repo.save(sample_interview_adaptive)
 
-        q1_id = sample_interview_adaptive.question_ids[0]
+        # Workaround for question_ids (removed in v0.4.0, using __dict__ workaround)
+        question_ids = getattr(sample_interview_adaptive, "question_ids", None) or sample_interview_adaptive.__dict__.get("question_ids", [uuid4()])
+        q1_id = question_ids[0] if question_ids else uuid4()
         q1 = sample_question_with_ideal_answer
         q1.id = q1_id
         await mock_question_repo.save(q1)
@@ -323,6 +342,7 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation)
 
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -330,6 +350,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         result = await use_case.execute(interview_id=sample_interview_adaptive.id)
@@ -356,7 +377,9 @@ class TestCompleteInterviewUseCase:
         sample_interview_adaptive.status = InterviewStatus.EVALUATING
         await mock_interview_repo.save(sample_interview_adaptive)
 
-        q1_id = sample_interview_adaptive.question_ids[0]
+        # Workaround for question_ids (removed in v0.4.0, using __dict__ workaround)
+        question_ids = getattr(sample_interview_adaptive, "question_ids", None) or sample_interview_adaptive.__dict__.get("question_ids", [uuid4()])
+        q1_id = question_ids[0] if question_ids else uuid4()
         q1 = sample_question_with_ideal_answer
         q1.id = q1_id
         await mock_question_repo.save(q1)
@@ -381,6 +404,7 @@ class TestCompleteInterviewUseCase:
         )
         await mock_evaluation_repo.save(evaluation)
 
+        mock_event_publisher = MagicMock()
         use_case = CompleteInterviewUseCase(
             interview_repository=mock_interview_repo,
             answer_repository=mock_answer_repo,
@@ -388,6 +412,7 @@ class TestCompleteInterviewUseCase:
             follow_up_question_repository=mock_follow_up_question_repo,
             evaluation_repository=mock_evaluation_repo,
             llm=mock_llm,
+            event_publisher=mock_event_publisher,
         )
 
         result = await use_case.execute(interview_id=sample_interview_adaptive.id)
@@ -398,3 +423,134 @@ class TestCompleteInterviewUseCase:
         assert hasattr(result, "summary")
         assert result.interview is not None
         assert result.summary is not None  # Always present
+
+    @pytest.mark.asyncio
+    async def test_complete_interview_from_questioning_status(
+        self,
+        sample_interview_adaptive,
+        sample_question_with_ideal_answer,
+        mock_interview_repo,
+        mock_answer_repo,
+        mock_question_repo,
+        mock_follow_up_question_repo,
+        mock_evaluation_repo,
+        mock_llm,
+    ):
+        """Test complete interview from QUESTIONING status (auto-transitions to EVALUATING)."""
+        # Setup interview in QUESTIONING status
+        sample_interview_adaptive.status = InterviewStatus.QUESTIONING
+        await mock_interview_repo.save(sample_interview_adaptive)
+
+        # Create question and answer
+        q1_id = getattr(sample_interview_adaptive, "question_ids", [uuid4()])[0]
+        q1 = sample_question_with_ideal_answer
+        q1.id = q1_id
+        await mock_question_repo.save(q1)
+
+        answer1 = Answer(
+            interview_id=sample_interview_adaptive.id,
+            question_id=q1_id,
+            candidate_id=sample_interview_adaptive.candidate_id,
+            text="Good answer",
+            is_voice=False,
+        )
+        await mock_answer_repo.save(answer1)
+
+        evaluation1 = Evaluation(
+            answer_id=answer1.id,
+            raw_score=85.0,
+            theoretical_score=85.0,
+            speaking_score=None,
+            final_score=85.0,
+            completeness=0.9,
+            relevance=0.95,
+            sentiment="confident",
+            reasoning="Strong answer",
+            strengths=["Clear explanation"],
+            weaknesses=[],
+        )
+        await mock_evaluation_repo.save(evaluation1)
+
+        mock_event_publisher = MagicMock()
+        use_case = CompleteInterviewUseCase(
+            interview_repository=mock_interview_repo,
+            answer_repository=mock_answer_repo,
+            question_repository=mock_question_repo,
+            follow_up_question_repository=mock_follow_up_question_repo,
+            evaluation_repository=mock_evaluation_repo,
+            llm=mock_llm,
+            event_publisher=mock_event_publisher,
+        )
+
+        result = await use_case.execute(interview_id=sample_interview_adaptive.id)
+
+        # Verify interview completed successfully
+        assert result.interview.status == InterviewStatus.COMPLETE
+        assert isinstance(result.summary, DetailedInterviewFeedback)
+        # Verify status was transitioned from QUESTIONING → EVALUATING → COMPLETE
+        # (The interview in result should be COMPLETE)
+
+    @pytest.mark.asyncio
+    async def test_complete_interview_from_follow_up_status(
+        self,
+        sample_interview_adaptive,
+        sample_question_with_ideal_answer,
+        mock_interview_repo,
+        mock_answer_repo,
+        mock_question_repo,
+        mock_follow_up_question_repo,
+        mock_evaluation_repo,
+        mock_llm,
+    ):
+        """Test complete interview from FOLLOW_UP status (auto-transitions to EVALUATING)."""
+        # Setup interview in FOLLOW_UP status
+        sample_interview_adaptive.status = InterviewStatus.FOLLOW_UP
+        await mock_interview_repo.save(sample_interview_adaptive)
+
+        # Create question and answer
+        q1_id = getattr(sample_interview_adaptive, "question_ids", [uuid4()])[0]
+        q1 = sample_question_with_ideal_answer
+        q1.id = q1_id
+        await mock_question_repo.save(q1)
+
+        answer1 = Answer(
+            interview_id=sample_interview_adaptive.id,
+            question_id=q1_id,
+            candidate_id=sample_interview_adaptive.candidate_id,
+            text="Good answer",
+            is_voice=False,
+        )
+        await mock_answer_repo.save(answer1)
+
+        evaluation1 = Evaluation(
+            answer_id=answer1.id,
+            raw_score=85.0,
+            theoretical_score=85.0,
+            speaking_score=None,
+            final_score=85.0,
+            completeness=0.9,
+            relevance=0.95,
+            sentiment="confident",
+            reasoning="Strong answer",
+            strengths=["Clear explanation"],
+            weaknesses=[],
+        )
+        await mock_evaluation_repo.save(evaluation1)
+
+        mock_event_publisher = MagicMock()
+        use_case = CompleteInterviewUseCase(
+            interview_repository=mock_interview_repo,
+            answer_repository=mock_answer_repo,
+            question_repository=mock_question_repo,
+            follow_up_question_repository=mock_follow_up_question_repo,
+            evaluation_repository=mock_evaluation_repo,
+            llm=mock_llm,
+            event_publisher=mock_event_publisher,
+        )
+
+        result = await use_case.execute(interview_id=sample_interview_adaptive.id)
+
+        # Verify interview completed successfully
+        assert result.interview.status == InterviewStatus.COMPLETE
+        assert isinstance(result.summary, DetailedInterviewFeedback)
+        # Verify status was transitioned from FOLLOW_UP → EVALUATING → COMPLETE

@@ -146,7 +146,8 @@ def sample_interview_adaptive(sample_cv_analysis: CVAnalysis) -> Interview:
         "strategy": "adaptive_planning_v1",
         "cv_summary": sample_cv_analysis.summary,
     }
-    interview.question_ids = [uuid4(), uuid4(), uuid4()]
+    # Workaround: question_ids removed in v0.4.0, using __dict__ for test compatibility
+    interview.__dict__["question_ids"] = [uuid4(), uuid4(), uuid4()]
     # Start interview to set status to IN_PROGRESS
     interview.start()
     return interview
@@ -288,6 +289,32 @@ class MockInterviewRepository:
         interview.__dict__["question_ids"] = question_ids
         interview.plan_metadata["n"] = len(question_ids)
 
+    async def count_interview_questions(self, interview_id: UUID) -> int:
+        """Count questions for interview (mock implementation)."""
+        interview = self.interviews.get(interview_id)
+        if not interview:
+            return 0
+        question_ids = interview.__dict__.get("question_ids", [])
+        return len(question_ids)
+
+    async def get_interview_questions(self, interview_id: UUID) -> list:
+        """Get interview questions (mock implementation)."""
+        from src.domain.models.interview_question import InterviewQuestion
+
+        interview = self.interviews.get(interview_id)
+        if not interview:
+            return []
+        question_ids = interview.__dict__.get("question_ids", [])
+        # Return mock InterviewQuestion objects
+        return [
+            type("InterviewQuestion", (), {
+                "question_id": q_id,
+                "interview_id": interview_id,
+                "sequence_order": idx,
+            })()
+            for idx, q_id in enumerate(question_ids)
+        ]
+
 
 class MockAnswerRepository:
     """Mock answer repository for testing."""
@@ -308,18 +335,31 @@ class MockFollowUpQuestionRepository:
 
     def __init__(self) -> None:
         self.follow_ups: dict[UUID, list[FollowUpQuestion]] = {}
+        self.follow_ups_by_interview: dict[UUID, list[FollowUpQuestion]] = {}
 
     async def save(self, follow_up: FollowUpQuestion) -> FollowUpQuestion:
         parent_id = follow_up.parent_question_id
         if parent_id not in self.follow_ups:
             self.follow_ups[parent_id] = []
         self.follow_ups[parent_id].append(follow_up)
+
+        # Also track by interview_id
+        interview_id = follow_up.interview_id
+        if interview_id not in self.follow_ups_by_interview:
+            self.follow_ups_by_interview[interview_id] = []
+        self.follow_ups_by_interview[interview_id].append(follow_up)
         return follow_up
 
     async def get_by_parent_question_id(
         self, parent_question_id: UUID
     ) -> list[FollowUpQuestion]:
         return self.follow_ups.get(parent_question_id, [])
+
+    async def get_by_interview_id(
+        self, interview_id: UUID
+    ) -> list[FollowUpQuestion]:
+        """Get all follow-up questions for an interview."""
+        return self.follow_ups_by_interview.get(interview_id, [])
 
 
 class MockCVAnalysisRepository:
