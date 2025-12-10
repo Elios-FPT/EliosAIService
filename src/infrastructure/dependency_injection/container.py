@@ -28,17 +28,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import adapters
 debug_print("container.py: About to import LLM adapters...")
-from ...adapters.llm.langchain_adapter import LangChainAdapter
+from ...infrastructure.adapters.llm.langchain_adapter import LangChainAdapter
 debug_print("container.py: LangChainAdapter imported")
 
 # Import mock adapters
 debug_print("container.py: About to import mock adapters...")
-from ...adapters.mock import MockVectorSearchAdapter
+from ...infrastructure.adapters.mock import MockVectorSearchAdapter
 debug_print("container.py: Mock adapters imported")
 
 # Import persistence adapters
 debug_print("container.py: About to import persistence adapters...")
-from ...adapters.persistence import (
+from ...infrastructure.adapters.persistence import (
     PostgreSQLAnswerRepository,
     PostgreSQLCVAnalysisRepository,
     PostgreSQLEvaluationRepository,
@@ -53,15 +53,15 @@ from ...adapters.persistence import (
 debug_print("container.py: Persistence adapters imported")
 
 debug_print("container.py: About to import vector_db adapters...")
-from ...adapters.vector_db.pinecone_adapter import PineconeAdapter
+from ...infrastructure.adapters.vector_db.pinecone_adapter import PineconeAdapter
 debug_print("container.py: PineconeAdapter imported")
 
 debug_print("container.py: About to import CV processing adapters...")
-from ...adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
+from ...infrastructure.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 debug_print("container.py: HybridCVAnalyzerAdapter imported")
 
 debug_print("container.py: About to import messaging adapters...")
-from ...adapters.messaging import KafkaEventPublisher
+from ...infrastructure.adapters.messaging import KafkaEventPublisher
 debug_print("container.py: KafkaEventPublisher imported")
 
 debug_print("container.py: About to import domain ports...")
@@ -97,7 +97,7 @@ from ...infrastructure.background.checkpointer_heartbeat import (
 debug_print("container.py: Settings imported")
 
 if TYPE_CHECKING:
-    from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+    from ...infrastructure.adapters.messaging.candidate_event_consumer import CandidateEventConsumer
     from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 
 debug_print("container.py: All imports completed, defining Container class...")
@@ -395,7 +395,7 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._stt_port is None:
-            from ...adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
+            from ...infrastructure.adapters.speech.google_chirp3_stt_adapter import GoogleChirp3STTAdapter
 
             if not self.settings.google_cloud_project_id:
                 raise ValueError("Google Cloud project ID not configured")
@@ -420,7 +420,7 @@ class Container:
             ValueError: If Google Cloud Speech config is not configured
         """
         if self._tts_port is None:
-            from ...adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
+            from ...infrastructure.adapters.speech.google_chirp3_tts_adapter import GoogleChirp3TTSAdapter
 
             if not self.settings.google_cloud_project_id:
                 raise ValueError("Google Cloud project ID not configured")
@@ -485,7 +485,7 @@ class Container:
         Returns:
             Configured Kafka consumer for candidate events
         """
-        from ...adapters.messaging.candidate_event_consumer import CandidateEventConsumer
+        from ...infrastructure.adapters.messaging.candidate_event_consumer import CandidateEventConsumer
 
         return CandidateEventConsumer(
             bootstrap_servers=self.settings.kafka_bootstrap_servers,

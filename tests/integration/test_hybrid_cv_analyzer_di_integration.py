@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
+from src.infrastructure.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 from src.infrastructure.config.settings import Settings
 
 

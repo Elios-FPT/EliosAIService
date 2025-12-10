@@ -36,7 +36,7 @@ class TestStartTTSAdapter:
         # Verify TTS adapter was initialized
         assert container._tts_port is not None
         # Verify it's a mock adapter (no pre-warm call)
-        from src.adapters.mock.mock_tts_adapter import MockTTSAdapter
+        from src.infrastructure.adapters.mock.mock_tts_adapter import MockTTSAdapter
         assert isinstance(container._tts_port, MockTTSAdapter)
 
     @pytest.mark.asyncio
@@ -51,7 +51,7 @@ class TestStartTTSAdapter:
         mock_tts.synthesize_speech = AsyncMock(return_value=b"test-audio")
 
         with patch(
-            "src.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter"
+            "src.infrastructure.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter"
         ) as mock_adapter_cls:
             mock_adapter_cls.return_value = mock_tts
 
@@ -75,7 +75,7 @@ class TestStartTTSAdapter:
         mock_tts.synthesize_speech = AsyncMock(side_effect=Exception("Network error"))
 
         with patch(
-            "src.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter"
+            "src.infrastructure.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter"
         ) as mock_adapter_cls:
             mock_adapter_cls.return_value = mock_tts
 
@@ -96,7 +96,7 @@ class TestStartTTSAdapter:
 
         # Mock Google TTS adapter to raise on initialization
         with patch(
-            "src.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter",
+            "src.infrastructure.adapters.speech.google_chirp3_tts_adapter.GoogleChirp3TTSAdapter",
             side_effect=FileNotFoundError("Credentials file not found"),
         ):
             # Execute (should not raise, should log warning)

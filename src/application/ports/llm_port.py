@@ -11,7 +11,7 @@ from src.domain.models.feedback_result import FeedbackResult, InputType
 from src.domain.models.question import Question
 
 if TYPE_CHECKING:
-    from ...adapters.llm.comprehensive_models import ComprehensiveAnalysis
+    from ...infrastructure.adapters.llm.comprehensive_models import ComprehensiveAnalysis
 
 
 class LLMPort(ABC):

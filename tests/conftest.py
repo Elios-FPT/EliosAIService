@@ -533,7 +533,7 @@ def mock_cv_analysis_repo() -> MockCVAnalysisRepository:
 @pytest.fixture
 def mock_vector_search():
     """Mock vector search fixture."""
-    from src.adapters.mock.mock_vector_search_adapter import MockVectorSearchAdapter
+    from src.infrastructure.adapters.mock.mock_vector_search_adapter import MockVectorSearchAdapter
 
     adapter = MockVectorSearchAdapter()
     yield adapter

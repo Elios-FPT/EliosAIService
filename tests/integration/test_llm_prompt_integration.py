@@ -4,8 +4,8 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from src.adapters.llm.langchain_adapter import LangChainAdapter
-from src.adapters.persistence.postgres_prompt_repository import PostgreSQLPromptRepository
+from src.infrastructure.adapters.llm.langchain_adapter import LangChainAdapter
+from src.infrastructure.adapters.persistence.postgres_prompt_repository import PostgreSQLPromptRepository
 from langchain_openai import ChatOpenAI
 
 

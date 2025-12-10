@@ -2,8 +2,8 @@
 
 import pytest
 import time
-from src.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
-from src.adapters.cv_processing.confidence_scorer import ConfidenceScorer
+from src.infrastructure.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
+from src.infrastructure.adapters.cv_processing.confidence_scorer import ConfidenceScorer
 
 
 class TestRuleBasedCVExtraction:

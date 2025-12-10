@@ -16,8 +16,8 @@ from src.domain.models.cv_skill import CVSkill, ProficiencyLevel
 from src.domain.models.interview_question import InterviewQuestion
 from src.domain.models.interview import Interview, InterviewStatus
 from src.domain.models.question import Difficulty, Question, QuestionType
-from src.adapters.persistence.cv_analysis_repository import PostgreSQLCVAnalysisRepository
-from src.adapters.persistence.mappers import (
+from src.infrastructure.adapters.persistence.cv_analysis_repository import PostgreSQLCVAnalysisRepository
+from src.infrastructure.adapters.persistence.mappers import (
     InterviewMapper,
     InterviewQuestionMapper,
     QuestionMapper,

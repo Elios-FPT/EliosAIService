@@ -41,19 +41,19 @@ debug_print("CORS middleware imported")
 
 debug_print("About to import local modules...")
 
-from .adapters.api.rest import health_routes
+from .controllers.rest import health_routes
 debug_print("health_routes imported")
 
-from .adapters.api.rest.interview_routes import router as interview_router
+from .controllers.rest.interview_routes import router as interview_router
 debug_print("interview_routes imported")
 
-from .adapters.api.rest.prompt_routes import router as prompt_router
+from .controllers.rest.prompt_routes import router as prompt_router
 debug_print("prompt_routes imported")
 
-from .adapters.api.rest.feedback_routes import router as feedback_router
+from .controllers.rest.feedback_routes import router as feedback_router
 debug_print("feedback_routes imported")
 
-from .adapters.api.websocket.interview_handler import handle_interview_websocket
+from .controllers.websocket.interview_handler import handle_interview_websocket
 debug_print("websocket handler imported")
 
 from .infrastructure.config import get_settings

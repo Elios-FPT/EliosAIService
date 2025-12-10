@@ -2,7 +2,7 @@
 
 import pytest
 import time
-from src.adapters.cv_processing.spacy_ner_extractor import SpacyNERExtractor
+from src.infrastructure.adapters.cv_processing.spacy_ner_extractor import SpacyNERExtractor
 
 
 class TestSpacyNERFullPipeline:
@@ -232,7 +232,7 @@ class TestSpacyNERFullPipeline:
 
     def test_integration_with_phase1_results(self, extractor):
         """Test that Phase 2 results complement Phase 1 rule-based extraction."""
-        from src.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
+        from src.infrastructure.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
 
         cv_text = """
         John Doe

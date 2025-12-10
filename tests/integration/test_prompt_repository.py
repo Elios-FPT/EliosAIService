@@ -3,7 +3,7 @@
 from decimal import Decimal
 import pytest
 
-from src.adapters.persistence.postgres_prompt_repository import PostgreSQLPromptRepository
+from src.infrastructure.adapters.persistence.postgres_prompt_repository import PostgreSQLPromptRepository
 
 
 def prompt_kwargs():
