@@ -50,7 +50,7 @@ async def analyze_cv(
     content = await file.read()
 
     # Detect file type using helper method from port
-    from ....application.ports.cv_analyzer_port import CVAnalyzerPort
+    from src.application.ports.cv_analyzer_port import CVAnalyzerPort
 
     try:
         file_type = CVAnalyzerPort._detect_file_type(
@@ -348,7 +348,7 @@ async def plan_interview(
         )
 
         # Use LangGraph workflow for interview planning
-        from ....application.workflows.planning_workflow import PlanningWorkflow
+        from src.application.workflows.planning_workflow import PlanningWorkflow
 
         # Get checkpointer (async)
         checkpointer = await container.get_checkpointer()
