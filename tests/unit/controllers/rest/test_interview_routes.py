@@ -19,6 +19,7 @@ from src.application.dto.interview_dto import (
     InterviewHistoryPagination,
 )
 from src.domain.models.interview import InterviewStatus
+from src.infrastructure.database.session import get_async_session
 
 app = FastAPI()
 app.include_router(router)
@@ -160,4 +161,187 @@ def test_list_interview_history_validation_error(mock_get_session, mock_get_cont
 
     assert response.status_code == 400
     assert "limit" in response.json()["detail"]
+
+
+@patch("src.controllers.rest.interview_routes.CompleteInterviewUseCase")
+@patch("src.controllers.rest.interview_routes.get_container")
+def test_stop_interview_success_questioning(
+    mock_get_container,
+    mock_complete_uc_class,
+):
+    """Test stop interview from QUESTIONING status."""
+    # Override FastAPI dependency
+    mock_session = AsyncMock()
+    async def mock_get_session():
+        yield mock_session
+    app.dependency_overrides[get_async_session] = mock_get_session
+
+    interview_id = uuid4()
+    mock_interview = SimpleNamespace(
+        id=interview_id,
+        status=InterviewStatus.QUESTIONING,
+    )
+
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_interview_repo = AsyncMock()
+    mock_interview_repo.get_by_id.return_value = mock_interview
+    mock_container.interview_repository_port.return_value = mock_interview_repo
+
+    # Mock all other dependencies
+    mock_container.answer_repository_port.return_value = AsyncMock()
+    mock_container.question_repository_port.return_value = AsyncMock()
+    mock_container.follow_up_question_repository_port.return_value = AsyncMock()
+    mock_container.evaluation_repository_port.return_value = AsyncMock()
+    mock_container.llm_port.return_value = MagicMock()
+    mock_container.event_publisher_port.return_value = AsyncMock()
+
+    # Mock use case instance and result
+    mock_use_case_instance = AsyncMock()
+    from src.application.dto.detailed_feedback_dto import DetailedInterviewFeedback
+    from src.application.dto.interview_completion_dto import InterviewCompletionResult
+    from src.domain.models.interview import Interview
+
+    completed_interview = Interview(
+        id=interview_id,
+        candidate_id=uuid4(),
+        status=InterviewStatus.COMPLETE,
+    )
+    from datetime import UTC, datetime
+    mock_summary = DetailedInterviewFeedback(
+        interview_id=interview_id,
+        overall_score=75.0,
+        theoretical_score_avg=80.0,
+        speaking_score_avg=70.0,
+        total_questions=3,
+        total_follow_ups=2,
+        question_feedback=[],
+        gap_progression={},
+        strengths=[],
+        weaknesses=[],
+        study_recommendations=[],
+        technique_tips=[],
+        completion_time=datetime.now(UTC),
+    )
+    mock_result = InterviewCompletionResult(
+        interview=completed_interview,
+        summary=mock_summary,
+    )
+    mock_use_case_instance.execute.return_value = mock_result
+    mock_complete_uc_class.return_value = mock_use_case_instance
+
+    try:
+        response = client.put(f"/interviews/{interview_id}/stop")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["interview_id"] == str(interview_id)
+        assert data["overall_score"] == 75.0
+        mock_use_case_instance.execute.assert_awaited_once_with(interview_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+@patch("src.controllers.rest.interview_routes.get_container")
+def test_stop_interview_not_found(mock_get_container):
+    """Test stop interview when interview not found."""
+    mock_session = AsyncMock()
+    async def mock_get_session():
+        yield mock_session
+    app.dependency_overrides[get_async_session] = mock_get_session
+
+    interview_id = uuid4()
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_interview_repo = AsyncMock()
+    mock_interview_repo.get_by_id.return_value = None
+    mock_container.interview_repository_port.return_value = mock_interview_repo
+
+    try:
+        response = client.put(f"/interviews/{interview_id}/stop")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@patch("src.controllers.rest.interview_routes.get_container")
+def test_stop_interview_invalid_status_complete(mock_get_container):
+    """Test stop interview when interview is already COMPLETE."""
+    mock_session = AsyncMock()
+    async def mock_get_session():
+        yield mock_session
+    app.dependency_overrides[get_async_session] = mock_get_session
+
+    interview_id = uuid4()
+    mock_interview = SimpleNamespace(
+        id=interview_id,
+        status=InterviewStatus.COMPLETE,
+    )
+
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_interview_repo = AsyncMock()
+    mock_interview_repo.get_by_id.return_value = mock_interview
+    mock_container.interview_repository_port.return_value = mock_interview_repo
+
+    try:
+        response = client.put(f"/interviews/{interview_id}/stop")
+
+        assert response.status_code == 400
+        assert "status" in response.json()["detail"].lower()
+        assert "complete" in response.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@patch("src.controllers.rest.interview_routes.CompleteInterviewUseCase")
+@patch("src.controllers.rest.interview_routes.get_container")
+def test_stop_interview_use_case_error(
+    mock_get_container,
+    mock_complete_uc_class,
+):
+    """Test stop interview when use case raises error."""
+    mock_session = AsyncMock()
+    async def mock_get_session():
+        yield mock_session
+    app.dependency_overrides[get_async_session] = mock_get_session
+
+    interview_id = uuid4()
+    mock_interview = SimpleNamespace(
+        id=interview_id,
+        status=InterviewStatus.EVALUATING,
+    )
+
+    mock_container = MagicMock()
+    mock_get_container.return_value = mock_container
+
+    mock_interview_repo = AsyncMock()
+    mock_interview_repo.get_by_id.return_value = mock_interview
+    mock_container.interview_repository_port.return_value = mock_interview_repo
+
+    # Mock all other dependencies
+    mock_container.answer_repository_port.return_value = AsyncMock()
+    mock_container.question_repository_port.return_value = AsyncMock()
+    mock_container.follow_up_question_repository_port.return_value = AsyncMock()
+    mock_container.evaluation_repository_port.return_value = AsyncMock()
+    mock_container.llm_port.return_value = MagicMock()
+    mock_container.event_publisher_port.return_value = AsyncMock()
+
+    # Mock use case to raise error
+    mock_use_case_instance = AsyncMock()
+    mock_use_case_instance.execute.side_effect = Exception("Database error")
+    mock_complete_uc_class.return_value = mock_use_case_instance
+
+    try:
+        response = client.put(f"/interviews/{interview_id}/stop")
+
+        assert response.status_code == 500
+        assert "failed" in response.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
 

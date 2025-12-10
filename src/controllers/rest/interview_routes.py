@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+from ...application.dto.detailed_feedback_dto import DetailedInterviewFeedback
 from ...application.dto.interview_dto import (
     InterviewHistoryListResponse,
     InterviewResponse,
@@ -20,6 +21,7 @@ from ...application.dto.interview_dto import (
     QuestionResponse,
 )
 from ...application.use_cases.analyze_cv import AnalyzeCVUseCase
+from ...application.use_cases.complete_interview import CompleteInterviewUseCase
 from ...application.use_cases.get_next_question import GetNextQuestionUseCase
 from ...domain.models.interview import InterviewStatus
 from ...application.ports.event_publisher_port import EventPublisherPort
@@ -601,4 +603,98 @@ async def get_interview_conversation(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to export conversation"
+        ) from e
+
+
+@router.put(
+    "/{interview_id}/stop",
+    response_model=DetailedInterviewFeedback,
+    summary="Stop in-process interview and get feedback",
+)
+async def stop_interview(
+    interview_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Stop an in-process interview and return comprehensive feedback.
+
+    This endpoint stops an interview that is currently in progress (QUESTIONING,
+    EVALUATING, or FOLLOW_UP status) and immediately returns comprehensive
+    feedback using CompleteInterviewUseCase. The interview will be automatically
+    transitioned to EVALUATING status (if needed) before completion.
+
+    Args:
+        interview_id: Interview UUID
+        session: Database session
+
+    Returns:
+        DetailedInterviewFeedback DTO with comprehensive evaluation data
+
+    Raises:
+        HTTPException:
+            - 404: Interview not found
+            - 400: Interview not in valid "in process" state (COMPLETE, CANCELLED, etc.)
+            - 500: Use case execution error
+    """
+    container = get_container()
+    interview_repo = container.interview_repository_port(session=session)
+
+    # Validate interview exists
+    interview = await interview_repo.get_by_id(interview_id)
+    if not interview:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview {interview_id} not found",
+        )
+
+    # Validate interview is in "in process" state
+    valid_statuses = {
+        InterviewStatus.QUESTIONING,
+        InterviewStatus.EVALUATING,
+        InterviewStatus.FOLLOW_UP,
+    }
+    if interview.status not in valid_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Cannot stop interview with status: {interview.status.value}. "
+                f"Interview must be in one of: QUESTIONING, EVALUATING, or FOLLOW_UP."
+            ),
+        )
+
+    try:
+        # Construct CompleteInterviewUseCase with all dependencies
+        complete_uc = CompleteInterviewUseCase(
+            interview_repository=container.interview_repository_port(session=session),
+            answer_repository=container.answer_repository_port(session=session),
+            question_repository=container.question_repository_port(session=session),
+            follow_up_question_repository=container.follow_up_question_repository_port(session=session),
+            evaluation_repository=container.evaluation_repository_port(session=session),
+            llm=container.llm_port(session=session),
+            event_publisher=container.event_publisher_port(),
+        )
+
+        # Execute use case
+        result = await complete_uc.execute(interview_id)
+
+        # Return feedback summary
+        return result.summary
+
+    except ValueError as e:
+        # Use case validation errors (e.g., interview not found, invalid status)
+        # Note: We already validated above, but catch in case use case has additional checks
+        logger.warning(f"Validation error stopping interview {interview_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        # Unexpected errors
+        logger.error(
+            f"Failed to stop interview {interview_id}: {e}",
+            exc_info=True,
+            extra={"interview_id": str(interview_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to stop interview and generate feedback",
         ) from e
