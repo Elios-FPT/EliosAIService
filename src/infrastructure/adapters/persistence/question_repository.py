@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from async_lru import alru_cache
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.domain.models.question import DifficultyLevel, Question, QuestionType
 from src.application.ports.question_repository_port import QuestionRepositoryPort
@@ -128,37 +128,6 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
             db_models = result.scalars().all()
             return [QuestionMapper.to_domain(db_model) for db_model in db_models]
 
-    async def find_by_tags(
-        self,
-        tags: list[str],
-        match_all: bool = False,
-        limit: int = 10,
-    ) -> list[Question]:
-        """Find questions by tags.
-
-        Args:
-            tags: List of tags to search for
-            match_all: If True, match all tags; if False, match any tag
-            limit: Maximum number of results
-        """
-        if match_all:
-            # Match all tags (array contains all elements)
-            query = select(QuestionModel).where(
-                QuestionModel.tags.contains(tags)  # PostgreSQL @> operator
-            )
-        else:
-            # Match any tag (array overlap)
-            query = select(QuestionModel).where(
-                QuestionModel.tags.overlap(tags)  # PostgreSQL && operator
-            )
-
-        query = query.limit(limit)
-
-        async with self._session_provider() as session:
-            result = await session.execute(query)
-            db_models = result.scalars().all()
-            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
-
     async def update(self, question: Question) -> Question:
         """Update an existing question and invalidate cache (Phase 3)."""
         async with self._session_provider() as session:
@@ -209,3 +178,52 @@ class PostgreSQLQuestionRepository(QuestionRepositoryPort):
             )
             db_models = result.scalars().all()
             return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+
+    async def list_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Question]:
+        """List questions with optional filters and pagination."""
+        query = select(QuestionModel)
+
+        if question_type:
+            query = query.where(QuestionModel.question_type == question_type.value)
+        if difficulty:
+            query = query.where(QuestionModel.difficulty == difficulty.value)
+        if skill:
+            query = query.where(QuestionModel.skills.contains([skill]))
+
+        query = (
+            query.order_by(QuestionModel.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            db_models = result.scalars().all()
+            return [QuestionMapper.to_domain(db_model) for db_model in db_models]
+
+    async def count_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+    ) -> int:
+        """Count questions with optional filters."""
+        query = select(func.count()).select_from(QuestionModel)
+
+        if question_type:
+            query = query.where(QuestionModel.question_type == question_type.value)
+        if difficulty:
+            query = query.where(QuestionModel.difficulty == difficulty.value)
+        if skill:
+            query = query.where(QuestionModel.skills.contains([skill]))
+
+        async with self._session_provider() as session:
+            result = await session.execute(query)
+            return result.scalar_one()

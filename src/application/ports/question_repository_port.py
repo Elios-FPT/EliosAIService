@@ -103,25 +103,6 @@ class QuestionRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def find_by_tags(
-        self,
-        tags: list[str],
-        match_all: bool = False,
-        limit: int = 10,
-    ) -> list[Question]:
-        """Find questions by tags.
-
-        Args:
-            tags: Tags to search for
-            match_all: If True, match all tags; if False, match any tag
-            limit: Maximum number of results
-
-        Returns:
-            List of matching questions
-        """
-        pass
-
-    @abstractmethod
     async def update(self, question: Question) -> Question:
         """Update an existing question.
 
@@ -160,4 +141,26 @@ class QuestionRepositoryPort(ABC):
         Returns:
             List of questions
         """
+        pass
+
+    @abstractmethod
+    async def list_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Question]:
+        """List questions with optional filters and pagination."""
+        pass
+
+    @abstractmethod
+    async def count_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+    ) -> int:
+        """Count questions with optional filters."""
         pass

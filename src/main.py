@@ -52,6 +52,8 @@ debug_print("prompt_routes imported")
 
 from .controllers.rest.feedback_routes import router as feedback_router
 debug_print("feedback_routes imported")
+from .controllers.rest.question_routes import router as question_router
+debug_print("question_routes imported")
 
 from .controllers.websocket.interview_handler import handle_interview_websocket
 debug_print("websocket handler imported")
@@ -416,6 +418,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         feedback_router, prefix=settings.api_prefix, tags=["Feedback"]
+    )
+    app.include_router(
+        question_router, prefix=settings.api_prefix, tags=["Questions"]
     )
 
     # WebSocket endpoint for real-time interview
