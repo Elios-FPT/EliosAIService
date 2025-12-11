@@ -164,7 +164,6 @@ class QuestionMapper:
             question_type=QuestionType(db_model.question_type),
             difficulty=Difficulty(db_model.difficulty),
             skills=list(db_model.skills) if db_model.skills else [],
-            embedding=list(db_model.embedding) if db_model.embedding else None,
             ideal_answer=db_model.ideal_answer,
             rationale=db_model.rationale,
             created_at=db_model.created_at,
@@ -180,7 +179,6 @@ class QuestionMapper:
             question_type=domain_model.question_type.value,
             difficulty=domain_model.difficulty.value,
             skills=domain_model.skills,
-            embedding=domain_model.embedding,
             ideal_answer=domain_model.ideal_answer,
             rationale=domain_model.rationale,
             created_at=domain_model.created_at,
@@ -194,7 +192,6 @@ class QuestionMapper:
         db_model.question_type = domain_model.question_type.value
         db_model.difficulty = domain_model.difficulty.value
         db_model.skills = domain_model.skills
-        db_model.embedding = domain_model.embedding
         db_model.ideal_answer = domain_model.ideal_answer
         db_model.rationale = domain_model.rationale
         db_model.updated_at = domain_model.updated_at
@@ -279,7 +276,6 @@ class AnswerMapper:
             text=db_model.text,
             is_voice=db_model.is_voice,
             audio_file_path=db_model.audio_file_path,
-            embedding=list(db_model.embedding) if db_model.embedding else None,
             created_at=db_model.created_at,
         )
 
@@ -294,7 +290,6 @@ class AnswerMapper:
             text=domain_model.text,
             is_voice=domain_model.is_voice,
             audio_file_path=domain_model.audio_file_path,
-            embedding=domain_model.embedding,
             created_at=domain_model.created_at,
         )
 
@@ -304,7 +299,6 @@ class AnswerMapper:
         db_model.text = domain_model.text
         db_model.is_voice = domain_model.is_voice
         db_model.audio_file_path = domain_model.audio_file_path
-        db_model.embedding = domain_model.embedding
         db_model.follow_up_question_id = domain_model.follow_up_question_id
 
 
@@ -325,7 +319,6 @@ class CVAnalysisMapper:
             id=db_model.id,
             candidate_id=db_model.candidate_id,
             skills=skills,
-            embedding=list(db_model.embedding) if db_model.embedding else None,
             summary=db_model.summary,
             created_at=db_model.created_at,
         )
@@ -340,7 +333,6 @@ class CVAnalysisMapper:
         return CVAnalysisModel(
             id=domain_model.id,
             candidate_id=domain_model.candidate_id,
-            embedding=domain_model.embedding,
             summary=domain_model.summary,
             created_at=domain_model.created_at,
         )
@@ -351,7 +343,6 @@ class CVAnalysisMapper:
 
         Note: Skills relationship updated separately via repository layer.
         """
-        db_model.embedding = domain_model.embedding
         db_model.summary = domain_model.summary
 
 

@@ -19,7 +19,6 @@ class CVAnalysis(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     candidate_id: UUID
     skills: List[CVSkill] = Field(default_factory=list)
-    embedding: Optional[List[float]] = None  # Vector embedding of CV
     summary: Optional[str] = None  # AI-generated summary
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

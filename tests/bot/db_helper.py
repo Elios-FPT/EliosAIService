@@ -177,7 +177,6 @@ class DatabaseHelper:
             suggested_topics=suggested_topics,
             suggested_difficulty=self._suggest_difficulty(cv_data),
             summary=cv_data.get("summary", "Mock CV summary"),
-            embedding=None,  # Skip embedding for tests
             created_at=datetime.utcnow(),
         )
 

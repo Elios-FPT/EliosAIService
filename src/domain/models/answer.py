@@ -53,7 +53,6 @@ class Answer(BaseModel):
     text: str  # The actual answer text
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
-    embedding: list[float] | None = None  # Vector embedding of answer
 
     # REMOVED: evaluation, similarity_score, gaps, speaking_score, overall_score
     # These fields now exist in Evaluation entity

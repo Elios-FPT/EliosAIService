@@ -213,7 +213,6 @@ class HybridCVAnalyzerAdapter(CVAnalyzerPort):
             id=cv_analysis_id,
             candidate_id=candidate_id,
             skills=skills,
-            embedding=None,
             summary=merged_results.get("summary"),
             created_at=datetime.now().isoformat(),
         )
