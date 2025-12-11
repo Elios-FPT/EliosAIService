@@ -1,20 +1,20 @@
 ---------------------------
-delete from interviews
-WHERE id ='b323c6a1-4749-4922-876f-72b6c426b2a6';
+delete from "Interviews"
+WHERE "Id" ='b323c6a1-4749-4922-876f-72b6c426b2a6';
 
-INSERT INTO interviews (
-    id,
-    candidate_id,
+INSERT INTO "Interviews" (
+    "Id",
+    "CandidateId",
     status,
-    cv_analysis_id,
-    current_question_index,
-    plan_metadata,
-    current_parent_question_id,
-    current_followup_count,
-    started_at,
-    completed_at,
-    created_at,
-    updated_at
+    "CvAnalysisId",
+    "CurrentQuestionIndex",
+    "PlanMetadata",
+    "CurrentParentQuestionId",
+    "CurrentFollowupCount",
+    "StartedAt",
+    "CompletedAt",
+    "CreatedAt",
+    "UpdatedAt"
 ) VALUES (
     'b323c6a1-4749-4922-876f-72b6c426b2a6'::uuid,
     '102ea1b3-f664-4617-8f43-fdde557f12b6'::uuid,
@@ -31,22 +31,22 @@ INSERT INTO interviews (
 );
 
 ------------------------------------------------
-DELETE FROM questions
-WHERE id IN (
+DELETE FROM "Questions"
+WHERE "Id" IN (
   'f405aaad-3e97-401f-bd5c-d68c62bb1445',
   '453523fb-8ac5-43d9-8aa8-856803fa950d'
 );
 
-INSERT INTO questions (
-  id,
+INSERT INTO "Questions" (
+  "Id",
   text,
   skills,
   version,
-  created_at,
-  updated_at,
-  ideal_answer,
+  "CreatedAt",
+  "UpdatedAt",
+  "IdealAnswer",
   rationale,
-  question_type,
+  "QuestionType",
   difficulty
 )
 VALUES
@@ -77,18 +77,18 @@ VALUES
 
 ------------------------------------------------
 
-delete from interview_questions
-WHERE interview_id ='b323c6a1-4749-4922-876f-72b6c426b2a6';
+delete from "InterviewQuestions"
+WHERE "InterviewId" ='b323c6a1-4749-4922-876f-72b6c426b2a6';
 
-INSERT INTO interview_questions (
-    id,
-    interview_id,
-    question_id,
-    sequence_order,
-    asked_at,
+INSERT INTO "InterviewQuestions" (
+    "Id",
+    "InterviewId",
+    "QuestionId",
+    "SequenceOrder",
+    "AskedAt",
     skipped,
-    skip_reason,
-    created_at
+    "SkipReason",
+    "CreatedAt"
 ) VALUES
 (
     '7809a338-2606-442f-ad5a-b50f0bd2d710'::uuid,

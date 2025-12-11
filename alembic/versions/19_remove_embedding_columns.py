@@ -45,3 +45,4 @@ def downgrade() -> None:
         sa.Column("embedding", postgresql.ARRAY(sa.Float()), nullable=True),
     )
 
+
