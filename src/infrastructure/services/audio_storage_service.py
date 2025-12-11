@@ -62,7 +62,7 @@ class AudioStorageService:
             files = {"file": (file_name, audio_data, "audio/wav")}
             response = await client.post(
                 self.base_url,
-                params={"prefix": prefix, "file_name": file_name},
+                params={"keyPrefix": prefix, "fileName": file_name},
                 files=files,
             )
             response.raise_for_status()
