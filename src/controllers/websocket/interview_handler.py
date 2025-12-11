@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Per-session state for streaming audio
 audio_streams: dict[UUID, Queue[bytes | None]] = {}
 transcription_tasks: dict[UUID, asyncio.Task[Any]] = {}
+audio_sequence_numbers: dict[UUID, int] = {}
 
 # Per-session state for workflow (thread IDs)
 workflow_threads: dict[UUID, str] = {}
@@ -125,6 +126,9 @@ async def _handle_with_workflow(
         # Store thread ID
         thread_id = result.get("thread_id")
         workflow_threads[interview_id] = thread_id
+
+        # Reset audio sequence for new session
+        audio_sequence_numbers[interview_id] = 0
 
         # Generate TTS audio for first question
         question_dict = result.get("question")
@@ -396,6 +400,9 @@ def _cleanup_audio_resources(interview_id: UUID) -> None:
     # Clear audio streams
     audio_streams.pop(interview_id, None)
 
+    # Clear sequence number
+    audio_sequence_numbers.pop(interview_id, None)
+
     logger.debug(f"Cleaned up audio resources for interview {interview_id}")
 
 
@@ -454,6 +461,18 @@ async def _stream_transcription(
             f"Assembled {len(chunks)} chunks ({len(complete_audio)} bytes) "
             f"for interview {interview_id}"
         )
+
+        # Upload audio to external storage (non-blocking)
+        audio_storage = container.audio_storage_service()
+        if audio_storage:
+            seq = audio_sequence_numbers.get(interview_id, 0)
+            audio_sequence_numbers[interview_id] = seq + 1
+            audio_storage.schedule_upload(
+                audio_data=complete_audio,
+                interview_id=str(interview_id),
+                sequence_number=seq,
+            )
+            logger.info(f"Scheduled audio upload for interview {interview_id}, seq={seq}")
 
         # Transcribe using batch transcription for accurate voice metrics
         # Batch transcription provides word timestamps for accurate duration/WPM calculation
