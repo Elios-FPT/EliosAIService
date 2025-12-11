@@ -164,6 +164,10 @@ class Settings(BaseSettings):
     question_timeout_seconds: int = 300  # 5 minutes per question
     token_delta_per_plan: int = -10  # Tokens deducted per plan_interview call
 
+    # Audio Storage Configuration
+    audio_storage_api_url: str | None = None
+    audio_storage_api_timeout: float = 30.0
+
     # Kafka Configuration (Event Publishing)
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_interview_topic: str = "interview-user-interview"

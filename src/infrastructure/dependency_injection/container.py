@@ -89,6 +89,7 @@ debug_print("container.py: Domain ports imported")
 debug_print("container.py: About to import settings...")
 from ...infrastructure.config.settings import Settings, get_settings
 from ...infrastructure.database import session_scope
+from ...infrastructure.services.audio_storage_service import AudioStorageService
 from ...application.use_cases.list_interview_history import ListInterviewHistoryUseCase
 from ...infrastructure.background.checkpointer_heartbeat import (
     HeartbeatHandle,
@@ -384,6 +385,17 @@ class Container:
             use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
         )
 
+    def audio_storage_service(self) -> AudioStorageService | None:
+        """Get audio storage service instance.
+
+        Returns None if audio_storage_api_url not configured.
+        """
+        if not self.settings.audio_storage_api_url:
+            return None
+        return AudioStorageService(
+            base_url=self.settings.audio_storage_api_url,
+            timeout=self.settings.audio_storage_api_timeout,
+        )
 
     def speech_to_text_port(self) -> SpeechToTextPort:
         """Get speech-to-text port implementation.
