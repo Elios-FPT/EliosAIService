@@ -4,7 +4,7 @@ import asyncio
 import base64
 import logging
 from asyncio import Queue
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -418,6 +418,101 @@ def _cleanup_workflow_resources(interview_id: UUID) -> None:
     logger.debug(f"Cleaned up workflow resources for interview {interview_id}")
 
 
+def _make_audio_callback(
+    interview_id: UUID,
+    sequence: int,
+    container: Container,
+) -> Callable[[str | None, Exception | None], None]:
+    """Create callback for updating Answer.audio_file_path after upload."""
+
+    def _callback(audio_file_path: str | None, error: Exception | None) -> None:
+        if error:
+            logger.warning(
+                "Audio upload failed for interview %s, seq=%s: %s",
+                interview_id,
+                sequence,
+                error,
+            )
+            return
+
+        if not audio_file_path:
+            logger.warning(
+                "Audio upload returned empty path for interview %s, seq=%s",
+                interview_id,
+                sequence,
+            )
+            return
+
+        asyncio.create_task(
+            _update_answer_audio_path(
+                interview_id=interview_id,
+                sequence=sequence,
+                audio_file_path=audio_file_path,
+                container=container,
+            )
+        )
+
+    return _callback
+
+
+async def _update_answer_audio_path(
+    interview_id: UUID,
+    sequence: int,
+    audio_file_path: str,
+    container: Container,
+) -> None:
+    """Update Answer.audio_file_path after successful upload with retries."""
+    max_attempts = 5
+    base_delay = 0.5
+
+    for attempt in range(max_attempts):
+        try:
+            async with session_scope() as session:
+                answer_repo = container.answer_repository_port(session=session)
+                updated = await answer_repo.update_audio_file_path_by_sequence(
+                    interview_id=interview_id,
+                    sequence=sequence,
+                    audio_file_path=audio_file_path,
+                )
+
+                if updated:
+                    logger.info(
+                        "Answer audio_file_path updated: interview=%s, seq=%s, path=%s",
+                        interview_id,
+                        sequence,
+                        audio_file_path,
+                    )
+                    return
+
+                if attempt < max_attempts - 1:
+                    delay = base_delay * (2**attempt)
+                    logger.debug(
+                        "Answer not found for interview %s, seq=%s. Retrying in %.1fs (attempt %s/%s)",
+                        interview_id,
+                        sequence,
+                        delay,
+                        attempt + 1,
+                        max_attempts,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(
+                        "Answer not found after %s attempts: interview=%s, seq=%s",
+                        max_attempts,
+                        interview_id,
+                        sequence,
+                    )
+        except Exception as exc:
+            logger.error(
+                "Failed to update audio_file_path: interview=%s, seq=%s, error=%s",
+                interview_id,
+                sequence,
+                exc,
+                exc_info=True,
+            )
+            return
+
+
 async def _notify_transient_failure(interview_id: UUID) -> None:
     """Notify client about transient DB issues."""
     await manager.send_message(
@@ -467,10 +562,16 @@ async def _stream_transcription(
         if audio_storage:
             seq = audio_sequence_numbers.get(interview_id, 0)
             audio_sequence_numbers[interview_id] = seq + 1
+            callback = _make_audio_callback(
+                interview_id=interview_id,
+                sequence=seq,
+                container=container,
+            )
             audio_storage.schedule_upload(
                 audio_data=complete_audio,
                 interview_id=str(interview_id),
                 sequence_number=seq,
+                callback=callback,
             )
             logger.info(f"Scheduled audio upload for interview {interview_id}, seq={seq}")
 

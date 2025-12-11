@@ -108,3 +108,25 @@ class AnswerRepositoryPort(ABC):
             True if deleted, False if not found
         """
         pass
+
+    @abstractmethod
+    async def update_audio_file_path_by_sequence(
+        self,
+        interview_id: UUID,
+        sequence: int,
+        audio_file_path: str,
+    ) -> bool:
+        """Update audio_file_path for Nth voice answer in interview.
+
+        Finds the voice answer by sequence order (0-indexed),
+        ordered by created_at ascending.
+
+        Args:
+            interview_id: Interview UUID
+            sequence: 0-based sequence number (0 = first voice answer)
+            audio_file_path: URL from external storage
+
+        Returns:
+            True if updated, False if not found
+        """
+        pass

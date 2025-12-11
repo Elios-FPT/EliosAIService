@@ -1,5 +1,6 @@
 """PostgreSQL implementation of AnswerRepositoryPort."""
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,6 +10,8 @@ from src.application.ports.answer_repository_port import AnswerRepositoryPort
 from .mappers import AnswerMapper
 from .models import AnswerModel
 from .session_provider import SessionProvider
+
+logger = logging.getLogger(__name__)
 
 
 class PostgreSQLAnswerRepository(AnswerRepositoryPort):
@@ -116,4 +119,42 @@ class PostgreSQLAnswerRepository(AnswerRepositoryPort):
 
             await session.delete(db_model)
             await session.commit()
+            return True
+
+    async def update_audio_file_path_by_sequence(
+        self,
+        interview_id: UUID,
+        sequence: int,
+        audio_file_path: str,
+    ) -> bool:
+        """Update audio_file_path for Nth voice answer in interview."""
+        async with self._session_provider() as session:
+            result = await session.execute(
+                select(AnswerModel)
+                .where(
+                    AnswerModel.interview_id == interview_id,
+                    AnswerModel.is_voice == True,  # noqa: E712
+                )
+                .order_by(AnswerModel.created_at.asc())
+                .offset(sequence)
+                .limit(1)
+            )
+            db_model = result.scalar_one_or_none()
+
+            if not db_model:
+                logger.warning(
+                    "No voice answer found for interview %s, seq=%s",
+                    interview_id,
+                    sequence,
+                )
+                return False
+
+            db_model.audio_file_path = audio_file_path
+            await session.commit()
+
+            logger.info(
+                "Updated audio_file_path for answer %s: %s",
+                db_model.id,
+                audio_file_path,
+            )
             return True
