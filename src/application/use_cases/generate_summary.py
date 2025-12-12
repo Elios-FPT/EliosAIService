@@ -208,7 +208,7 @@ class GenerateSummaryUseCase:
         self,
         all_answers: list[Answer],
         evaluations_map: dict[UUID, Evaluation]
-    ) -> dict[str, float]:
+    ) -> dict[str, float | None]:
         """Calculate aggregate scores using evaluations from evaluations table.
 
         Args:
@@ -243,24 +243,28 @@ class GenerateSummaryUseCase:
 
         # Speaking score (from Evaluation entity, not Answer.voice_metrics)
         # Get speaking scores from Evaluation entities (after Phase 02 integration)
-        speaking_scores = [
+        speaking_scores: list[float] = [
             evaluations_map[a.id].speaking_score
             for a in evaluated_answers
             if a.id in evaluations_map and evaluations_map[a.id].speaking_score is not None
         ]
 
-        # If no speaking scores, default to 50.0
-        speaking_avg = sum(speaking_scores) / len(speaking_scores) if speaking_scores else 50.0
+        # If no speaking scores, speaking_avg is None (for display/API)
+        # For overall calculation, use 0.0 default
+        speaking_avg: float | None = (
+            sum(speaking_scores) / len(speaking_scores) if speaking_scores else None
+        )
+        speaking_for_calc = speaking_avg if speaking_avg is not None else 0.0
 
         theoretical_avg = sum(theoretical_scores) / len(theoretical_scores)
 
-        # Overall = 70% theoretical + 30% speaking
-        overall_score = (theoretical_avg * 0.7) + (speaking_avg * 0.3)
+        # Overall = 80% theoretical + 20% speaking
+        overall_score = (theoretical_avg * 0.8) + (speaking_for_calc * 0.2)
 
         return {
             "overall_score": round(overall_score, 2),
             "theoretical_avg": round(theoretical_avg, 2),
-            "speaking_avg": round(speaking_avg, 2),
+            "speaking_avg": round(speaking_avg, 2) if speaking_avg is not None else None,
         }
 
     async def _analyze_gap_progression(

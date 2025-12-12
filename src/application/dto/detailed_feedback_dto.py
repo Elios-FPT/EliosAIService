@@ -231,7 +231,7 @@ class DetailedInterviewFeedback(BaseModel):
     # Aggregate metrics
     overall_score: float = Field(ge=0.0, le=100.0)
     theoretical_score_avg: float = Field(ge=0.0, le=100.0)
-    speaking_score_avg: float = Field(ge=0.0, le=100.0)
+    speaking_score_avg: float | None = Field(default=None, ge=0.0, le=100.0)
 
     # Counts
     total_questions: int = Field(ge=0)

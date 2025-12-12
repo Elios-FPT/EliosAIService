@@ -337,23 +337,34 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             return InterviewQuestionMapper.to_domain(db_model)
 
     async def count_interview_questions(self, interview_id: UUID) -> int:
-        """Count total questions for an interview.
+        """Count total questions for an interview (including follow-ups).
 
         Args:
             interview_id: UUID of the interview
 
         Returns:
-            Total number of questions in the interview
+            Total number of questions in the interview (regular + follow-ups)
         """
         from sqlalchemy import func
 
         async with self._session_provider() as session:
-            result = await session.execute(
+            # Count regular interview questions
+            regular_questions_result = await session.execute(
                 select(func.count(InterviewQuestionModel.id)).where(
                     InterviewQuestionModel.interview_id == interview_id
                 )
             )
-            return result.scalar_one()
+            regular_count = regular_questions_result.scalar_one()
+
+            # Count follow-up questions
+            followup_questions_result = await session.execute(
+                select(func.count(FollowUpQuestionModel.id)).where(
+                    FollowUpQuestionModel.interview_id == interview_id
+                )
+            )
+            followup_count = followup_questions_result.scalar_one()
+
+            return regular_count + followup_count
 
     async def soft_delete_by_candidate_id(self, candidate_id: UUID) -> int:
         """Soft delete all interviews for a candidate that are not already deleted."""

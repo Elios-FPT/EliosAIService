@@ -33,9 +33,10 @@ class InterviewAttemptedPayload(BaseModel):
         alias="TheoreticalScore",
         description="Theoretical score (2 decimal places)"
     )
-    speaking_score: str = Field(
+    speaking_score: str | None = Field(
+        default=None,
         alias="SpeakingScore",
-        description="Speaking score (2 decimal places)"
+        description="Speaking score (2 decimal places), null if no voice data"
     )
     overall_score: str = Field(
         alias="OverallScore",
@@ -55,7 +56,7 @@ class InterviewAttemptedPayload(BaseModel):
         }
     }
 
-    @field_validator("theoretical_score", "speaking_score", "overall_score")
+    @field_validator("theoretical_score", "overall_score")
     @classmethod
     def validate_score_format(cls, v: str) -> str:
         """Validate score has exactly 2 decimal places."""
@@ -71,13 +72,29 @@ class InterviewAttemptedPayload(BaseModel):
         except (ValueError, ArithmeticError) as e:
             raise ValueError(f"Invalid score format: {e}")
 
+    @field_validator("speaking_score")
+    @classmethod
+    def validate_speaking_score_format(cls, v: str | None) -> str | None:
+        """Validate speaking score format (nullable)."""
+        if v is None:
+            return None
+        try:
+            decimal_val = Decimal(v)
+            if decimal_val.as_tuple().exponent != -2:
+                raise ValueError("Score must have exactly 2 decimal places")
+            if not (Decimal("0.00") <= decimal_val <= Decimal("100.00")):
+                raise ValueError("Score must be between 0.00 and 100.00")
+            return v
+        except (ValueError, ArithmeticError) as e:
+            raise ValueError(f"Invalid score format: {e}")
+
     @staticmethod
     def from_summary(
         candidate_id: UUID,
         interview_id: UUID,
         overall_score: float,
         theoretical_score_avg: float,
-        speaking_score_avg: float,
+        speaking_score_avg: float | None,
         title: str | None = None,
     ) -> "InterviewAttemptedPayload":
         """Create payload from CompleteInterviewUseCase summary data.
@@ -87,7 +104,7 @@ class InterviewAttemptedPayload(BaseModel):
             interview_id: Interview UUID
             overall_score: Overall score (weighted average)
             theoretical_score_avg: Theoretical score average
-            speaking_score_avg: Speaking score average
+            speaking_score_avg: Speaking score average (None if text-only)
 
         Returns:
             InterviewAttemptedPayload instance
@@ -97,7 +114,7 @@ class InterviewAttemptedPayload(BaseModel):
             interview_id=interview_id,
             title=title,
             theoretical_score=f"{theoretical_score_avg:.2f}",
-            speaking_score=f"{speaking_score_avg:.2f}",
+            speaking_score=f"{speaking_score_avg:.2f}" if speaking_score_avg is not None else None,
             overall_score=f"{overall_score:.2f}",
         )
 

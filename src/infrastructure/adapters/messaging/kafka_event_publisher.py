@@ -103,7 +103,7 @@ class KafkaEventPublisher(EventPublisherPort):
         correlation_id: UUID,
         overall_score: float,
         theoretical_score_avg: float,
-        speaking_score_avg: float,
+        speaking_score_avg: float | None,
         title: str | None = None,
     ) -> None:
         """Publish INTERVIEW_ATTEMPTED event to Kafka.

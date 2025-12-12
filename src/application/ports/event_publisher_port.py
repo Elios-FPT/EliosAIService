@@ -23,7 +23,7 @@ class EventPublisherPort(ABC):
         correlation_id: UUID,
         overall_score: float,
         theoretical_score_avg: float,
-        speaking_score_avg: float,
+        speaking_score_avg: float | None,
         title: str | None = None,
     ) -> None:
         """Publish INTERVIEW_ATTEMPTED event to User Service.
@@ -34,7 +34,7 @@ class EventPublisherPort(ABC):
             correlation_id: Request correlation ID for tracing
             overall_score: Weighted overall score (0-100)
             theoretical_score_avg: Theoretical score average (0-100)
-            speaking_score_avg: Speaking score average (0-100)
+            speaking_score_avg: Speaking score average (0-100), or None if text-only interview
 
         Note:
             This method should NOT raise exceptions (fire-and-forget).
