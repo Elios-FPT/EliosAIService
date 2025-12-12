@@ -399,14 +399,25 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                 # Step 2: Fetch main questions with answers
                 main_questions_query = (
                     select(
+                        # InterviewQuestion junction fields
                         InterviewQuestionModel.sequence_order,
-                        QuestionModel.id.label("question_id"),
-                        QuestionModel.text.label("question_text"),
-                        QuestionModel.question_type,
                         InterviewQuestionModel.asked_at.label("question_asked_at"),
                         InterviewQuestionModel.skipped,
                         InterviewQuestionModel.skip_reason,
+                        # Question fields (EXPANDED)
+                        QuestionModel.id.label("question_id"),
+                        QuestionModel.text.label("question_text"),
+                        QuestionModel.question_type,
+                        QuestionModel.difficulty,
+                        QuestionModel.skills,
+                        QuestionModel.ideal_answer,
+                        QuestionModel.rationale,
+                        QuestionModel.created_at.label("question_created_at"),
+                        QuestionModel.updated_at.label("question_updated_at"),
+                        # Answer fields (add interview_id, question_id for completeness)
                         AnswerModel.id.label("answer_id"),
+                        AnswerModel.interview_id.label("answer_interview_id"),
+                        AnswerModel.question_id.label("answer_question_id"),
                         AnswerModel.text.label("answer_text"),
                         AnswerModel.is_voice,
                         AnswerModel.audio_file_path,
@@ -429,13 +440,19 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                 # Step 3: Fetch follow-ups with answers
                 follow_ups_query = (
                     select(
+                        # FollowUp fields (add interview_id)
                         FollowUpQuestionModel.id.label("followup_id"),
                         FollowUpQuestionModel.parent_question_id,
+                        FollowUpQuestionModel.interview_id.label("followup_interview_id"),
                         FollowUpQuestionModel.text.label("followup_text"),
                         FollowUpQuestionModel.order_in_sequence,
                         FollowUpQuestionModel.generated_reason,
                         FollowUpQuestionModel.created_at.label("followup_created_at"),
+                        # Answer fields (add IDs for follow-up answers)
                         AnswerModel.id.label("answer_id"),
+                        AnswerModel.interview_id.label("answer_interview_id"),
+                        AnswerModel.question_id.label("answer_question_id"),
+                        AnswerModel.follow_up_question_id.label("answer_followup_id"),
                         AnswerModel.text.label("answer_text"),
                         AnswerModel.is_voice,
                         AnswerModel.audio_file_path,
@@ -498,12 +515,21 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
             messages.append({
                 "type": "question",
                 "speaker": "Interviewer",
+                # Existing fields
                 "sequence": row.sequence_order,
                 "text": row.question_text,
                 "question_type": row.question_type,
                 "asked_at": row.question_asked_at.isoformat() if row.question_asked_at else None,
                 "skipped": row.skipped,
-                "skip_reason": row.skip_reason
+                "skip_reason": row.skip_reason,
+                # NEW fields
+                "id": str(row.question_id),
+                "difficulty": row.difficulty,
+                "skills": row.skills,
+                "ideal_answer": row.ideal_answer,
+                "rationale": row.rationale,
+                "created_at": row.question_created_at.isoformat(),
+                "updated_at": row.question_updated_at.isoformat(),
             })
 
             # Add main answer (if exists)
@@ -511,10 +537,15 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                 messages.append({
                     "type": "answer",
                     "speaker": "Candidate",
+                    # Existing fields
                     "text": row.answer_text,
                     "is_voice": row.is_voice,
                     "audio_path": row.audio_file_path,
-                    "created_at": row.answer_created_at.isoformat()
+                    "created_at": row.answer_created_at.isoformat(),
+                    # NEW fields
+                    "id": str(row.answer_id),
+                    "question_id": str(row.question_id),
+                    "follow_up_question_id": None,
                 })
 
             # Add follow-ups for this question
@@ -524,11 +555,16 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                 messages.append({
                     "type": "followup",
                     "speaker": "Interviewer",
+                    # Existing fields
                     "text": followup_row.followup_text,
                     "parent_sequence": row.sequence_order,
                     "followup_order": followup_row.order_in_sequence,
                     "reason": followup_row.generated_reason,
-                    "asked_at": followup_row.followup_created_at.isoformat()
+                    "asked_at": followup_row.followup_created_at.isoformat(),
+                    # NEW fields
+                    "id": str(followup_row.followup_id),
+                    "parent_question_id": str(followup_row.parent_question_id),
+                    "interview_id": str(followup_row.followup_interview_id),
                 })
 
                 # Add follow-up answer (if exists)
@@ -536,10 +572,15 @@ class PostgreSQLInterviewRepository(InterviewRepositoryPort):
                     messages.append({
                         "type": "answer",
                         "speaker": "Candidate",
+                        # Existing fields
                         "text": followup_row.answer_text,
                         "is_voice": followup_row.is_voice,
                         "audio_path": followup_row.audio_file_path,
-                        "created_at": followup_row.answer_created_at.isoformat()
+                        "created_at": followup_row.answer_created_at.isoformat(),
+                        # NEW fields
+                        "id": str(followup_row.answer_id),
+                        "question_id": str(row.question_id),
+                        "follow_up_question_id": str(followup_row.followup_id),
                     })
 
         return messages
