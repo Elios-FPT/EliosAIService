@@ -819,7 +819,6 @@ class Container:
         return AnalyzeFeedbackUseCase(
             request_repo=request_repo,
             response_repo=response_repo,
-            event_publisher=self.event_publisher_port(),
             llm=self.llm_port(session=session),
         )
 

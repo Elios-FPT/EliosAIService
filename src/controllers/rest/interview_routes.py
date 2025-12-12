@@ -76,6 +76,14 @@ async def analyze_cv(
     logger.info(f"Starting CV analysis for candidate: {candidate_id} (file_type: {file_type}, size: {len(content)} bytes)")
 
     container = get_container()
+    settings = get_settings()
+
+    await _emit_token_delta_event(
+        publisher=container.event_publisher_port(),
+        user_id=candidate_id,
+        tokens=settings.token_delta_per_plan,
+    )
+
     cv_analysis_use_case = AnalyzeCVUseCase(
         cv_analyzer=container.cv_analyzer_port(),
         vector_search=container.vector_search_port(),
@@ -340,12 +348,6 @@ async def plan_interview(
 
         # Get settings for WebSocket URL
         settings = get_settings()
-
-        await _emit_token_delta_event(
-            publisher=container.event_publisher_port(),
-            user_id=request.candidate_id,
-            tokens=settings.token_delta_per_plan,
-        )
 
         # Use LangGraph workflow for interview planning
         from src.application.workflows.planning_workflow import PlanningWorkflow

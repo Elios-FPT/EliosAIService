@@ -1,6 +1,7 @@
 """REST API endpoints for feedback analysis."""
 
 import logging
+import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,9 +12,11 @@ from ...application.dto.feedback_dto import (
     AnalyzeFeedbackResponse,
     FeedbackHistoryResponse,
 )
+from ...application.ports.event_publisher_port import EventPublisherPort
 from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 from ...domain.models.feedback_result import FeedbackStatus, InputType
 from ...domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
+from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_async_session
 from ...infrastructure.dependency_injection.container import get_container
 
@@ -35,6 +38,35 @@ def get_analyze_feedback_use_case(
     """
     container = get_container()
     return container.analyze_feedback_use_case(session=session)
+
+
+async def _emit_token_delta_event(
+    publisher: EventPublisherPort,
+    user_id: UUID,
+    tokens: int,
+) -> None:
+    """Emit Kafka event to adjust user tokens (fire-and-forget)."""
+    if tokens == 0:
+        return
+
+    correlation_id = uuid.uuid4()
+
+    try:
+        await publisher.publish_token_delta(
+            user_id=user_id,
+            tokens=tokens,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to emit token delta event",
+            extra={
+                "user_id": str(user_id),
+                "tokens": tokens,
+                "correlation_id": str(correlation_id),
+            },
+            exc_info=True,
+        )
 
 
 @router.post("/analyze", response_model=AnalyzeFeedbackResponse, status_code=status.HTTP_200_OK)
@@ -81,6 +113,15 @@ async def analyze_feedback(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="feedback_input is required. Frontend must provide entity content as JSON string.",
             )
+
+        # Emit token delta event
+        container = get_container()
+        settings = get_settings()
+        await _emit_token_delta_event(
+            publisher=container.event_publisher_port(),
+            user_id=request.user_id,
+            tokens=settings.token_delta_per_plan,
+        )
 
         feedback_request, result, result_markdown = await use_case.execute(
             entity_id=request.entity_id,
