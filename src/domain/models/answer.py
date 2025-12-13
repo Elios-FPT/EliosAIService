@@ -53,13 +53,11 @@ class Answer(BaseModel):
     text: str  # The actual answer text
     is_voice: bool = False  # Whether answer was given via voice
     audio_file_path: str | None = None  # If voice answer
-    embedding: list[float] | None = None  # Vector embedding of answer
 
     # REMOVED: evaluation, similarity_score, gaps, speaking_score, overall_score
     # These fields now exist in Evaluation entity
 
-    # KEEP: Voice metrics (will be stored in Evaluation entity in future)
-    voice_metrics: dict[str, float] | None = None  # Voice quality metrics from STT
+    # REMOVED: voice_metrics (now stored in Evaluation entity)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -75,22 +73,6 @@ class Answer(BaseModel):
             True if answer has content
         """
         return bool(self.text and len(self.text.strip()) > 0)
-
-    def has_voice_metrics(self) -> bool:
-        """Check if voice metrics are available.
-
-        Returns:
-            True if voice metrics exist
-        """
-        return self.voice_metrics is not None and len(self.voice_metrics) > 0
-
-    def get_voice_metrics(self) -> dict[str, float] | None:
-        """Get voice metrics if available.
-
-        Returns:
-            Voice metrics dict or None
-        """
-        return self.voice_metrics
 
     def is_follow_up_answer(self) -> bool:
         """Check if answer is for a follow-up question.

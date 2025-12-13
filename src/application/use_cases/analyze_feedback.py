@@ -1,7 +1,7 @@
 """Use case for analyzing entities and generating feedback."""
 
 import logging
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from ...domain.models.feedback_request import FeedbackRequest
 from ...domain.models.feedback_result import (
@@ -9,12 +9,11 @@ from ...domain.models.feedback_result import (
     FeedbackStatus,
     InputType,
 )
-from ...domain.ports.event_publisher_port import EventPublisherPort
-from ...domain.ports.feedback_repository_port import (
+from ...application.ports.feedback_repository_port import (
     FeedbackRequestRepositoryPort,
     FeedbackResponseRepositoryPort,
 )
-from ...domain.ports.llm_port import LLMPort
+from ...application.ports.llm_port import LLMPort
 from ...domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,6 @@ class AnalyzeFeedbackUseCase:
         self,
         request_repo: FeedbackRequestRepositoryPort,
         response_repo: FeedbackResponseRepositoryPort,
-        event_publisher: EventPublisherPort,
         llm: LLMPort,
     ):
         """Initialize use case with required dependencies.
@@ -41,12 +39,10 @@ class AnalyzeFeedbackUseCase:
         Args:
             request_repo: Feedback request repository
             response_repo: Feedback response repository
-            event_publisher: Event publisher for Kafka events
             llm: LLM port for feedback analysis
         """
         self.request_repo = request_repo
         self.response_repo = response_repo
-        self.event_publisher = event_publisher
         self.llm = llm
 
     async def execute(
@@ -84,8 +80,6 @@ class AnalyzeFeedbackUseCase:
             raise ValueError(
                 "feedback_input is required. Frontend must provide entity content as JSON string."
             )
-
-        correlation_id = uuid4()
 
         # Create request
         feedback_request = await self.request_repo.create(
@@ -142,27 +136,6 @@ class AnalyzeFeedbackUseCase:
                 request_id=feedback_request.id,
                 status=FeedbackStatus.SUCCESS,
             )
-
-            # Publish event (fire-and-forget)
-            try:
-                await self.event_publisher.publish_feedback_completed(
-                    request_id=feedback_request.id,
-                    entity_id=entity_id,
-                    input_type=input_type.value,
-                    user_id=user_id,
-                    result=result,
-                    correlation_id=correlation_id,
-                )
-            except Exception as e:
-                # Log error but don't fail use case (fire-and-forget)
-                logger.error(
-                    f"Failed to publish FEEDBACK_COMPLETED event: {e}",
-                    extra={
-                        "request_id": str(feedback_request.id),
-                        "entity_id": str(entity_id),
-                    },
-                    exc_info=True,
-                )
 
             feedback_request.status = FeedbackStatus.SUCCESS
 

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
+from src.infrastructure.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
 from src.infrastructure.config.settings import Settings
 
 
@@ -25,7 +25,7 @@ async def test_switch_adapters_runtime() -> None:
     assert isinstance(adapter_hybrid, HybridCVAnalyzerAdapter)
 
     # Both adapters should implement CVAnalyzerPort
-    from src.domain.ports.cv_analyzer_port import CVAnalyzerPort
+    from src.application.ports.cv_analyzer_port import CVAnalyzerPort
 
     assert isinstance(adapter_hybrid, CVAnalyzerPort)
 

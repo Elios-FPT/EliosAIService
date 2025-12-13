@@ -3,8 +3,8 @@
 from uuid import UUID
 
 from ...domain.models.question import Question
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
 
 
 class GetNextQuestionUseCase:

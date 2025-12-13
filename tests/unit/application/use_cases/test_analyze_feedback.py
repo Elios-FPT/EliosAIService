@@ -20,7 +20,7 @@ from src.domain.models.feedback_result import (
     BestPractices,
     CodeActionableRecommendation,
 )
-from src.domain.ports.llm_port import LLMPort
+from src.application.ports.llm_port import LLMPort
 
 
 @pytest.fixture
@@ -35,7 +35,6 @@ def mock_dependencies(mock_llm):
     return {
         "request_repo": AsyncMock(),
         "response_repo": AsyncMock(),
-        "event_publisher": AsyncMock(),
         "llm": mock_llm,
     }
 
@@ -336,86 +335,6 @@ async def test_execute_publishes_event(use_case, mock_dependencies, mock_llm):
         user_id=user_id,
         feedback_input=feedback_input,
     )
-
-    # Assert event published
-    mock_dependencies["event_publisher"].publish_feedback_completed.assert_called_once()
-    call_kwargs = mock_dependencies["event_publisher"].publish_feedback_completed.call_args[1]
-    assert call_kwargs["request_id"] == request_id
-    assert call_kwargs["entity_id"] == cv_id
-    assert call_kwargs["input_type"] == InputType.CV.value
-    assert call_kwargs["user_id"] == user_id
-    assert call_kwargs["result"] == mock_cv_result
-
-
-@pytest.mark.asyncio
-async def test_execute_event_publish_failure_does_not_fail_use_case(
-    use_case, mock_dependencies, mock_llm
-):
-    """Test that event publish failure doesn't fail the use case."""
-    cv_id = uuid4()
-    request_id = uuid4()
-    feedback_input = json.dumps({"skills": ["Python"]})
-
-    # Mock request creation
-    mock_dependencies["request_repo"].create.return_value = FeedbackRequest(
-        id=request_id,
-        entity_id=cv_id,
-        input_type=InputType.CV,
-        status=FeedbackStatus.PENDING,
-        feedback_input=feedback_input,
-    )
-
-    # Mock LLM response
-    mock_cv_result = CVFeedbackResult(
-        cv_analysis_id=cv_id,
-        overall_assessment=OverallAssessment(
-            overall_score=70.0,
-            summary="Basic CV structure",
-        ),
-        professional_summary=SectionFeedback(
-            score=10.0,
-            feedback="Basic professional summary",
-            suggestions=[],
-        ),
-        work_experience=SectionFeedback(
-            score=15.0,
-            feedback="Work experience section",
-            suggestions=[],
-        ),
-        projects=SectionFeedback(
-            score=12.0,
-            feedback="Projects section",
-            suggestions=[],
-        ),
-        skills=SectionFeedback(
-            score=10.0,
-            feedback="Skills section",
-            suggestions=[],
-        ),
-        actionable_recommendations=ActionableRecommendations(),
-        market_competitiveness=MarketCompetitiveness(
-            assessment="Needs improvement",
-            target_roles=[],
-            improvement_areas=[],
-        ),
-    )
-    mock_llm.analyze_feedback.return_value = mock_cv_result
-
-    # Mock event publish failure
-    mock_dependencies["event_publisher"].publish_feedback_completed.side_effect = Exception(
-        "Kafka unavailable"
-    )
-
-    # Act (should not raise)
-    request, result, result_markdown = await use_case.execute(
-        entity_id=cv_id,
-        input_type=InputType.CV,
-        feedback_input=feedback_input,
-    )
-
-    # Assert use case still succeeds (request object is original, status updates in repo)
-    assert result == mock_cv_result
-    assert result_markdown is not None
 
 
 @pytest.mark.asyncio

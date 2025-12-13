@@ -7,15 +7,15 @@ from uuid import UUID
 from ...domain.models.answer import Answer
 from ...domain.models.evaluation import Evaluation
 from ...domain.models.interview import Interview, InterviewStatus
-from ...domain.ports.answer_repository_port import AnswerRepositoryPort
-from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ...domain.ports.event_publisher_port import EventPublisherPort
-from ...domain.ports.follow_up_question_repository_port import (
+from ...application.ports.answer_repository_port import AnswerRepositoryPort
+from ...application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...application.ports.event_publisher_port import EventPublisherPort
+from ...application.ports.follow_up_question_repository_port import (
     FollowUpQuestionRepositoryPort,
 )
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
 from ..dto.detailed_feedback_dto import (
     ConceptGapDetail,
     DetailedInterviewFeedback,
@@ -69,12 +69,13 @@ class CompleteInterviewUseCase:
         """Complete interview and generate comprehensive summary.
 
         This method:
-        1. Validates interview is in EVALUATING status
-        2. Generates comprehensive summary (scores, gaps, recommendations)
-        3. Stores summary in interview metadata
-        4. Transitions interview to COMPLETE status
-        5. Publishes INTERVIEW_ATTEMPTED event
-        6. Returns both interview and summary
+        1. Validates interview is in QUESTIONING, EVALUATING, or FOLLOW_UP status
+        2. Transitions to EVALUATING if needed (QUESTIONING/FOLLOW_UP → EVALUATING)
+        3. Generates comprehensive summary (scores, gaps, recommendations)
+        4. Stores summary in interview metadata
+        5. Transitions interview to COMPLETE status
+        6. Publishes INTERVIEW_ATTEMPTED event
+        7. Returns both interview and summary
 
         Args:
             interview_id: The interview UUID
@@ -83,39 +84,54 @@ class CompleteInterviewUseCase:
             InterviewCompletionResult containing completed interview and summary
 
         Raises:
-            ValueError: If interview not found or not in EVALUATING status
+            ValueError: If interview not found or not in valid "in process" status
         """
         # 1. Load and validate interview
         interview = await self.interview_repo.get_by_id(interview_id)
         if not interview:
             raise ValueError(f"Interview {interview_id} not found")
 
-        if interview.status != InterviewStatus.EVALUATING:
+        # Accept interviews in "in process" states: QUESTIONING, EVALUATING, FOLLOW_UP
+        valid_statuses = {
+            InterviewStatus.QUESTIONING,
+            InterviewStatus.EVALUATING,
+            InterviewStatus.FOLLOW_UP,
+        }
+        if interview.status not in valid_statuses:
             raise ValueError(
                 f"Cannot complete interview with status: {interview.status}. "
-                f"Must be in EVALUATING status."
+                f"Must be in one of: QUESTIONING, EVALUATING, or FOLLOW_UP."
             )
 
-        # 2. Generate comprehensive summary
+        # 2. Transition to EVALUATING if needed (before summary generation)
+        if interview.status == InterviewStatus.QUESTIONING:
+            interview.mark_evaluating()
+            interview = await self.interview_repo.update(interview)
+        elif interview.status == InterviewStatus.FOLLOW_UP:
+            interview.answer_followup()
+            interview = await self.interview_repo.update(interview)
+        # If already EVALUATING, proceed directly
+
+        # 3. Generate comprehensive summary
         summary = await self._generate_summary(interview)
 
-        # 3. Store summary in interview metadata
+        # 4. Store summary in interview metadata
         if interview.plan_metadata is None:
             interview.plan_metadata = {}
         # Convert Pydantic model to dict for JSON serialization
         interview.plan_metadata["completion_summary"] = summary.model_dump(mode="json")
 
-        # 4. Mark interview as complete (state transition)
+        # 5. Mark interview as complete (state transition)
         interview.complete()
         updated_interview = await self.interview_repo.update(interview)
 
-        # 5. Publish INTERVIEW_ATTEMPTED event (fire-and-forget)
+        # 6. Publish INTERVIEW_ATTEMPTED event (fire-and-forget)
         await self._publish_interview_attempted_event(
             interview=updated_interview,
             summary=summary,
         )
 
-        # 6. Return result DTO
+        # 7. Return result DTO
         return InterviewCompletionResult(
             interview=updated_interview,
             summary=summary,
@@ -250,7 +266,7 @@ class CompleteInterviewUseCase:
         self,
         all_answers: list[Answer],
         evaluations_map: dict[UUID, Evaluation],
-    ) -> dict[str, float]:
+    ) -> dict[str, float | None]:
         """Calculate aggregate scores using evaluations from evaluations table.
 
         Args:
@@ -273,31 +289,37 @@ class CompleteInterviewUseCase:
             }
 
         # Theoretical score (from evaluation in evaluations table)
+        # Use theoretical_score if available, fallback to final_score for backward compatibility
         theoretical_scores = [
-            evaluations_map[a.id].final_score
+            evaluations_map[a.id].theoretical_score or evaluations_map[a.id].final_score
             for a in evaluated_answers
             if a.id in evaluations_map
         ]
 
-        # Speaking score (from voice metrics)
-        speaking_scores = [
-            a.voice_metrics.get("overall_score", 50.0)
+        # Speaking score (from Evaluation entity, not Answer.voice_metrics)
+        # Get speaking scores from Evaluation entities (after Phase 02 integration)
+        speaking_scores: list[float] = [
+            evaluations_map[a.id].speaking_score
             for a in evaluated_answers
-            if a.voice_metrics
+            if a.id in evaluations_map and evaluations_map[a.id].speaking_score is not None
         ]
 
-        # If no voice metrics, default to 50.0
-        speaking_avg = sum(speaking_scores) / len(speaking_scores) if speaking_scores else 50.0
+        # If no speaking scores, speaking_avg is None (for display/API)
+        # For overall calculation, use 0.0 default
+        speaking_avg: float | None = (
+            sum(speaking_scores) / len(speaking_scores) if speaking_scores else None
+        )
+        speaking_for_calc = speaking_avg if speaking_avg is not None else 0.0
 
         theoretical_avg = sum(theoretical_scores) / len(theoretical_scores)
 
-        # Overall = 70% theoretical + 30% speaking
-        overall_score = (theoretical_avg * 0.7) + (speaking_avg * 0.3)
+        # Overall = 80% theoretical + 20% speaking
+        overall_score = (theoretical_avg * 0.8) + (speaking_for_calc * 0.2)
 
         return {
             "overall_score": round(overall_score, 2),
             "theoretical_avg": round(theoretical_avg, 2),
-            "speaking_avg": round(speaking_avg, 2),
+            "speaking_avg": round(speaking_avg, 2) if speaking_avg is not None else None,
         }
 
     async def _analyze_gap_progression(

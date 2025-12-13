@@ -179,8 +179,11 @@ class InterviewFeedbackResult(FeedbackResult):
     theoretical_score_avg: float = Field(
         ge=0.0, le=100.0, description="Average theoretical knowledge score"
     )
-    speaking_score_avg: float = Field(
-        ge=0.0, le=100.0, description="Average speaking/communication score"
+    speaking_score_avg: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description="Average speaking/communication score (null if no voice data)",
     )
 
     total_questions: int = Field(ge=0, description="Total questions asked (main + follow-ups)")

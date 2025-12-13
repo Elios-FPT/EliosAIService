@@ -20,11 +20,11 @@ from ....domain.models.evaluation import (
 )
 from ....domain.models.interview import Interview, InterviewStatus
 from ....domain.models.question import Question
-from ....domain.ports.answer_repository_port import AnswerRepositoryPort
-from ....domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ....domain.ports.interview_repository_port import InterviewRepositoryPort
-from ....domain.ports.llm_port import LLMPort
-from ....domain.ports.question_repository_port import QuestionRepositoryPort
+from ....application.ports.answer_repository_port import AnswerRepositoryPort
+from ....application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ....application.ports.interview_repository_port import InterviewRepositoryPort
+from ....application.ports.llm_port import LLMPort
+from ....application.ports.question_repository_port import QuestionRepositoryPort
 from ...dto.interview.evaluate_answer_dto import EvaluateAnswerInput, EvaluateAnswerOutput
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,10 @@ class EvaluateAnswerUseCase:
     Uses comprehensive_answer_analysis prompt to consolidate 3 LLM calls into 1.
     Includes hybrid gap detection (keywords + LLM) for performance optimization.
     """
+
+    # Scoring weights for combined evaluation
+    THEORETICAL_WEIGHT = 0.7
+    SPEAKING_WEIGHT = 0.3
 
     def __init__(
         self,
@@ -59,6 +63,70 @@ class EvaluateAnswerUseCase:
         self.answer_repo = answer_repo
         self.evaluation_repo = evaluation_repo
         self.llm = llm
+
+    def _combine_evaluations(
+        self,
+        theoretical_eval: AnswerEvaluation,
+        voice_metrics: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        """Combine theoretical and speaking evaluations.
+
+        Args:
+            theoretical_eval: Semantic evaluation from LLM
+            voice_metrics: Voice quality metrics from STT (optional)
+
+        Returns:
+            Dict with:
+            {
+                "overall_score": float (0-100),
+                "theoretical_score": float (0-100),
+                "speaking_score": float | None (0-100),
+            }
+        """
+        theoretical_score = theoretical_eval.score
+
+        # Calculate speaking score if voice metrics available
+        if voice_metrics:
+            speaking_score = self._calculate_speaking_score(voice_metrics)
+            overall_score = (
+                theoretical_score * self.THEORETICAL_WEIGHT
+                + speaking_score * self.SPEAKING_WEIGHT
+            )
+        else:
+            # Text-only answer: use 100% theoretical weight
+            speaking_score = None
+            overall_score = theoretical_score
+
+        speaking_display = f"{speaking_score:.1f}" if speaking_score is not None else "N/A"
+        logger.info(
+            f"Combined evaluation: theoretical={theoretical_score:.1f}, "
+            f"speaking={speaking_display}, "
+            f"overall={overall_score:.1f}"
+        )
+
+        return {
+            "overall_score": round(overall_score, 2),
+            "theoretical_score": round(theoretical_score, 2),
+            "speaking_score": round(speaking_score, 2) if speaking_score else None,
+        }
+
+    def _calculate_speaking_score(self, voice_metrics: dict[str, float]) -> float:
+        """Calculate speaking score from voice metrics.
+
+        Args:
+            voice_metrics: Dict with intonation_score, fluency_score, confidence_score
+
+        Returns:
+            Speaking score (0-100)
+        """
+        # Get metrics with defaults
+        intonation = voice_metrics.get("intonation_score", 0.5)
+        fluency = voice_metrics.get("fluency_score", 0.5)
+        confidence = voice_metrics.get("confidence_score", 0.5)
+
+        # Average and convert to 0-100 scale
+        avg_score = (intonation + fluency + confidence) / 3.0
+        return avg_score * 100.0
 
     async def execute(self, input_dto: EvaluateAnswerInput) -> EvaluateAnswerOutput:
         """Evaluate answer using unified comprehensive analysis.
@@ -168,7 +236,6 @@ class EvaluateAnswerUseCase:
                 follow_up_question_id=follow_up_question_id,
                 text=input_dto.answer_text,
                 is_voice=input_dto.is_voice,
-                voice_metrics=input_dto.voice_metrics,
                 created_at=datetime.utcnow(),
             )
 
@@ -220,6 +287,16 @@ class EvaluateAnswerUseCase:
                 semantic_similarity=semantic_similarity,
             )
 
+            # Step 7.5: Combine theoretical and speaking scores
+            combined_result = self._combine_evaluations(
+                theoretical_eval=llm_eval,
+                voice_metrics=input_dto.voice_metrics,
+            )
+
+            theoretical_score = combined_result["theoretical_score"]
+            speaking_score = combined_result["speaking_score"]
+            overall_score = combined_result["overall_score"]
+
             # Step 8: Extract gaps from analysis
             gap_concepts: list[str] = [gap.concept for gap in analysis.gaps]
             gaps_dict: dict[str, Any] = {
@@ -245,12 +322,15 @@ class EvaluateAnswerUseCase:
             evaluation = Evaluation(
                 answer_id=answer.id,
                 raw_score=llm_eval.score,
+                theoretical_score=theoretical_score,
+                speaking_score=speaking_score,
                 penalty=0.0,
-                final_score=llm_eval.score,
+                final_score=overall_score,  # Use combined score instead of llm_eval.score
                 similarity_score=similarity_score,
                 completeness=llm_eval.completeness,
                 relevance=llm_eval.relevance,
                 sentiment=llm_eval.sentiment,
+                voice_metrics=input_dto.voice_metrics,  # Store raw voice metrics for future analysis
                 reasoning=llm_eval.reasoning,
                 strengths=llm_eval.strengths,
                 weaknesses=llm_eval.weaknesses,
@@ -273,10 +353,15 @@ class EvaluateAnswerUseCase:
             ]
 
             # Step 12: Apply penalty based on attempt number
+            # Note: apply_penalty uses raw_score, but we need to apply penalty to combined score
             evaluation.apply_penalty(attempt_number)
+            # Override final_score calculation: penalty applies to overall_score, not raw_score
+            evaluation.final_score = max(0.0, min(100.0, overall_score + evaluation.penalty))
+            speaking_display = f"{speaking_score:.1f}" if speaking_score is not None else "N/A"
             logger.info(
                 f"Penalty applied: attempt={attempt_number}, penalty={evaluation.penalty}, "
-                f"raw_score={llm_eval.score:.1f}, final_score={evaluation.final_score:.1f}"
+                f"theoretical={theoretical_score:.1f}, speaking={speaking_display}, "
+                f"overall={overall_score:.1f}, final_score={evaluation.final_score:.1f}"
             )
 
             # Step 13: Check if gaps should be resolved
@@ -301,9 +386,10 @@ class EvaluateAnswerUseCase:
             async with self._timing_context("db_save_evaluation", input_dto.interview_id):
                 saved_evaluation = await self.evaluation_repo.save(evaluation)
 
+            similarity_display = f"{similarity_score:.2f}" if similarity_score is not None else "N/A"
             logger.info(
                 f"Answer processed (unified): score={saved_evaluation.final_score:.1f}, "
-                f"similarity={f'{similarity_score:.2f}' if similarity_score is not None else 'N/A'}, "
+                f"similarity={similarity_display}, "
                 f"gaps={len(saved_evaluation.gaps)}"
             )
 
@@ -318,6 +404,8 @@ class EvaluateAnswerUseCase:
 
             evaluation_payload = saved_evaluation.model_dump(mode="json")
             evaluation_payload["question_id"] = input_dto.question.get("id")
+            # Alias final_score -> score for downstream clients
+            evaluation_payload["score"] = saved_evaluation.final_score
 
             return EvaluateAnswerOutput(
                 answer=saved_answer.model_dump(mode="json"),

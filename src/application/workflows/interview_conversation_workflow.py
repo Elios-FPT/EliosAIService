@@ -10,21 +10,23 @@ Uses PostgreSQL checkpointing for state persistence across reconnects.
 """
 
 import logging
+import operator
 from typing import Any, TypedDict
 from uuid import UUID
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
+from sqlalchemy.sql.annotation import Annotated
 
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.answer_repository_port import AnswerRepositoryPort
-from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ...domain.ports.event_publisher_port import EventPublisherPort
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
-from ...domain.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
-from ...domain.ports.vector_search_port import VectorSearchPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.answer_repository_port import AnswerRepositoryPort
+from ...application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...application.ports.event_publisher_port import EventPublisherPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.follow_up_question_repository_port import FollowUpQuestionRepositoryPort
+from ...application.ports.vector_search_port import VectorSearchPort
 from .base_workflow import BaseWorkflow
 
 
@@ -55,7 +57,7 @@ class ConversationState(TypedDict):
 
     # Accumulated results
     answers: list[dict[str, Any]]  # Answer.model_dump()
-    evaluations: list[dict[str, Any]]  # Evaluation.model_dump()
+    evaluations: Annotated[list[dict[str, Any], operator.add]]  # Evaluation.model_dump()
     followup_count: int
     cumulative_gaps: list[str]
 

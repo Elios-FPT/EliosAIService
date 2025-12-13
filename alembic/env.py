@@ -23,7 +23,7 @@ from src.infrastructure.config.settings import get_settings
 from src.infrastructure.database.base import Base
 
 # Import all models to ensure they're registered with Base.metadata
-from src.adapters.persistence import models  # noqa: F401
+from src.infrastructure.adapters.persistence import models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

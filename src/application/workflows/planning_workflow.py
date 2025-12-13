@@ -14,11 +14,11 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ...domain.models.cv_analysis import CVAnalysis
 from ...domain.models.interview import Interview
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.vector_search_port import VectorSearchPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.cv_analysis_repository_port import CVAnalysisRepositoryPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.vector_search_port import VectorSearchPort
 from .base_workflow import BaseWorkflow
 
 

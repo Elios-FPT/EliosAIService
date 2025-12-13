@@ -26,7 +26,22 @@ loggers:
     level: INFO
     propagate: False
 
+  src.controllers:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
   src.application:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  src.domain:
+    handlers: [console]
+    level: INFO
+    propagate: False
+
+  src.infrastructure:
     handlers: [console]
     level: INFO
     propagate: False

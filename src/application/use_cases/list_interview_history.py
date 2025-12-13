@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from ...domain.models.interview import Interview, InterviewStatus
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
 from ..dto.interview_dto import (
     InterviewHistoryItemResponse,
     InterviewHistoryListResponse,

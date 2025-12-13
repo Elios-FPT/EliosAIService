@@ -7,16 +7,16 @@ from uuid import uuid4
 
 import pytest
 
-from src.adapters.cv_processing.confidence_scorer import ConfidenceScorer
-from src.adapters.cv_processing.hybrid_cv_analyzer_adapter import (
+from src.infrastructure.adapters.cv_processing.confidence_scorer import ConfidenceScorer
+from src.infrastructure.adapters.cv_processing.hybrid_cv_analyzer_adapter import (
     HybridCVAnalyzerAdapter,
 )
-from src.adapters.cv_processing.llm_fallback_extractor import (
+from src.infrastructure.adapters.cv_processing.llm_fallback_extractor import (
     LLMFallbackExtractor,
     NoOpLLMFallbackExtractor,
 )
-from src.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
-from src.adapters.cv_processing.spacy_ner_extractor import SpacyNERExtractor
+from src.infrastructure.adapters.cv_processing.rule_based_extractor import RuleBasedExtractor
+from src.infrastructure.adapters.cv_processing.spacy_ner_extractor import SpacyNERExtractor
 
 
 def build_adapter_with_llm_fallback(

@@ -224,3 +224,5 @@ tests/reports/*
 
 reports/*
 logs/*
+
+.specstory/

@@ -8,14 +8,14 @@ from ...domain.models.answer import Answer
 from ...domain.models.evaluation import Evaluation
 from ...domain.models.interview import Interview
 from ...domain.models.question import Question
-from ...domain.ports.answer_repository_port import AnswerRepositoryPort
-from ...domain.ports.evaluation_repository_port import EvaluationRepositoryPort
-from ...domain.ports.follow_up_question_repository_port import (
+from ...application.ports.answer_repository_port import AnswerRepositoryPort
+from ...application.ports.evaluation_repository_port import EvaluationRepositoryPort
+from ...application.ports.follow_up_question_repository_port import (
     FollowUpQuestionRepositoryPort,
 )
-from ...domain.ports.interview_repository_port import InterviewRepositoryPort
-from ...domain.ports.llm_port import LLMPort
-from ...domain.ports.question_repository_port import QuestionRepositoryPort
+from ...application.ports.interview_repository_port import InterviewRepositoryPort
+from ...application.ports.llm_port import LLMPort
+from ...application.ports.question_repository_port import QuestionRepositoryPort
 
 
 class GenerateSummaryUseCase:
@@ -208,7 +208,7 @@ class GenerateSummaryUseCase:
         self,
         all_answers: list[Answer],
         evaluations_map: dict[UUID, Evaluation]
-    ) -> dict[str, float]:
+    ) -> dict[str, float | None]:
         """Calculate aggregate scores using evaluations from evaluations table.
 
         Args:
@@ -234,29 +234,37 @@ class GenerateSummaryUseCase:
             }
 
         # Theoretical score (from evaluation in evaluations table)
+        # Use theoretical_score if available, fallback to final_score for backward compatibility
         theoretical_scores = [
-            evaluations_map[a.id].final_score
+            evaluations_map[a.id].theoretical_score or evaluations_map[a.id].final_score
             for a in evaluated_answers
             if a.id in evaluations_map
         ]
 
-        # Speaking score (from voice metrics)
-        speaking_scores = [
-            a.voice_metrics.get("overall_score", 50.0) for a in evaluated_answers if a.voice_metrics
+        # Speaking score (from Evaluation entity, not Answer.voice_metrics)
+        # Get speaking scores from Evaluation entities (after Phase 02 integration)
+        speaking_scores: list[float] = [
+            evaluations_map[a.id].speaking_score
+            for a in evaluated_answers
+            if a.id in evaluations_map and evaluations_map[a.id].speaking_score is not None
         ]
 
-        # If no voice metrics, default to 50.0
-        speaking_avg = sum(speaking_scores) / len(speaking_scores) if speaking_scores else 50.0
+        # If no speaking scores, speaking_avg is None (for display/API)
+        # For overall calculation, use 0.0 default
+        speaking_avg: float | None = (
+            sum(speaking_scores) / len(speaking_scores) if speaking_scores else None
+        )
+        speaking_for_calc = speaking_avg if speaking_avg is not None else 0.0
 
         theoretical_avg = sum(theoretical_scores) / len(theoretical_scores)
 
-        # Overall = 70% theoretical + 30% speaking
-        overall_score = (theoretical_avg * 0.7) + (speaking_avg * 0.3)
+        # Overall = 80% theoretical + 20% speaking
+        overall_score = (theoretical_avg * 0.8) + (speaking_for_calc * 0.2)
 
         return {
             "overall_score": round(overall_score, 2),
             "theoretical_avg": round(theoretical_avg, 2),
-            "speaking_avg": round(speaking_avg, 2),
+            "speaking_avg": round(speaking_avg, 2) if speaking_avg is not None else None,
         }
 
     async def _analyze_gap_progression(

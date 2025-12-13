@@ -1,0 +1,166 @@
+"""Question repository port interface."""
+
+from abc import ABC, abstractmethod
+from uuid import UUID
+
+from src.domain.models.question import DifficultyLevel, Question, QuestionType
+
+
+class QuestionRepositoryPort(ABC):
+    """Interface for question persistence operations.
+
+    This port abstracts database operations for questions,
+    allowing easy switching between databases or storage mechanisms.
+    """
+
+    @abstractmethod
+    async def save(self, question: Question) -> Question:
+        """Save a question.
+
+        Args:
+            question: Question to save
+
+        Returns:
+            Saved question with updated metadata
+        """
+        pass
+
+    @abstractmethod
+    async def save_batch(self, questions: list[Question]) -> list[Question]:
+        """Save multiple questions in a single atomic transaction.
+
+        Args:
+            questions: List of questions to save
+
+        Returns:
+            List of saved questions with updated metadata
+
+        Raises:
+            Exception: If any question fails to save, entire transaction is rolled back
+        """
+        pass
+
+    @abstractmethod
+    async def get_by_id(self, question_id: UUID) -> Question | None:
+        """Retrieve a question by ID.
+
+        Args:
+            question_id: Question identifier
+
+        Returns:
+            Question if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def get_by_ids(self, question_ids: list[UUID]) -> list[Question]:
+        """Retrieve multiple questions by IDs.
+
+        Args:
+            question_ids: List of question identifiers
+
+        Returns:
+            List of questions found
+        """
+        pass
+
+    @abstractmethod
+    async def find_by_skill(
+        self,
+        skill: str,
+        difficulty: DifficultyLevel | None = None,
+        limit: int = 10,
+    ) -> list[Question]:
+        """Find questions by skill.
+
+        Args:
+            skill: Skill to filter by
+            difficulty: Optional difficulty filter
+            limit: Maximum number of results
+
+        Returns:
+            List of matching questions
+        """
+        pass
+
+    @abstractmethod
+    async def find_by_type(
+        self,
+        question_type: QuestionType,
+        difficulty: DifficultyLevel | None = None,
+        limit: int = 10,
+    ) -> list[Question]:
+        """Find questions by type.
+
+        Args:
+            question_type: Type of questions to find
+            difficulty: Optional difficulty filter
+            limit: Maximum number of results
+
+        Returns:
+            List of matching questions
+        """
+        pass
+
+    @abstractmethod
+    async def update(self, question: Question) -> Question:
+        """Update an existing question.
+
+        Args:
+            question: Question with updated data
+
+        Returns:
+            Updated question
+        """
+        pass
+
+    @abstractmethod
+    async def delete(self, question_id: UUID) -> bool:
+        """Delete a question.
+
+        Args:
+            question_id: Question identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        pass
+
+    @abstractmethod
+    async def list_all(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Question]:
+        """List all questions with pagination.
+
+        Args:
+            skip: Number of questions to skip
+            limit: Maximum number of results
+
+        Returns:
+            List of questions
+        """
+        pass
+
+    @abstractmethod
+    async def list_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Question]:
+        """List questions with optional filters and pagination."""
+        pass
+
+    @abstractmethod
+    async def count_filtered(
+        self,
+        question_type: QuestionType | None = None,
+        difficulty: DifficultyLevel | None = None,
+        skill: str | None = None,
+    ) -> int:
+        """Count questions with optional filters."""
+        pass

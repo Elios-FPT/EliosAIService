@@ -6,7 +6,7 @@ Extracted from PlanningWorkflow._store_questions_node (lines 424-475).
 import logging
 
 from ....domain.models.question import DifficultyLevel, Question, QuestionType
-from ....domain.ports.question_repository_port import QuestionRepositoryPort
+from ....application.ports.question_repository_port import QuestionRepositoryPort
 from ...dto.planning.store_questions_dto import (
     StoreQuestionsInput,
     StoreQuestionsOutput,
