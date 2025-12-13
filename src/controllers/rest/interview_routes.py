@@ -700,3 +700,82 @@ async def stop_interview(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to stop interview and generate feedback",
         ) from e
+
+
+@router.get(
+    "/{interview_id}/feedback",
+    response_model=DetailedInterviewFeedback,
+    summary="Get interview detailed feedback",
+)
+async def get_interview_feedback(
+    interview_id: UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Get detailed feedback for a completed interview.
+
+    This endpoint retrieves the comprehensive feedback that was generated
+    when the interview was completed. Returns the same DetailedInterviewFeedback
+    structure as the stop_interview endpoint, but as a read-only operation.
+
+    Args:
+        interview_id: Interview UUID
+        session: Database session
+
+    Returns:
+        DetailedInterviewFeedback DTO with comprehensive evaluation data
+
+    Raises:
+        HTTPException:
+            - 404: Interview not found
+            - 400: Interview not completed (feedback not available)
+            - 404: Feedback not generated
+    """
+    container = get_container()
+    interview_repo = container.interview_repository_port(session=session)
+
+    # Validate interview exists
+    interview = await interview_repo.get_by_id(interview_id)
+    if not interview:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Interview {interview_id} not found",
+        )
+
+    # Validate interview is completed
+    if interview.status != InterviewStatus.COMPLETE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Cannot retrieve feedback for interview with status: {interview.status.value}. "
+                f"Interview must be COMPLETE to retrieve feedback."
+            ),
+        )
+
+    # Extract completion_summary from plan_metadata
+    if not interview.plan_metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Feedback not found (interview metadata is empty)",
+        )
+
+    completion_summary = interview.plan_metadata.get("completion_summary")
+    if not completion_summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Feedback not found (completion summary not generated)",
+        )
+
+    # Convert stored dict back to DetailedInterviewFeedback DTO
+    try:
+        feedback = DetailedInterviewFeedback.model_validate(completion_summary)
+        return feedback
+    except Exception as e:
+        logger.error(
+            f"Failed to parse feedback for interview {interview_id}: {e}",
+            exc_info=True,
+            extra={"interview_id": str(interview_id)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to parse interview feedback",
+        ) from e
