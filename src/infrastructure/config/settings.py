@@ -241,16 +241,6 @@ class Settings(BaseSettings):
 
     # Phase 2: Unified LLM Prompt (Performance Optimization)
 
-    # Hybrid CV Analyzer Configuration (always enabled)
-    hybrid_confidence_threshold: float = 0.7  # LLM fallback trigger
-    hybrid_enable_llm_fallback: bool = True  # Allow LLM when confidence low
-    hybrid_skill_patterns_path: str = "./src/adapters/cv_processing/skill_patterns.json"
-
-    # spaCy Model Configuration
-    spacy_model_en: str = "en_core_web_sm"  # English NER model
-    spacy_model_vi: str = "vi_core_news_sm"  # Vietnamese NER model
-    spacy_disable_components: list[str] = ["parser", "lemmatizer"]  # Optimize speed
-
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
         case_sensitive=False,

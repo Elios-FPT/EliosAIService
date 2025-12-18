@@ -31,6 +31,7 @@ from src.application.ports.prompt_repository_port import PromptRepositoryPort
 from .execution_logger import ExecutionLogger
 from .comprehensive_models import ComprehensiveAnalysis
 from .feedback_models import CVFeedbackAnalysis, CodeFeedbackAnalysis
+from .cv_skill_extraction_models import CVSkillExtractionOutput
 
 logger = logging.getLogger(__name__)
 
@@ -605,6 +606,108 @@ class LangChainAdapter(LLMPort):
                 )
             logger.error(f"Feedback analysis failed: {exc}", exc_info=True)
             raise RuntimeError(f"Feedback analysis failed: {exc}") from exc
+
+    async def analyze_cv_for_skills(
+        self,
+        cv_text: str,
+        context: dict[str, Any] | None = None,
+    ) -> CVSkillExtractionOutput:
+        """Extract skills and summary from CV text for question generation.
+
+        Uses DB prompt 'cv_skill_extraction' with structured output.
+        Follows same pattern as analyze_feedback() for consistency.
+
+        Args:
+            cv_text: Full CV text content (extracted from PDF/DOCX)
+            context: Optional context dict with candidate_id, etc.
+
+        Returns:
+            CVSkillExtractionOutput with skills list and summary
+
+        Raises:
+            RuntimeError: If LLM call fails after retries
+            LookupError: If DB prompt 'cv_skill_extraction' not found
+
+        Example:
+            >>> result = await adapter.analyze_cv_for_skills(
+            ...     cv_text="Senior Python Developer with 5 years...",
+            ...     context={"candidate_id": "uuid-here"}
+            ... )
+            >>> print(f"Extracted {len(result.skills)} skills")
+        """
+        start_time = time.time()
+        context = context or {}
+
+        # 1. Load DB prompt (required, no fallback)
+        prompt_template, cache_key = await self._load_prompt_from_db("cv_skill_extraction")
+
+        # 2. Build chain with structured output
+        chain = self._get_or_build_chain(
+            method_name="analyze_cv_for_skills",
+            prompt_template=prompt_template,
+            cache_key=cache_key,
+            structured_output_model=CVSkillExtractionOutput,
+        )
+
+        # 3. Prepare variables
+        variables = {"cv_text": cv_text}
+        self._validate_variables(prompt_template, variables)
+
+        # 4. Create config with metadata
+        config = self._create_config(
+            context=context,
+            method="analyze_cv_for_skills",
+        )
+
+        # 5. Execute chain with metadata capture
+        try:
+            result, metadata = await self._invoke_chain_with_metadata(chain, variables, config)
+
+            # Result should be CVSkillExtractionOutput from structured output
+            if isinstance(result, CVSkillExtractionOutput):
+                output = result
+            else:
+                # Fallback: parse dict if structured output not available
+                output = CVSkillExtractionOutput(**result)
+
+            # 6. Log execution
+            await ExecutionLogger.log_execution(
+                prompt_repo=self.prompt_repo,
+                prompt_template=prompt_template,
+                context=context,
+                input_variables=variables,
+                output_text=output.model_dump_json(),
+                start_time=start_time,
+                success=True,
+                model=self.model,
+                model_response_metadata=metadata,
+            )
+
+            # 7. Info logging
+            primary_count = sum(1 for s in output.skills if s.is_primary)
+            logger.info(
+                f"CV skill extraction: {len(output.skills)} skills, "
+                f"primary={primary_count}, "
+                f"duration={(time.time() - start_time) * 1000:.0f}ms"
+            )
+
+            return output
+
+        except Exception as exc:
+            # Log failure
+            await ExecutionLogger.log_execution(
+                prompt_repo=self.prompt_repo,
+                prompt_template=prompt_template,
+                context=context,
+                input_variables=variables,
+                output_text=None,
+                start_time=start_time,
+                success=False,
+                model=self.model,
+                error_message=str(exc),
+            )
+            logger.error(f"CV skill extraction failed: {exc}", exc_info=True)
+            raise RuntimeError(f"CV skill extraction failed: {exc}") from exc
 
     def _map_cv_analysis_to_result(
         self,
