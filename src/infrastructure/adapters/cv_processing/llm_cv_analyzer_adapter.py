@@ -61,7 +61,7 @@ class LLMCVAnalyzerAdapter(CVAnalyzerPort):
         cv_text = self._read_cv_text_from_bytes(cv_content, file_type)
 
         # LLM skill extraction (fail-fast, no fallback)
-        extraction = await self.llm_port.analyze_cv_for_skills(  # type: ignore[attr-defined]
+        extraction = await self.llm_port.analyze_cv_for_skills(
             cv_text=cv_text,
             context={"candidate_id": candidate_id},
         )
@@ -120,16 +120,17 @@ class LLMCVAnalyzerAdapter(CVAnalyzerPort):
     def _read_docx_from_bytes(self, docx_bytes: bytes) -> str:
         """Extract text from DOCX bytes (uses tempfile)."""
         from tempfile import NamedTemporaryFile
-        import os
 
-        with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+        with NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
             tmp.write(docx_bytes)
+            tmp.flush()
             tmp_path = tmp.name
 
         try:
             document = Document(tmp_path)
             return "\n".join(p.text.strip() for p in document.paragraphs if p.text).strip()
         finally:
+            import os
             os.unlink(tmp_path)
 
     def _read_text_from_bytes(self, text_bytes: bytes) -> str:
