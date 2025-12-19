@@ -64,6 +64,9 @@ debug_print("settings imported")
 from .infrastructure.database import close_db, init_db
 debug_print("database modules imported")
 
+from .infrastructure.middleware.auth_middleware import AuthMiddleware
+debug_print("auth middleware imported")
+
 
 def load_logging_config() -> dict | None:
     """Load logging configuration from YAML file.
@@ -399,7 +402,16 @@ def create_app() -> FastAPI:
 
     app.add_middleware(ExceptionLoggingMiddleware)
 
-    # CORS middleware
+    # Auth middleware (after exception logging, before CORS)
+    app.add_middleware(
+        AuthMiddleware,
+        role_header_name=settings.auth_role_header_name,
+        user_id_header_name=settings.auth_user_id_header_name,
+        role_prefix=settings.auth_role_prefix,
+        allowed_roles=settings.auth_allowed_roles,
+    )
+
+    # CORS middleware (after auth)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

@@ -208,6 +208,12 @@ class Settings(BaseSettings):
             ]
         return v
 
+    # Authentication (Keycloak reverse proxy)
+    auth_role_header_name: str = "X-Auth-Request-Groups"
+    auth_user_id_header_name: str = "X-Auth-Request-User"
+    auth_role_prefix: str = "role:"
+    auth_allowed_roles: list[str] = ["Admin", "User"]
+
     # WebSocket Configuration
     ws_host: str = "localhost"
     ws_port: int = 8000

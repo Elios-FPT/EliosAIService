@@ -9,13 +9,14 @@ from ...domain.models.feedback_result import FeedbackResult, FeedbackStatus
 
 
 class AnalyzeFeedbackRequest(BaseModel):
-    """Request to analyze entity (CODE/CV/INTERVIEW)."""
+    """Request to analyze entity (CODE/CV/INTERVIEW).
+
+    Note: user_id is obtained from authenticated UserContext (Keycloak headers),
+    not from request body.
+    """
 
     entity_id: UUID = Field(description="UUID of entity to analyze")
     input_type: str = Field(description="Type of entity: INTERVIEW, CV, or CODE")
-    user_id: UUID | None = Field(
-        default=None, description="User requesting analysis"
-    )
     feedback_input: str | None = Field(
         default=None,
         description="Optional direct content to analyze (for direct submission)"
@@ -26,7 +27,6 @@ class AnalyzeFeedbackRequest(BaseModel):
             "example": {
                 "entity_id": "110e8400-e29b-41d4-a716-446655440000",
                 "input_type": "INTERVIEW",
-                "user_id": "220e8400-e29b-41d4-a716-446655440000",
                 "feedback_input": '{"questions": [...]}'  # Optional
             }
         }
