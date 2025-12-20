@@ -10,7 +10,6 @@ from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 from psycopg import OperationalError as PsycopgOperationalError
 
-from ...infrastructure.database.session import session_scope
 from ...infrastructure.dependency_injection.container import Container, get_container
 from ...domain.models.interview import InterviewStatus
 from .connection_manager import manager
@@ -91,198 +90,197 @@ async def _handle_with_workflow(
         interview_id: Interview UUID
         container: DI container
     """
-    async with session_scope() as session:
-        # Get candidate_id from interview
-        interview_repo = container.interview_repository_port(session=session)
-        interview = await interview_repo.get_by_id(interview_id)
-        if not interview:
-            await manager.send_message(
-                interview_id,
-                {"type": "error", "code": "INTERVIEW_NOT_FOUND", "message": "Interview not found"},
-            )
-            return
-
-        # Create workflow
-        workflow = await container.create_interview_conversation_workflow(session)
-
-        # Start session with guard
-        try:
-            result = await execute_with_workflow_guard(
-                "start_session",
-                lambda: workflow.start_session(interview_id, interview.candidate_id),
-                container.ensure_checkpointer_alive,
-            )
-        except PsycopgOperationalError as exc:
-            logger.error(
-                "Failed to start workflow for interview %s: %s",
-                interview_id,
-                exc,
-            )
-            await _notify_transient_failure(interview_id)
-            _cleanup_audio_resources(interview_id)
-            _cleanup_workflow_resources(interview_id)
-            return
-
-        # Store thread ID
-        thread_id = result.get("thread_id")
-        workflow_threads[interview_id] = thread_id
-
-        # Reset audio sequence for new session
-        audio_sequence_numbers[interview_id] = 0
-
-        # Generate TTS audio for first question
-        question_dict = result.get("question")
-        question_text = question_dict.get("text", "") if question_dict else ""
-        audio_data = await _generate_tts_audio(question_text, container)
-
-        # Format and send first question
-        message = _format_question_message(
-            question_dict=question_dict,
-            question_id=result.get("question_id"),
-            has_more=result.get("has_more"),
-            audio_data=audio_data,
+    # Get candidate_id from interview
+    interview_repo = container.interview_repository_port()
+    interview = await interview_repo.get_by_id(interview_id)
+    if not interview:
+        await manager.send_message(
+            interview_id,
+            {"type": "error", "code": "INTERVIEW_NOT_FOUND", "message": "Interview not found"},
         )
-        await manager.send_message(interview_id, message)
+        return
 
-        logger.info(
-            f"Sent {message['type']}: {result.get('question_id')}",
-            extra={
-                "interview_id": str(interview_id),
-                "question_id": result.get("question_id"),
-                "type": message["type"],
-            },
+    # Create workflow
+    workflow = await container.create_interview_conversation_workflow()
+
+    # Start session with guard
+    try:
+        result = await execute_with_workflow_guard(
+            "start_session",
+            lambda: workflow.start_session(interview_id, interview.candidate_id),
+            container.ensure_checkpointer_alive,
         )
+    except PsycopgOperationalError as exc:
+        logger.error(
+            "Failed to start workflow for interview %s: %s",
+            interview_id,
+            exc,
+        )
+        await _notify_transient_failure(interview_id)
+        _cleanup_audio_resources(interview_id)
+        _cleanup_workflow_resources(interview_id)
+        return
 
-        logger.info(f"Workflow session started for interview {interview_id}, thread: {thread_id}")
+    # Store thread ID
+    thread_id = result.get("thread_id")
+    workflow_threads[interview_id] = thread_id
 
-        # Listen for answers
-        while True:
-            data = await websocket.receive_json()
-            message_type = data.get("type")
+    # Reset audio sequence for new session
+    audio_sequence_numbers[interview_id] = 0
 
-            if message_type == "text_answer":
-                answer_text = data.get("answer_text", "")
+    # Generate TTS audio for first question
+    question_dict = result.get("question")
+    question_text = question_dict.get("text", "") if question_dict else ""
+    audio_data = await _generate_tts_audio(question_text, container)
 
-                # Process answer through workflow with guard
-                try:
-                    result = await execute_with_workflow_guard(
-                        "process_answer",
-                        lambda: workflow.process_answer(
-                            thread_id=thread_id,
-                            answer_text=answer_text,
-                            is_voice=False,
-                        ),
-                        container.ensure_checkpointer_alive,
-                    )
-                except PsycopgOperationalError as exc:
-                    logger.error(
-                        "process_answer failed for interview %s: %s",
-                        interview_id,
-                        exc,
-                    )
-                    await _notify_transient_failure(interview_id)
-                    break
+    # Format and send first question
+    message = _format_question_message(
+        question_dict=question_dict,
+        question_id=result.get("question_id"),
+        has_more=result.get("has_more"),
+        audio_data=audio_data,
+    )
+    await manager.send_message(interview_id, message)
 
-                # Send evaluation if present
-                if "evaluation" in result and result["evaluation"]:
-                    evaluation = result["evaluation"]
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "evaluation",
-                            "answer_id": evaluation["answer_id"],
-                            "score": evaluation.get("score", evaluation.get("final_score")),
-                            "feedback": evaluation.get("feedback"),
-                            "strengths": evaluation.get("strengths", []),
-                            "weaknesses": evaluation.get("weaknesses", []),
-                            "gaps": evaluation.get("gaps"),
-                            "theoretical_score": evaluation.get("theoretical_score"),
-                            "speaking_score": evaluation.get("speaking_score"),
-                        },
-                    )
-                    logger.info(
-                        f"Sent evaluation for answer {evaluation['answer_id']}, "
-                        f"score={evaluation.get('score', evaluation.get('final_score'))}"
-                    )
+    logger.info(
+        f"Sent {message['type']}: {result.get('question_id')}",
+        extra={
+            "interview_id": str(interview_id),
+            "question_id": result.get("question_id"),
+            "type": message["type"],
+        },
+    )
 
-                # Check if complete
-                if result.get("complete"):
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "interview_complete",
-                            "interview_id": str(interview_id),
-                            "status": result.get("final_status"),
-                            "detailed_feedback": result.get("summary"),
-                            "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
-                        },
-                    )
+    logger.info(f"Workflow session started for interview {interview_id}, thread: {thread_id}")
 
-                    # Log WebSocket address (ConnectionManager also logs, but this adds handler context)
-                    try:
-                        client_host = websocket.client.host if websocket.client else "unknown"
-                        client_port = websocket.client.port if websocket.client else "unknown"
-                        ws_path = websocket.url.path if hasattr(websocket, "url") and websocket.url else "unknown"
-                        ws_url = f"ws://{client_host}:{client_port}{ws_path}"
-                        logger.info(
-                            f"Interview {interview_id} completed - feedback sent via WebSocket to {ws_url}",
-                            extra={
-                                "interview_id": str(interview_id),
-                                "websocket_url": ws_url,
-                                "websocket_host": client_host,
-                                "websocket_port": str(client_port),
-                                "delivery_method": "websocket",
-                                "status": result.get("final_status"),
-                            },
-                        )
-                    except Exception as e:
-                        logger.info(
-                            f"Interview {interview_id} completed - feedback sent via WebSocket (address unavailable: {e})",
-                            extra={
-                                "interview_id": str(interview_id),
-                                "delivery_method": "websocket",
-                                "status": result.get("final_status"),
-                            },
-                        )
-                    break
+    # Listen for answers
+    while True:
+        data = await websocket.receive_json()
+        message_type = data.get("type")
 
-                # Send next question (either follow-up or main question)
-                if result.get("question"):
-                    question_dict = result.get("question")
-                    question_text = question_dict.get("text", "") if question_dict else ""
-                    audio_data = await _generate_tts_audio(question_text, container)
+        if message_type == "text_answer":
+            answer_text = data.get("answer_text", "")
 
-                    # Format message based on type
-                    message = _format_question_message(
-                        question_dict=question_dict,
-                        question_id=result.get("question_id"),
-                        has_more=result.get("has_more"),
-                        audio_data=audio_data,
-                    )
+            # Process answer through workflow with guard
+            try:
+                result = await execute_with_workflow_guard(
+                    "process_answer",
+                    lambda: workflow.process_answer(
+                        thread_id=thread_id,
+                        answer_text=answer_text,
+                        is_voice=False,
+                    ),
+                    container.ensure_checkpointer_alive,
+                )
+            except PsycopgOperationalError as exc:
+                logger.error(
+                    "process_answer failed for interview %s: %s",
+                    interview_id,
+                    exc,
+                )
+                await _notify_transient_failure(interview_id)
+                break
 
-                    await manager.send_message(interview_id, message)
-
-                    logger.info(
-                        f"Sent {message['type']}: {result.get('question_id')}",
-                        extra={
-                            "interview_id": str(interview_id),
-                            "question_id": result.get("question_id"),
-                            "type": message["type"],
-                        },
-                    )
-
-            elif message_type == "audio_chunk":
-                await handle_audio_chunk(interview_id, data, container)
-
-            else:
+            # Send evaluation if present
+            if "evaluation" in result and result["evaluation"]:
+                evaluation = result["evaluation"]
                 await manager.send_message(
                     interview_id,
                     {
-                        "type": "error",
-                        "code": "UNKNOWN_MESSAGE_TYPE",
-                        "message": f"Unknown message type: {message_type}",
+                        "type": "evaluation",
+                        "answer_id": evaluation["answer_id"],
+                        "score": evaluation.get("score", evaluation.get("final_score")),
+                        "feedback": evaluation.get("feedback"),
+                        "strengths": evaluation.get("strengths", []),
+                        "weaknesses": evaluation.get("weaknesses", []),
+                        "gaps": evaluation.get("gaps"),
+                        "theoretical_score": evaluation.get("theoretical_score"),
+                        "speaking_score": evaluation.get("speaking_score"),
                     },
                 )
+                logger.info(
+                    f"Sent evaluation for answer {evaluation['answer_id']}, "
+                    f"score={evaluation.get('score', evaluation.get('final_score'))}"
+                )
+
+            # Check if complete
+            if result.get("complete"):
+                await manager.send_message(
+                    interview_id,
+                    {
+                        "type": "interview_complete",
+                        "interview_id": str(interview_id),
+                        "status": result.get("final_status"),
+                        "detailed_feedback": result.get("summary"),
+                        "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
+                    },
+                )
+
+                # Log WebSocket address (ConnectionManager also logs, but this adds handler context)
+                try:
+                    client_host = websocket.client.host if websocket.client else "unknown"
+                    client_port = websocket.client.port if websocket.client else "unknown"
+                    ws_path = websocket.url.path if hasattr(websocket, "url") and websocket.url else "unknown"
+                    ws_url = f"ws://{client_host}:{client_port}{ws_path}"
+                    logger.info(
+                        f"Interview {interview_id} completed - feedback sent via WebSocket to {ws_url}",
+                        extra={
+                            "interview_id": str(interview_id),
+                            "websocket_url": ws_url,
+                            "websocket_host": client_host,
+                            "websocket_port": str(client_port),
+                            "delivery_method": "websocket",
+                            "status": result.get("final_status"),
+                        },
+                    )
+                except Exception as e:
+                    logger.info(
+                        f"Interview {interview_id} completed - feedback sent via WebSocket (address unavailable: {e})",
+                        extra={
+                            "interview_id": str(interview_id),
+                            "delivery_method": "websocket",
+                            "status": result.get("final_status"),
+                        },
+                    )
+                break
+
+            # Send next question (either follow-up or main question)
+            if result.get("question"):
+                question_dict = result.get("question")
+                question_text = question_dict.get("text", "") if question_dict else ""
+                audio_data = await _generate_tts_audio(question_text, container)
+
+                # Format message based on type
+                message = _format_question_message(
+                    question_dict=question_dict,
+                    question_id=result.get("question_id"),
+                    has_more=result.get("has_more"),
+                    audio_data=audio_data,
+                )
+
+                await manager.send_message(interview_id, message)
+
+                logger.info(
+                    f"Sent {message['type']}: {result.get('question_id')}",
+                    extra={
+                        "interview_id": str(interview_id),
+                        "question_id": result.get("question_id"),
+                        "type": message["type"],
+                    },
+                )
+
+        elif message_type == "audio_chunk":
+            await handle_audio_chunk(interview_id, data, container)
+
+        else:
+            await manager.send_message(
+                interview_id,
+                {
+                    "type": "error",
+                    "code": "UNKNOWN_MESSAGE_TYPE",
+                    "message": f"Unknown message type: {message_type}",
+                },
+            )
 
 
 def _detect_question_type(question_dict: dict[str, Any]) -> str:
@@ -467,41 +465,40 @@ async def _update_answer_audio_path(
 
     for attempt in range(max_attempts):
         try:
-            async with session_scope() as session:
-                answer_repo = container.answer_repository_port(session=session)
-                updated = await answer_repo.update_audio_file_path_by_sequence(
-                    interview_id=interview_id,
-                    sequence=sequence,
-                    audio_file_path=audio_file_path,
+            answer_repo = container.answer_repository_port()
+            updated = await answer_repo.update_audio_file_path_by_sequence(
+                interview_id=interview_id,
+                sequence=sequence,
+                audio_file_path=audio_file_path,
+            )
+
+            if updated:
+                logger.info(
+                    "Answer audio_file_path updated: interview=%s, seq=%s, path=%s",
+                    interview_id,
+                    sequence,
+                    audio_file_path,
                 )
+                return
 
-                if updated:
-                    logger.info(
-                        "Answer audio_file_path updated: interview=%s, seq=%s, path=%s",
-                        interview_id,
-                        sequence,
-                        audio_file_path,
-                    )
-                    return
-
-                if attempt < max_attempts - 1:
-                    delay = base_delay * (2**attempt)
-                    logger.debug(
-                        "Answer not found for interview %s, seq=%s. Retrying in %.1fs (attempt %s/%s)",
-                        interview_id,
-                        sequence,
-                        delay,
-                        attempt + 1,
-                        max_attempts,
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    logger.warning(
-                        "Answer not found after %s attempts: interview=%s, seq=%s",
-                        max_attempts,
-                        interview_id,
-                        sequence,
-                    )
+            if attempt < max_attempts - 1:
+                delay = base_delay * (2**attempt)
+                logger.debug(
+                    "Answer not found for interview %s, seq=%s. Retrying in %.1fs (attempt %s/%s)",
+                    interview_id,
+                    sequence,
+                    delay,
+                    attempt + 1,
+                    max_attempts,
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning(
+                    "Answer not found after %s attempts: interview=%s, seq=%s",
+                    max_attempts,
+                    interview_id,
+                    sequence,
+                )
         except Exception as exc:
             logger.error(
                 "Failed to update audio_file_path: interview=%s, seq=%s, error=%s",
@@ -610,88 +607,87 @@ async def _stream_transcription(
                 f"Processing voice answer via workflow: '{result['text']}' "
                 f"(interview {interview_id}, question {question_id})"
             )
-            async with session_scope() as session:
-                workflow = await container.create_interview_conversation_workflow(session=session)
-                workflow_result = await workflow.process_answer(
-                    thread_id=thread_id,
-                    answer_text=result["text"],
-                    is_voice=True,
-                    voice_metrics=result.get("voice_metrics", {}),
+            workflow = await container.create_interview_conversation_workflow()
+            workflow_result = await workflow.process_answer(
+                thread_id=thread_id,
+                answer_text=result["text"],
+                is_voice=True,
+                voice_metrics=result.get("voice_metrics", {}),
+            )
+
+            # Send evaluation if present
+            if "evaluation" in workflow_result and workflow_result["evaluation"]:
+                evaluation = workflow_result["evaluation"]
+                await manager.send_message(
+                    interview_id,
+                    {
+                        "type": "evaluation",
+                        "answer_id": evaluation["answer_id"],
+                        "score": evaluation.get("score", evaluation.get("final_score")),
+                        "feedback": evaluation.get("feedback"),
+                        "strengths": evaluation.get("strengths", []),
+                        "weaknesses": evaluation.get("weaknesses", []),
+                        "gaps": evaluation.get("gaps"),
+                        "theoretical_score": evaluation.get("theoretical_score"),
+                        "speaking_score": evaluation.get("speaking_score"),
+                    },
+                )
+                logger.info(
+                    f"Sent evaluation for voice answer {evaluation['answer_id']}, "
+                    f"score={evaluation.get('score', evaluation.get('final_score'))}"
                 )
 
-                # Send evaluation if present
-                if "evaluation" in workflow_result and workflow_result["evaluation"]:
-                    evaluation = workflow_result["evaluation"]
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "evaluation",
-                            "answer_id": evaluation["answer_id"],
-                            "score": evaluation.get("score", evaluation.get("final_score")),
-                            "feedback": evaluation.get("feedback"),
-                            "strengths": evaluation.get("strengths", []),
-                            "weaknesses": evaluation.get("weaknesses", []),
-                            "gaps": evaluation.get("gaps"),
-                            "theoretical_score": evaluation.get("theoretical_score"),
-                            "speaking_score": evaluation.get("speaking_score"),
-                        },
-                    )
-                    logger.info(
-                        f"Sent evaluation for voice answer {evaluation['answer_id']}, "
-                        f"score={evaluation.get('score', evaluation.get('final_score'))}"
-                    )
+            # Check if complete
+            if workflow_result.get("complete"):
+                # Get WebSocket client address for logging
+                # Note: websocket is not directly available here, but ConnectionManager will log it
+                await manager.send_message(
+                    interview_id,
+                    {
+                        "type": "interview_complete",
+                        "interview_id": str(interview_id),
+                        "status": workflow_result.get("final_status"),
+                        "detailed_feedback": workflow_result.get("summary"),
+                        "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
+                    },
+                )
 
-                # Check if complete
-                if workflow_result.get("complete"):
-                    # Get WebSocket client address for logging
-                    # Note: websocket is not directly available here, but ConnectionManager will log it
-                    await manager.send_message(
-                        interview_id,
-                        {
-                            "type": "interview_complete",
-                            "interview_id": str(interview_id),
-                            "status": workflow_result.get("final_status"),
-                            "detailed_feedback": workflow_result.get("summary"),
-                            "feedback_url": f"/api/ai/interviews/{interview_id}/summary",
-                        },
-                    )
-
-                    logger.info(
-                        f"Interview {interview_id} completed (voice answer) - feedback sent via WebSocket",
-                        extra={
-                            "interview_id": str(interview_id),
-                            "delivery_method": "websocket",
-                            "answer_type": "voice",
-                            "status": workflow_result.get("final_status"),
-                        },
-                    )
-                    return
-
-                # Send next question (either follow-up or main question)
-                if workflow_result.get("question"):
-                    question_dict = workflow_result.get("question")
-                    question_text = question_dict.get("text", "") if question_dict else ""
-                    audio_data = await _generate_tts_audio(question_text, container)
-
-                    # Format message based on type
-                    message = _format_question_message(
-                        question_dict=question_dict,
-                        question_id=workflow_result.get("question_id"),
-                        has_more=workflow_result.get("has_more"),
-                        audio_data=audio_data,
-                    )
-
-                    await manager.send_message(interview_id, message)
-
-                    logger.info(
-                        f"Sent {message['type']}: {workflow_result.get('question_id')}",
-                        extra={
-                            "interview_id": str(interview_id),
-                            "question_id": workflow_result.get("question_id"),
-                            "type": message["type"],
-                        },
-                    )
+                logger.info(
+                    f"Interview {interview_id} completed (voice answer) - feedback sent via WebSocket",
+                    extra={
+                        "interview_id": str(interview_id),
+                        "delivery_method": "websocket",
+                        "answer_type": "voice",
+                        "status": workflow_result.get("final_status"),
+                    },
+                )
                 return
+
+            # Send next question (either follow-up or main question)
+            if workflow_result.get("question"):
+                question_dict = workflow_result.get("question")
+                question_text = question_dict.get("text", "") if question_dict else ""
+                audio_data = await _generate_tts_audio(question_text, container)
+
+                # Format message based on type
+                message = _format_question_message(
+                    question_dict=question_dict,
+                    question_id=workflow_result.get("question_id"),
+                    has_more=workflow_result.get("has_more"),
+                    audio_data=audio_data,
+                )
+
+                await manager.send_message(interview_id, message)
+
+                logger.info(
+                    f"Sent {message['type']}: {workflow_result.get('question_id')}",
+                    extra={
+                        "interview_id": str(interview_id),
+                        "question_id": workflow_result.get("question_id"),
+                        "type": message["type"],
+                    },
+                )
+            return
         else:
             logger.warning(
                 f"No workflow thread found for interview {interview_id} - "
