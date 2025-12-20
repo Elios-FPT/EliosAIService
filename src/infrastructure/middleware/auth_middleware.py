@@ -110,18 +110,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """Extract application role from Keycloak roles header.
 
         Keycloak format: "role:User,role:default-roles-elios,role:offline_access"
-        We extract the first role that matches our allowed_roles list.
+        Priority: If user has both "Admin" and "User", return "Admin".
 
         Args:
             roles_header: Comma-separated roles from X-Auth-Request-Groups
 
         Returns:
-            First matching role ("Admin" or "User"), or None if no valid role found
+            Highest priority matching role ("Admin" > "User"), or None if no valid role found
         """
         if not roles_header:
             return None
 
-        # Parse Keycloak role format: "role:RoleName,role:AnotherRole,..."
+        # Parse Keycloak role format and collect all valid application roles
+        found_roles = []
         for role in roles_header.split(","):
             role = role.strip()
             if role.startswith(self.role_prefix):
@@ -129,7 +130,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 role_name = role[len(self.role_prefix) :]
                 # Check if it's one of our application roles
                 if role_name in self.allowed_roles:
-                    return role_name
+                    found_roles.append(role_name)
+
+        # Prioritize Admin over User
+        if "Admin" in found_roles:
+            return "Admin"
+        elif found_roles:
+            return found_roles[0]
 
         return None
 
