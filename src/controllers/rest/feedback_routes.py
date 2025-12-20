@@ -129,7 +129,7 @@ async def analyze_feedback(
         await _emit_token_delta_event(
             publisher=container.event_publisher_port(),
             user_id=user.user_id,
-            tokens=settings.token_delta_per_plan,
+            tokens=settings.token_delta_per_feedback,
         )
 
         feedback_request, result, result_markdown = await use_case.execute(

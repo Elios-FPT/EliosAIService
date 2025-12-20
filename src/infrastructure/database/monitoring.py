@@ -12,14 +12,25 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import Pool, NullPool
 
+from ..config.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
 # Query execution tracking
 _query_counts: dict[str, int] = defaultdict(int)
 _slow_query_threshold_seconds = 0.5  # 500ms
 
+# Check if monitoring is enabled
+settings = get_settings()
+MONITORING_ENABLED = settings.db_monitoring_enabled
 
-@event.listens_for(Engine, "before_cursor_execute")
+# Log monitoring state at module initialization
+if MONITORING_ENABLED:
+    logger.info("Database monitoring enabled (slow query detection, N+1 detection, pool monitoring)")
+else:
+    logger.info("Database monitoring disabled")
+
+
 def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     """Record query start time before execution.
 
@@ -28,7 +39,10 @@ def before_cursor_execute(conn, cursor, statement, parameters, context, executem
     conn.info.setdefault("query_start_times", []).append(time.time())
 
 
-@event.listens_for(Engine, "after_cursor_execute")
+if MONITORING_ENABLED:
+    event.listens_for(Engine, "before_cursor_execute")(before_cursor_execute)
+
+
 def after_cursor_execute_slow_query(conn, cursor, statement, parameters, context, executemany):
     """Detect and log slow queries after execution.
 
@@ -51,7 +65,10 @@ def after_cursor_execute_slow_query(conn, cursor, statement, parameters, context
         )
 
 
-@event.listens_for(Engine, "after_cursor_execute")
+if MONITORING_ENABLED:
+    event.listens_for(Engine, "after_cursor_execute")(after_cursor_execute_slow_query)
+
+
 def after_cursor_execute_n_plus_one_detection(
     conn, cursor, statement, parameters, context, executemany
 ):
@@ -80,7 +97,10 @@ def after_cursor_execute_n_plus_one_detection(
         )
 
 
-@event.listens_for(Pool, "connect")
+if MONITORING_ENABLED:
+    event.listens_for(Engine, "after_cursor_execute")(after_cursor_execute_n_plus_one_detection)
+
+
 def on_pool_connect(dbapi_conn, connection_record):
     """Track pool connection events.
 
@@ -89,7 +109,10 @@ def on_pool_connect(dbapi_conn, connection_record):
     logger.debug("Database connection established", extra={"pool_event": "connect"})
 
 
-@event.listens_for(Pool, "checkout")
+if MONITORING_ENABLED:
+    event.listens_for(Pool, "connect")(on_pool_connect)
+
+
 def on_pool_checkout(dbapi_conn, connection_record, connection_proxy):
     """Track connection checkout from pool.
 
@@ -133,7 +156,10 @@ def on_pool_checkout(dbapi_conn, connection_record, connection_proxy):
         )
 
 
-@event.listens_for(Pool, "checkin")
+if MONITORING_ENABLED:
+    event.listens_for(Pool, "checkout")(on_pool_checkout)
+
+
 def on_pool_checkin(dbapi_conn, connection_record):
     """Track connection return to pool.
 
@@ -144,6 +170,10 @@ def on_pool_checkin(dbapi_conn, connection_record):
         connection_record.info.pop("query_patterns", None)
 
     logger.debug("Connection returned to pool", extra={"pool_event": "checkin"})
+
+
+if MONITORING_ENABLED:
+    event.listens_for(Pool, "checkin")(on_pool_checkin)
 
 
 def configure_monitoring_threshold(threshold_seconds: float) -> None:

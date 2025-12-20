@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30
     db_pool_recycle_seconds: int = 240
     db_pool_pre_ping: bool = True  # Verify connection health before use (Phase 2)
+    db_monitoring_enabled: bool = False  # Enable database monitoring (Phase 2)
 
     @property
     def async_database_url(self) -> str:
@@ -162,7 +163,8 @@ class Settings(BaseSettings):
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
-    token_delta_per_plan: int = -10  # Tokens deducted per plan_interview call
+    token_delta_per_plan: int = -2000  # Tokens deducted per plan_interview call
+    token_delta_per_feedback: int = -1000  # Tokens deducted per analyze_feedback call
 
     # Audio Storage Configuration
     audio_storage_api_url: str | None = None
