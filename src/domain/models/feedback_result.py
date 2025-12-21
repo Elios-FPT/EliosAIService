@@ -72,7 +72,7 @@ class Recommendation(BaseModel):
 
     recommendation: str = Field(description="Specific recommendation")
     impact: str = Field(description="Expected impact of this recommendation")
-    effort: Literal["low", "medium", "high"] = Field(
+    effort: str = Field(
         description="Effort required: 'low', 'medium', or 'high'"
     )
 
@@ -143,7 +143,7 @@ class CodeActionableRecommendation(BaseModel):
         description="Most important recommendation to improve the code"
     )
     impact: str = Field(description="Expected impact of this recommendation")
-    effort: Literal["low", "medium", "high"] = Field(
+    effort: str = Field(
         description="Effort required: 'low', 'medium', or 'high'"
     )
     line_reference: str | None = Field(
