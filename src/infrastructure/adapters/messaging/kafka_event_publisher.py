@@ -14,7 +14,12 @@ from src.application.dto.event import (
     TokenDeltaPayload,
 )
 from src.domain.models.feedback_result import FeedbackResult
-from src.application.ports.event_publisher_port import EventPublisherPort
+from src.application.ports.event_publisher_port import (
+    EventPublisherPort,
+    TokenConfirmationResult,
+    TokenConfirmationError,
+)
+from .token_confirmation_service import TokenConfirmationService
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,7 @@ class KafkaEventPublisher(EventPublisherPort):
         interview_topic: str = "interview-user-interview",
         feedback_topic: str = "ai-feedback-results",
         token_topic: str = "user-token-updates",
+        confirmation_service: TokenConfirmationService | None = None,
     ):
         """Initialize Kafka publisher (not started yet).
 
@@ -39,11 +45,14 @@ class KafkaEventPublisher(EventPublisherPort):
             bootstrap_servers: Kafka broker addresses (e.g., "localhost:9092")
             interview_topic: Topic name for interview events
             feedback_topic: Topic name for feedback events
+            token_topic: Topic name for token events
+            confirmation_service: Optional service for token confirmations
         """
         self.bootstrap_servers = bootstrap_servers
         self.interview_topic = interview_topic
         self.feedback_topic = feedback_topic
         self.token_topic = token_topic
+        self.confirmation_service = confirmation_service
         self.producer: AIOKafkaProducer | None = None
         logger.info(
             "KafkaEventPublisher initialized",
@@ -317,4 +326,128 @@ class KafkaEventPublisher(EventPublisherPort):
                 extra={"user_id": str(user_id), "tokens": tokens},
                 exc_info=True,
             )
+
+    def set_confirmation_service(
+        self, confirmation_service: TokenConfirmationService
+    ) -> None:
+        """Set confirmation service (for DI wiring).
+
+        Args:
+            confirmation_service: Service to coordinate confirmations
+        """
+        self.confirmation_service = confirmation_service
+
+    async def publish_token_delta_with_confirmation(
+        self,
+        user_id: UUID,
+        tokens: int,
+        correlation_id: UUID,
+        timeout: float = 30.0,
+    ) -> TokenConfirmationResult:
+        """Publish token delta and wait for User Service confirmation.
+
+        Flow:
+        1. Register pending request with confirmation service
+        2. Publish TOKEN_DELTA event to Kafka
+        3. Wait for response (or timeout)
+        4. Return result
+
+        Args:
+            user_id: User UUID
+            tokens: Token delta (negative for deduction)
+            correlation_id: Correlation ID for response matching
+            timeout: Max wait time in seconds
+
+        Returns:
+            TokenConfirmationResult with success/failure details
+
+        Raises:
+            TokenConfirmationError: If confirmation service not configured
+        """
+        if self.confirmation_service is None:
+            raise TokenConfirmationError(
+                "Confirmation service not configured",
+                correlation_id=correlation_id,
+            )
+
+        if self.producer is None:
+            raise TokenConfirmationError(
+                "Kafka producer not started",
+                correlation_id=correlation_id,
+            )
+
+        try:
+            # Step 1: Register pending request BEFORE publishing
+            await self.confirmation_service.register_pending(correlation_id)
+
+            # Step 2: Build and publish event
+            payload = TokenDeltaPayload(user_id=user_id, tokens=tokens)
+            event = EventWrapper(
+                correlation_id=correlation_id,
+                event_type="UPDATE",
+                payload=payload,
+            )
+            event_dict = event.model_dump(mode="json", by_alias=True)
+
+            await self.producer.send(
+                self.token_topic,
+                value=event_dict,
+                key=str(user_id),
+            )
+
+            logger.info(
+                "Published TOKEN_DELTA for confirmation",
+                extra={
+                    "user_id": str(user_id),
+                    "tokens": tokens,
+                    "correlation_id": str(correlation_id),
+                    "topic": self.token_topic,
+                },
+            )
+
+            # Step 3: Wait for response
+            response = await self.confirmation_service.wait_for_response(
+                correlation_id=correlation_id,
+                timeout=timeout,
+            )
+
+            # Step 4: Build result
+            if response is None:
+                logger.warning(
+                    "Token confirmation timeout",
+                    extra={
+                        "user_id": str(user_id),
+                        "tokens": tokens,
+                        "correlation_id": str(correlation_id),
+                        "timeout": timeout,
+                    },
+                )
+                return TokenConfirmationResult.timeout(correlation_id)
+
+            logger.info(
+                "Token confirmation received",
+                extra={
+                    "user_id": str(user_id),
+                    "tokens": tokens,
+                    "correlation_id": str(correlation_id),
+                    "success": response.success,
+                },
+            )
+
+            return TokenConfirmationResult.from_response(response)
+
+        except KafkaError as e:
+            logger.error(
+                f"Kafka error during token confirmation: {e}",
+                extra={
+                    "user_id": str(user_id),
+                    "tokens": tokens,
+                    "correlation_id": str(correlation_id),
+                },
+                exc_info=True,
+            )
+            raise TokenConfirmationError(
+                f"Kafka error: {e}",
+                correlation_id=correlation_id,
+            ) from e
 
