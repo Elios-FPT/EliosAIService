@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30
     db_pool_recycle_seconds: int = 240
     db_pool_pre_ping: bool = True  # Verify connection health before use (Phase 2)
+    db_monitoring_enabled: bool = False  # Enable database monitoring (Phase 2)
 
     @property
     def async_database_url(self) -> str:
@@ -162,7 +163,8 @@ class Settings(BaseSettings):
     max_questions_per_interview: int = 10
     min_passing_score: float = 60.0
     question_timeout_seconds: int = 300  # 5 minutes per question
-    token_delta_per_plan: int = -10  # Tokens deducted per plan_interview call
+    token_delta_per_plan: int = -2000  # Tokens deducted per plan_interview call
+    token_delta_per_feedback: int = -1000  # Tokens deducted per analyze_feedback call
 
     # Audio Storage Configuration
     audio_storage_api_url: str | None = None
@@ -208,6 +210,12 @@ class Settings(BaseSettings):
             ]
         return v
 
+    # Authentication (Keycloak reverse proxy)
+    auth_role_header_name: str = "X-Auth-Request-Groups"
+    auth_user_id_header_name: str = "X-Auth-Request-User"
+    auth_role_prefix: str = "role:"
+    auth_allowed_roles: list[str] = ["Admin", "User"]
+
     # WebSocket Configuration
     ws_host: str = "localhost"
     ws_port: int = 8000
@@ -240,16 +248,6 @@ class Settings(BaseSettings):
     use_mock_vector_search: bool = True
 
     # Phase 2: Unified LLM Prompt (Performance Optimization)
-
-    # Hybrid CV Analyzer Configuration (always enabled)
-    hybrid_confidence_threshold: float = 0.7  # LLM fallback trigger
-    hybrid_enable_llm_fallback: bool = True  # Allow LLM when confidence low
-    hybrid_skill_patterns_path: str = "./src/adapters/cv_processing/skill_patterns.json"
-
-    # spaCy Model Configuration
-    spacy_model_en: str = "en_core_web_sm"  # English NER model
-    spacy_model_vi: str = "vi_core_news_sm"  # Vietnamese NER model
-    spacy_disable_components: list[str] = ["parser", "lemmatizer"]  # Optimize speed
 
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",

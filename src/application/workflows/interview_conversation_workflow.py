@@ -169,7 +169,7 @@ class InterviewConversationWorkflow(BaseWorkflow):
         graph.add_node("generate_followup", self._generate_followup_node)
         graph.add_node("next_or_complete", self._next_question_or_complete_node)
         graph.add_node("complete", self._complete_interview_node)
-        graph.add_node("index_questions", self._index_questions_node)
+        # graph.add_node("index_questions", self._index_questions_node)
 
         # Add edges
         graph.set_entry_point("route_entry")
@@ -227,8 +227,9 @@ class InterviewConversationWorkflow(BaseWorkflow):
             },
         )
 
-        graph.add_edge("complete", "index_questions")
-        graph.add_edge("index_questions", END)
+        # graph.add_edge("complete", "index_questions")
+        # graph.add_edge("index_questions", END)
+        graph.add_edge("complete", END)
 
         # Compile with checkpointer
         return graph.compile(checkpointer=self.checkpointer)  # type: ignore[return-value]

@@ -32,11 +32,6 @@ from .execution_logger import ExecutionLogger
 from .comprehensive_models import ComprehensiveAnalysis
 from .feedback_models import CVFeedbackAnalysis, CodeFeedbackAnalysis
 from .cv_skill_extraction_models import CVSkillExtractionOutput
-from .langchain_models import (
-    FollowUpOutput,
-    RecommendationsOutput,
-    QuestionSetBatchOutput,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -134,36 +129,6 @@ class LangChainAdapter(LLMPort):
         self.prompt_repo = prompt_repository
         self._db_chain_cache: dict[str, Runnable] = {}
 
-    def _create_structured_model(
-        self,
-        bound_model: BaseChatModel,
-        schema: type[Any],
-        method_name: str
-    ) -> Runnable:
-        """Create structured output model with strict mode.
-
-        Uses OpenAI Structured Outputs API with strict schema enforcement
-        to guarantee 100% schema compliance.
-
-        Args:
-            bound_model: Model with bound parameters (temp, top_p, etc.)
-            schema: Pydantic schema for structured output
-            method_name: Method name for logging context
-
-        Returns:
-            Runnable chain with strict structured output
-        """
-        logger.debug(
-            f"Creating strict structured output for {schema.__name__} "
-            f"(method: {method_name})"
-        )
-        return bound_model.with_structured_output(
-            schema,
-            method="json_schema",  # Use JSON Schema mode
-            strict=True,           # ✅ ENFORCE schema compliance
-            include_raw=False      # Don't include raw response
-        )
-
     def _get_or_build_chain(
         self,
         method_name: str,
@@ -205,22 +170,12 @@ class LangChainAdapter(LLMPort):
             presence_penalty=float(prompt_template.presence_penalty),
         )
 
-        # Map method names to their structured output schemas
-        method_schema_map = {
-            "comprehensive_answer_analysis": ComprehensiveAnalysis,
-            "generate_followup_question": FollowUpOutput,
-            "generate_interview_recommendations": RecommendationsOutput,
-            "generate_questions_with_answers_and_rationales_batch": QuestionSetBatchOutput,
-        }
-
-        # Determine schema: use provided model or lookup by method name
-        schema = structured_output_model or method_schema_map.get(method_name)
-
-        # Use structured output if schema available, otherwise fallback to JsonOutputParser
-        if schema:
-            structured_model = self._create_structured_model(
-                bound_model, schema, method_name
-            )
+        # Use structured output if model provided or for specific methods
+        if structured_output_model:
+            structured_model = bound_model.with_structured_output(structured_output_model)
+            chain = prompt_template_obj | structured_model
+        elif method_name == "comprehensive_answer_analysis":
+            structured_model = bound_model.with_structured_output(ComprehensiveAnalysis)
             chain = prompt_template_obj | structured_model
         else:
             chain = prompt_template_obj | bound_model | JsonOutputParser()
@@ -984,19 +939,14 @@ class LangChainAdapter(LLMPort):
             config_with_callbacks = RunnableConfig(callbacks=all_callbacks)
 
         try:
-            result, metadata = await self._invoke_chain_with_metadata(
-                chain, variables, config_with_callbacks
-            )
+            result = await chain.ainvoke(variables, config=config_with_callbacks)
+            metadata = metadata_callback.metadata
+            if not metadata:
+                metadata = ExecutionLogger.extract_response_metadata(result)
 
-            # Result is FollowUpOutput object with guaranteed question_text field
-            if isinstance(result, FollowUpOutput):
-                question_text = result.question_text
-            else:
-                # Fallback for backward compatibility (should not happen with structured output)
-                question_text = self._extract_followup_question_text(result)
-                if not question_text:
-                    raise ValueError("Empty question text returned from LLM")
-
+            question_text = self._extract_followup_question_text(result)
+            if not question_text:
+                raise ValueError("Empty question text returned from LLM")
             question_text = self._sanitize_followup_question_text(question_text)
 
             # Log execution
@@ -1016,7 +966,46 @@ class LangChainAdapter(LLMPort):
             return question_text
 
         except Exception as exc:
-            # Log failures
+            # Handle OutputParserException - try to extract plain text
+            from langchain_core.exceptions import OutputParserException
+
+            if isinstance(exc, OutputParserException):
+                # DB template might return plain text instead of JSON
+                # Extract the text from the error message
+                error_msg = str(exc)
+                if "Invalid json output:" in error_msg:
+                    # Extract the plain text after "Invalid json output: "
+                    plain_text = error_msg.split("Invalid json output:", 1)[1].strip()
+                    # Remove "The error happen in:" suffix if present
+                    if "\nThe error happen in:" in plain_text:
+                        plain_text = plain_text.split("\nThe error happen in:")[0].strip()
+
+                    logger.warning(
+                        f"Got plain text instead of JSON from follow-up generation, using it directly: {plain_text[:100]}..."
+                    )
+
+                    # Get metadata from callback (LLM call completed, just parsing failed)
+                    metadata = metadata_callback.metadata
+                    if not metadata:
+                        metadata = ExecutionLogger.extract_response_metadata(None)
+
+                    # Log as successful with plain text
+                    if prompt_template:
+                        await ExecutionLogger.log_execution(
+                            prompt_repo=self.prompt_repo,
+                            prompt_template=prompt_template,
+                            context=context,
+                            input_variables=variables,
+                            output_text=plain_text,
+                            start_time=start_time,
+                            success=True,
+                            model=self.model,
+                            model_response_metadata=metadata,
+                        )
+
+                    return self._sanitize_followup_question_text(plain_text)
+
+            # Log other exceptions as failures
             if prompt_template:
                 await ExecutionLogger.log_execution(
                     prompt_repo=self.prompt_repo,
@@ -1062,22 +1051,12 @@ class LangChainAdapter(LLMPort):
         try:
             result, metadata = await self._invoke_chain_with_metadata(chain, variables, None)
 
-            # Result is RecommendationsOutput object with guaranteed fields
-            if isinstance(result, RecommendationsOutput):
-                output = {
-                    "strengths": result.strengths,
-                    "weaknesses": result.weaknesses,
-                    "study_topics": result.study_topics,
-                    "technique_tips": result.technique_tips,
-                }
-            else:
-                # Fallback for backward compatibility (should not happen with structured output)
-                output = {
-                    "strengths": result.get("strengths", []),
-                    "weaknesses": result.get("weaknesses", []),
-                    "study_topics": result.get("study_topics", []),
-                    "technique_tips": result.get("technique_tips", []),
-                }
+            output = {
+                "strengths": result.get("strengths", []),
+                "weaknesses": result.get("weaknesses", []),
+                "study_topics": result.get("study_topics", []),
+                "technique_tips": result.get("technique_tips", []),
+            }
 
             # Log execution
             if prompt_template:
@@ -1086,7 +1065,7 @@ class LangChainAdapter(LLMPort):
                     prompt_template=prompt_template,
                     context=context,
                     input_variables=variables,
-                    output_text=str(output),
+                    output_text=str(result),
                     start_time=start_time,
                     success=True,
                     model=self.model,
@@ -1168,61 +1147,47 @@ class LangChainAdapter(LLMPort):
 
             result, metadata = await self._invoke_chain_with_metadata(chain, chain_input, None)
 
-            # Result is QuestionSetBatchOutput with guaranteed structure
-            if isinstance(result, QuestionSetBatchOutput):
-                if len(result.question_sets) != len(question_specs):
-                    raise ValueError(
-                        f"Expected {len(question_specs)} question sets, got {len(result.question_sets)}"
-                    )
+            raw_sets = []
+            if isinstance(result, dict):
+                raw_sets = (
+                    result.get("question_sets")
+                    or result.get("questions")
+                    or result.get("items")
+                    or []
+                )
+            elif isinstance(result, list):
+                raw_sets = result
 
-                # Convert to tuple format for backward compatibility
-                question_sets = [
-                    (item.question_text, item.ideal_answer, item.question_rationale)
-                    for item in result.question_sets
-                ]
-            else:
-                # Fallback for backward compatibility (complex parsing)
-                raw_sets = []
-                if isinstance(result, dict):
-                    raw_sets = (
-                        result.get("question_sets")
-                        or result.get("questions")
-                        or result.get("items")
-                        or []
-                    )
-                elif isinstance(result, list):
-                    raw_sets = result
+            if not isinstance(raw_sets, list) or not raw_sets:
+                raise ValueError("Expected list of question objects in response.")
 
-                if not isinstance(raw_sets, list) or not raw_sets:
-                    raise ValueError("Expected list of question objects in response.")
+            question_sets = []
+            for item in raw_sets:
+                if isinstance(item, dict):
+                    question_text = (item.get("question_text") or item.get("question") or "").strip()
+                    ideal_answer = (item.get("ideal_answer") or item.get("answer") or "").strip()
+                    rationale = (
+                        item.get("question_rationale")
+                        or item.get("rationale")
+                        or item.get("reasoning")
+                        or ""
+                    ).strip()
+                elif isinstance(item, (list, tuple)) and len(item) >= 3:
+                    question_text = str(item[0]).strip()
+                    ideal_answer = str(item[1]).strip()
+                    rationale = str(item[2]).strip()
+                else:
+                    raise ValueError(f"Unrecognized question set format: {item}")
 
-                question_sets = []
-                for item in raw_sets:
-                    if isinstance(item, dict):
-                        question_text = (item.get("question_text") or item.get("question") or "").strip()
-                        ideal_answer = (item.get("ideal_answer") or item.get("answer") or "").strip()
-                        rationale = (
-                            item.get("question_rationale")
-                            or item.get("rationale")
-                            or item.get("reasoning")
-                            or ""
-                        ).strip()
-                    elif isinstance(item, (list, tuple)) and len(item) >= 3:
-                        question_text = str(item[0]).strip()
-                        ideal_answer = str(item[1]).strip()
-                        rationale = str(item[2]).strip()
-                    else:
-                        raise ValueError(f"Unrecognized question set format: {item}")
+                if not question_text or not ideal_answer or not rationale:
+                    raise ValueError("Incomplete question set returned from LLM.")
 
-                    if not question_text or not ideal_answer or not rationale:
-                        raise ValueError("Incomplete question set returned from LLM.")
+                question_sets.append((question_text, ideal_answer, rationale))
 
-                    question_sets.append((question_text, ideal_answer, rationale))
-
-                if len(question_sets) != len(question_specs):
-                    raise ValueError(
-                        f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
-                    )
+            if len(question_sets) != len(question_specs):
+                raise ValueError(
+                    f"Expected {len(question_specs)} question sets, got {len(question_sets)}"
+                )
 
             await ExecutionLogger.log_execution(
                 prompt_repo=self.prompt_repo,

@@ -4,6 +4,7 @@ These models define the expected structure of LLM responses.
 They are internal to the adapter layer and get mapped to domain models.
 """
 
+from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -147,4 +148,34 @@ class FeedbackReportOutput(BaseModel):
         default=None,
         ge=0.0, le=100.0,
         description="Overall interview score if calculated (optional)"
+    )
+
+
+class QuestionSetItem(BaseModel):
+    """Single question set with question, answer, rationale.
+
+    Used for batch question generation with comprehensive output.
+    """
+
+    question_text: str = Field(
+        description="Generated interview question text"
+    )
+    ideal_answer: str = Field(
+        description="Comprehensive ideal answer (150-300 words)"
+    )
+    question_rationale: str = Field(
+        description="Rationale explaining question purpose (50-100 words)"
+    )
+
+
+class QuestionSetBatchOutput(BaseModel):
+    """Batch output for question generation.
+
+    Consolidates question text, ideal answer, and rationale
+    into a single structured output per question.
+    """
+
+    question_sets: List[QuestionSetItem] = Field(
+        min_length=1,
+        description="List of generated question sets (question + answer + rationale)"
     )

@@ -57,8 +57,8 @@ from ...infrastructure.adapters.vector_db.pinecone_adapter import PineconeAdapte
 debug_print("container.py: PineconeAdapter imported")
 
 debug_print("container.py: About to import CV processing adapters...")
-from ...infrastructure.adapters.cv_processing.hybrid_cv_analyzer_adapter import HybridCVAnalyzerAdapter
-debug_print("container.py: HybridCVAnalyzerAdapter imported")
+from ...infrastructure.adapters.cv_processing.llm_cv_analyzer_adapter import LLMCVAnalyzerAdapter
+debug_print("container.py: LLMCVAnalyzerAdapter imported")
 
 debug_print("container.py: About to import messaging adapters...")
 from ...infrastructure.adapters.messaging import KafkaEventPublisher
@@ -378,12 +378,9 @@ class Container:
         """Get CV analyzer port implementation.
 
         Returns:
-            Hybrid CV analyzer implementation.
+            LLM-based CV analyzer (fail-fast, no fallback).
         """
-        return HybridCVAnalyzerAdapter(
-            confidence_threshold=self.settings.hybrid_confidence_threshold,
-            use_llm_fallback=self.settings.hybrid_enable_llm_fallback,
-        )
+        return LLMCVAnalyzerAdapter(llm_port=self.llm_port())
 
     def audio_storage_service(self) -> AudioStorageService | None:
         """Get audio storage service instance.

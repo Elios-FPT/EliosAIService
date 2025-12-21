@@ -14,13 +14,13 @@
 
 Elios AI Interview Service delivers intelligent mock interview experiences by analyzing candidate CVs, generating personalized questions, conducting real-time interviews via WebSocket, evaluating answers with feedback analysis, and providing comprehensive performance reports.
 
-**Version**: v0.5.0 (Phase-04 Use Case Extraction + Feedback System)
-**Branch**: `feat/get-feedback`
-**Last Updated**: 2025-12-08
+**Version**: v0.5.1 (Remove Hybrid CV Extraction - Phase 1)
+**Branch**: `refactor/rename-db-table-and-fields`
+**Last Updated**: 2025-12-18
 
 ### Key Features
 
-- **CV Analysis**: Extract skills, experience, education from PDFs/DOCX
+- **CV Analysis**: LLM-based skill extraction from PDFs/DOCX/TXT
 - **Semantic Question Generation**: Vector search + LLM for personalized questions
 - **Real-Time Interview**: WebSocket-based interactive Q&A with voice support
 - **Unified Answer Evaluation (Phase-04)**: 46% faster with single LLM call
@@ -181,7 +181,17 @@ history = response.json()
 
 ---
 
-## What's New in v0.5.0
+## What's New in v0.5.1
+
+**CV Extraction Simplification**:
+- Removed hybrid pipeline (rules + NER + LLM fallback)
+- Replaced with LLM-only approach (fail-fast)
+- New: LLMCVAnalyzerAdapter (140 LOC)
+- Code reduction: 57% in CV module, 80% of hybrid infrastructure removed
+- Dependencies: Removed spaCy, fuzzy matching, confidence scoring
+- Impact: Simpler, more maintainable code with single LLM dependency
+
+**Previous Changes (v0.5.0)**:
 
 **Feedback System** (Phases 01-06 Complete):
 - Domain models: FeedbackRequest, FeedbackResponse, FeedbackResult
@@ -190,11 +200,6 @@ history = response.json()
 - REST endpoints: POST/GET feedback analysis
 - Kafka integration: FEEDBACK_COMPLETED, TOKEN_DELTA events
 - Interview history by user ID
-
-**Optimizations**:
-- Follow-up generation optimization with timing logs
-- LLM call optimization
-- DB hit reduction
 
 **Database Schema (v0.4.0)**:
 - Normalized `cv_skills` table (replaces JSONB array)
@@ -262,6 +267,12 @@ EliosAIService/
 - ✅ Feedback analysis use case with retry logic
 - ✅ REST API endpoints and Kafka integration
 - ✅ Interview history by user ID
+
+### Phase 0: CV Extraction Simplification (v0.5.1) - ✅ COMPLETE
+- ✅ Remove hybrid CV extraction infrastructure
+- ✅ Implement LLM-only adapter (fail-fast)
+- ✅ Reduce code by 2,319 LOC (80% of CV infrastructure)
+- ✅ Remove spaCy, fuzzy matching, confidence scoring dependencies
 
 ### Phase 2: Core Features (v0.6.0+)
 - Voice interview enhancement

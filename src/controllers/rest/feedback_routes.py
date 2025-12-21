@@ -16,6 +16,8 @@ from ...application.ports.event_publisher_port import EventPublisherPort
 from ...application.use_cases.analyze_feedback import AnalyzeFeedbackUseCase
 from ...domain.models.feedback_result import FeedbackStatus, InputType
 from ...domain.services.feedback_markdown_formatter import FeedbackMarkdownFormatter
+from ...infrastructure.auth.dependencies import get_current_user
+from ...infrastructure.auth.user_context import UserContext
 from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_async_session
 from ...infrastructure.dependency_injection.container import get_container
@@ -72,9 +74,13 @@ async def _emit_token_delta_event(
 @router.post("/analyze", response_model=AnalyzeFeedbackResponse, status_code=status.HTTP_200_OK)
 async def analyze_feedback(
     request: AnalyzeFeedbackRequest,
+    user: UserContext = Depends(get_current_user),
     use_case: AnalyzeFeedbackUseCase = Depends(get_analyze_feedback_use_case),
 ) -> AnalyzeFeedbackResponse:
     """Analyze entity and return feedback (synchronous).
+
+    **Authentication:** Requires valid Keycloak authentication (Admin or User role).
+    User ID is extracted from authenticated session, not request body.
 
     **Processing Time:**
     - CV: 2-5s (LLM analysis)
@@ -84,11 +90,14 @@ async def analyze_feedback(
     Frontend must provide `feedback_input` as JSON string.
 
     **Error Handling:**
+    - 401: Missing or invalid authentication
+    - 403: Insufficient permissions
     - 400: Invalid entity_id, input_type, or missing feedback_input
     - 500: LLM failure (fail fast, no retry)
 
     Args:
-        request: Analysis request DTO
+        request: Analysis request DTO (without user_id)
+        user: Authenticated user context from Keycloak
         use_case: Injected use case
 
     Returns:
@@ -114,19 +123,19 @@ async def analyze_feedback(
                 detail="feedback_input is required. Frontend must provide entity content as JSON string.",
             )
 
-        # Emit token delta event
+        # Emit token delta event (use authenticated user_id from UserContext)
         container = get_container()
         settings = get_settings()
         await _emit_token_delta_event(
             publisher=container.event_publisher_port(),
-            user_id=request.user_id,
-            tokens=settings.token_delta_per_plan,
+            user_id=user.user_id,
+            tokens=settings.token_delta_per_feedback,
         )
 
         feedback_request, result, result_markdown = await use_case.execute(
             entity_id=request.entity_id,
             input_type=input_type,
-            user_id=request.user_id,
+            user_id=user.user_id,
             feedback_input=request.feedback_input,
         )
 

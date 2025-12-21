@@ -12,6 +12,7 @@ from src.domain.models.question import Question
 
 if TYPE_CHECKING:
     from ...infrastructure.adapters.llm.comprehensive_models import ComprehensiveAnalysis
+    from ...infrastructure.adapters.llm.cv_skill_extraction_models import CVSkillExtractionOutput
 
 
 class LLMPort(ABC):
@@ -144,5 +145,25 @@ class LLMPort(ABC):
         Raises:
             ValueError: If input_type is INTERVIEW or feedback_input is invalid
             RuntimeError: If LLM call fails
+        """
+        pass
+
+    @abstractmethod
+    async def analyze_cv_for_skills(
+        self,
+        cv_text: str,
+        context: dict[str, Any] | None = None,
+    ) -> CVSkillExtractionOutput:
+        """Extract skills from CV text using LLM structured output.
+
+        Args:
+            cv_text: CV content as plain text
+            context: Optional context (candidate_id, etc.)
+
+        Returns:
+            CVSkillExtractionOutput with skills and summary
+
+        Raises:
+            RuntimeError: If LLM extraction fails
         """
         pass
